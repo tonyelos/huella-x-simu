@@ -1,13 +1,19 @@
 """T4 头文件采集器的离线单元测试。
 
 全部走本地 ``http.server`` 假 S3，不访问真实网络、不碰生产库：
-- Range / 206 / 200-忽略 Range / 404 / 500 / 429 / 超时；
-- 原子写、幂等重跑、损坏缓存重采、manifest 合并；
-- ``ingest headers`` 后 ``header_sha256/date_obs/target_epochs.frame_id`` 非空。
+- Range 先判 200/206 再读、``read(65536)`` 上限、200 不读 body；
+- 坏头由 ``extract_record`` 拦下，不落盘、不覆盖已有好文件；
+- 404 / 500 / 429 / 超时；原子写；幂等重跑；损坏缓存重采；manifest 合并；
+- 计划阶段只读打开 DB（``mode=ro`` + ``query_only``）；
+- 新命名不重复 week；manifest 历史文件名不被重命名；
+- 失败清单默认 ``<manifest>.failures.json`` 且原子覆盖；
+- ``ingest headers`` 后 ``header_sha256/date_obs/target_epochs.frame_id`` 非空，
+  并区分头 DATE-OBS 与 MJD 回填。
 """
 from __future__ import annotations
 
 import contextlib
+import http.client
 import io
 import json
 import sqlite3
@@ -19,6 +25,7 @@ import urllib.parse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 from xml.sax.saxutils import escape
 
 from tests.fixtures import build_small_db, make_header
@@ -187,9 +194,10 @@ class HarvesterTest(unittest.TestCase):
         )
 
     def serve_blob(self, key: str, *, obs_id: str, detector: int, ra: float = 150.0,
-                   dec: float = 20.0, mjd: float = 61000.0) -> bytes:
+                   dec: float = 20.0, mjd: float = 61000.0,
+                   date_obs: str = "2026-01-01T00:00:00.000") -> bytes:
         path = self.root / "make" / f"{len(self.fake.headers)}.hdr"
-        make_header(path, obs_id, detector, ra, dec, mjd)
+        make_header(path, obs_id, detector, ra, dec, mjd, date_obs=date_obs)
         blob = path.read_bytes()
         self.assertLessEqual(len(blob), H.HDR_BYTES)
         padded = blob + b"\0" * (H.HDR_BYTES - len(blob))
@@ -241,6 +249,28 @@ class HarvesterTest(unittest.TestCase):
         return rc, buf.getvalue()
 
     @staticmethod
+    def fake_response(status: int, body: bytes):
+        """带 read 记录的假 HTTP 响应，用来断言“先判状态再读”和读取上限。"""
+
+        class Response:
+            def __init__(self) -> None:
+                self.status = status
+                self.body = body
+                self.reads: list[int] = []
+
+            def read(self, n: int = -1) -> bytes:
+                self.reads.append(n)
+                return self.body if n is None or n < 0 else self.body[:n]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: object) -> bool:
+                return False
+
+        return Response()
+
+    @staticmethod
     def reset_db(db: Path) -> None:
         conn = sqlite3.connect(str(db))
         try:
@@ -266,7 +296,10 @@ class HarvesterTest(unittest.TestCase):
         self.assertIsNone(H.parse_key("not/a/key.fits"))
         item = H.planned_from_key(key, "https://s3.test")
         self.assertTrue(item.file is None)
-        self.assertTrue(H.readable_name(item).startswith("dr1_2025W35_2A_2025W35_2A_0221_1_D4_"))
+        name = H.readable_name(item)
+        self.assertEqual(name, "dr1_2025W35_2A_0221_1_D4_l2b-v27-2026-231.hdr")
+        # 新命名不再重复 week（obsid 已含 week）。
+        self.assertEqual(name.count("2025W35_2A"), 1)
 
     def test_assign_files_resolves_collision(self):
         key_a = self.key_for("2026W01_1A", 1)
@@ -326,6 +359,29 @@ class HarvesterTest(unittest.TestCase):
         self.assertEqual(bad[0].url, "")
         self.assertIn("fits_key 缺失", bad[0].error)
 
+    def test_plan_epochs_opens_db_readonly(self):
+        db, _ = build_small_db(self.root)
+        calls: list[tuple[str, dict]] = []
+        real_connect = sqlite3.connect
+
+        def spy(database, *args, **kwargs):
+            calls.append((database, kwargs))
+            return real_connect(database, *args, **kwargs)
+
+        with mock.patch.object(H.sqlite3, "connect", side_effect=spy):
+            H.plan_epochs(db, self.fake.base)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("mode=ro", calls[0][0])
+        self.assertTrue(calls[0][1].get("uri"))
+
+        conn = H._connect_ro(db)
+        try:
+            self.assertEqual(conn.execute("PRAGMA query_only").fetchone()[0], 1)
+            with self.assertRaises(sqlite3.OperationalError):
+                conn.execute("CREATE TABLE should_not_exist(x)")
+        finally:
+            conn.close()
+
     def test_dry_run_writes_nothing(self):
         db, blobs, _ = self.serve_db_epochs()
         out = self.root / "cache"
@@ -337,6 +393,7 @@ class HarvesterTest(unittest.TestCase):
         self.assertIn("计划 6 条", text)
         self.assertFalse(out.exists())
         self.assertFalse(manifest.exists())
+        self.assertFalse(Path(str(manifest) + ".failures.json").exists())
         self.assertEqual(self.fake.requests, [])
 
     def test_limit(self):
@@ -412,6 +469,36 @@ class HarvesterTest(unittest.TestCase):
         updated = {e["key"]: e for e in json.loads(manifest.read_text())["entries"]}
         self.assertEqual(updated[keys[0]]["status"], "ok")
 
+    def test_resume_reuses_manifest_filename_without_renaming(self):
+        db, blobs, _ = self.serve_db_epochs()
+        out = self.root / "cache"
+        manifest = self.root / "manifest.json"
+        self.assertEqual(self.run_main(self.args(db, blobs, out, manifest, "--no-ingest"))[0], 0)
+        payload = json.loads(manifest.read_text())
+        # 模拟历史缓存：文件用旧命名（week 重复），manifest 记录历史绝对路径。
+        legacy: list[str] = []
+        for entry in payload["entries"]:
+            name = H._safe(
+                f"{entry['release']}_{entry['week']}_{entry['obsid']}_"
+                f"D{entry['detector']}_{entry['version']}.hdr"
+            )[:180]
+            src = Path(entry["file"])
+            dst = out / name
+            src.rename(dst)
+            entry["file"] = str(dst)
+            legacy.append(name)
+        manifest.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        requests_before = len(self.fake.requests)
+
+        rc, text = self.run_main(self.args(db, blobs, out, manifest, "--resume", "--no-ingest"))
+        self.assertEqual(rc, 0)
+        self.assertIn("下载 0", text)
+        self.assertEqual(len(self.fake.requests), requests_before)
+        self.assertEqual(sorted(p.name for p in out.glob("*.hdr")), sorted(legacy))
+        updated = {e["key"]: e for e in json.loads(manifest.read_text())["entries"]}
+        for entry in payload["entries"]:
+            self.assertEqual(Path(updated[entry["key"]]["file"]).name, Path(entry["file"]).name)
+
     def test_404_fails_fast_and_records_failure(self):
         db, blobs, keys = self.serve_db_epochs()
         missing = keys[0]
@@ -430,6 +517,23 @@ class HarvesterTest(unittest.TestCase):
         self.assertIn("404", entry["error"])
         self.assertFalse(Path(entry["file"]).exists())
         self.assertEqual(json.loads(failures.read_text())["count"], 1)
+
+    def test_failures_default_path_is_atomic_and_cleared(self):
+        db, blobs, keys = self.serve_db_epochs()
+        missing = keys[0]
+        blob = self.fake.headers.pop(missing)
+        out = self.root / "cache"
+        manifest = self.root / "manifest.json"
+        failures = Path(str(manifest) + ".failures.json")
+        rc, _ = self.run_main(self.args(db, blobs, out, manifest, "--no-ingest"))
+        self.assertEqual(rc, 1)
+        self.assertEqual(json.loads(failures.read_text())["count"], 1)
+        self.assertEqual(list(manifest.parent.glob(f".{failures.name}-*")), [])
+        self.assertEqual(list(out.glob(".hdr-*")), [])
+
+        self.fake.headers[missing] = blob
+        self.assertEqual(self.run_main(self.args(db, blobs, out, manifest, "--no-ingest"))[0], 0)
+        self.assertEqual(json.loads(failures.read_text())["count"], 0)
 
     def test_500_is_retried(self):
         db, blobs, keys = self.serve_db_epochs()
@@ -461,6 +565,35 @@ class HarvesterTest(unittest.TestCase):
         self.assertFalse(Path(entry["file"]).exists())
         self.assertEqual(self.fake.count(victim), 1)
 
+    def test_range_status_checked_before_body_and_capped(self):
+        key = self.key_for("2026W09_1A", 1)
+        out = self.root / "out"
+        item = H.planned_from_key(key, "https://s3.test")
+        H.assign_files([item], out)
+        huge = b"<html>" + b"x" * (H.HDR_BYTES * 8)
+        response = self.fake_response(200, huge)
+        with mock.patch.object(H.urllib.request, "urlopen", return_value=response):
+            H.fetch_one(item, out, retries=0, backoff=0, timeout=1)
+        # 200：状态先判、body 一个字节都不读。
+        self.assertEqual(response.reads, [])
+        self.assertEqual(item.status, "failed")
+        self.assertIn("200", item.error)
+        self.assertFalse(item.file.exists())
+
+        header_path = self.root / "make" / "big.hdr"
+        make_header(header_path, "2026W09_1A_0001_1", 1, 150.0, 20.0, 61000.0)
+        big = header_path.read_bytes() + b"\0" * (H.HDR_BYTES * 3)
+        ok = H.planned_from_key(key, "https://s3.test")
+        H.assign_files([ok], out)
+        response = self.fake_response(206, big)
+        with mock.patch.object(H.urllib.request, "urlopen", return_value=response):
+            H.fetch_one(ok, out, retries=0, backoff=0, timeout=1)
+        # 206：只读一次，且上限 HDR_BYTES；多出来的 body 不落盘。
+        self.assertEqual(response.reads, [H.HDR_BYTES])
+        self.assertEqual(ok.status, "ok")
+        self.assertEqual(ok.bytes, H.HDR_BYTES)
+        self.assertEqual(ok.file.stat().st_size, H.HDR_BYTES)
+
     def test_timeout_is_retried_then_fails(self):
         db, blobs, keys = self.serve_db_epochs()
         victim = keys[0]
@@ -476,6 +609,30 @@ class HarvesterTest(unittest.TestCase):
         self.assertEqual(entry["status"], "failed")
         self.assertIn("尝试 2 次", entry["error"])
 
+    def test_incomplete_read_is_retried_then_fails(self):
+        key = self.key_for("2026W09_1A", 2)
+        out = self.root / "out"
+        item = H.planned_from_key(key, "https://s3.test")
+        H.assign_files([item], out)
+
+        class BrokenResponse:
+            status = 206
+
+            def read(self, n: int = -1) -> bytes:
+                raise http.client.IncompleteRead(b"")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc: object) -> bool:
+                return False
+
+        with mock.patch.object(H.urllib.request, "urlopen", return_value=BrokenResponse()):
+            H.fetch_one(item, out, retries=1, backoff=0, timeout=1)
+        self.assertEqual(item.status, "failed")
+        self.assertIn("尝试 2 次", item.error)
+        self.assertFalse(item.file.exists())
+
     def test_non_fits_body_is_rejected(self):
         db, blobs, keys = self.serve_db_epochs()
         victim = keys[0]
@@ -489,14 +646,36 @@ class HarvesterTest(unittest.TestCase):
         self.assertIn("SIMPLE", entry["error"])
         self.assertFalse(Path(entry["file"]).exists())
 
+    def test_invalid_header_is_not_written_and_keeps_old_file(self):
+        db, blobs, keys = self.serve_db_epochs()
+        out = self.root / "cache"
+        manifest = self.root / "m.json"
+        self.assertEqual(self.run_main(self.args(db, blobs, out, manifest, "--no-ingest"))[0], 0)
+        before = {p.name: p.read_bytes() for p in out.glob("*.hdr")}
+        victim = keys[0]
+        # 以 SIMPLE 开头、但不是完整 FITS 头：必须由 extract_record 拦下。
+        self.fake.headers[victim] = b"SIMPLE  = T" + b" " * (H.HDR_BYTES - len(b"SIMPLE  = T"))
+        rc, _ = self.run_main(self.args(db, blobs, out, manifest, "--no-ingest"))
+        self.assertEqual(rc, 1)
+        entry = {
+            e["key"]: e for e in json.loads(manifest.read_text())["entries"]
+        }[victim]
+        self.assertEqual(entry["status"], "failed")
+        self.assertIn("校验失败", entry["error"])
+        self.assertEqual({p.name: p.read_bytes() for p in out.glob("*.hdr")}, before)
+
     # ---------------------------------------------------------------- 入库
     def test_ingest_fills_header_columns_and_relinks(self):
         db, blobs, _ = self.serve_db_epochs()
         self.reset_db(db)
         out = self.root / "cache"
         manifest = self.root / "manifest.json"
-        rc, _ = self.run_main(self.args(db, blobs, out, manifest))
+        rc, text = self.run_main(self.args(db, blobs, out, manifest))
         self.assertEqual(rc, 0)
+        self.assertIn('"date_obs_from_header": 6', text)
+        self.assertIn('"date_obs_from_mjd": 0', text)
+        # 头文件只覆盖 D1（6 帧）；其余 6 帧由末尾 backfill_date_obs() 按 MJD 回填。
+        self.assertIn('"date_obs_backfilled": 6', text)
 
         conn = sqlite3.connect(str(db))
         try:
@@ -523,7 +702,8 @@ class HarvesterTest(unittest.TestCase):
             conn.close()
         self.assertEqual(header_frames, 6)
         self.assertEqual(linked, 6)
-        self.assertEqual(date_obs, 6)
+        # 12 帧 = 6 帧头 DATE-OBS + 6 帧 MJD 回填；fresh 后全局不再有空 date_obs。
+        self.assertEqual(date_obs, frame_count)
         self.assertEqual(filled, 6)
         self.assertGreaterEqual(header_blobs, 6)
 
@@ -542,6 +722,47 @@ class HarvesterTest(unittest.TestCase):
                 6,
             )
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM ingest_runs").fetchone()[0], run_count + 1)
+        finally:
+            conn.close()
+
+    def test_backfill_distinguishes_header_date_and_mjd(self):
+        db, blobs, keys = self.serve_db_epochs()
+        parsed = H.parse_key(keys[0])
+        # 第一条头没有 DATE-OBS，只能靠 MJD；其余 5 条用头里的 DATE-OBS。
+        self.serve_blob(
+            keys[0], obs_id=parsed["obsid"], detector=parsed["detector"],
+            mjd=61000.0, date_obs="",
+        )
+        self.reset_db(db)
+        conn = sqlite3.connect(str(db))
+        try:
+            conn.execute("UPDATE target_epochs SET date_obs=NULL")
+            conn.execute("UPDATE observations SET date_obs=NULL")
+            conn.commit()
+        finally:
+            conn.close()
+
+        out = self.root / "cache"
+        manifest = self.root / "manifest.json"
+        rc, text = self.run_main(self.args(db, blobs, out, manifest))
+        self.assertEqual(rc, 0)
+        self.assertIn('"date_obs_from_header": 5', text)
+        self.assertIn('"date_obs_from_mjd": 1', text)
+        # 6 个未采头的 D2 帧 + 6 条 target_epochs 由 MJD 回填。
+        self.assertIn('"date_obs_backfilled": 12', text)
+
+        conn = sqlite3.connect(str(db))
+        try:
+            for table in ("frames", "target_epochs", "observations"):
+                nulls = conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE date_obs IS NULL OR date_obs=''"
+                ).fetchone()[0]
+                self.assertEqual(nulls, 0, table)
+            row = conn.execute(
+                "SELECT date_obs FROM frames WHERE obs_id=? AND detector=?",
+                (parsed["obsid"], parsed["detector"]),
+            ).fetchone()
+            self.assertTrue(row and row[0])
         finally:
             conn.close()
 
