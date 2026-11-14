@@ -132,6 +132,11 @@ def curl_repro(url: str, payload=None, method: str = "GET") -> str:
     )
 
 
+def http_label(resp: HttpResponse) -> str:
+    """把连接失败（status=None）写成“不可达”，避免报告出现 HTTP None。"""
+    return f"HTTP {resp.status}" if resp.status is not None else "不可达"
+
+
 def mu_matches(actual, expected, sigma=None, pct: float = 5.0):
     """μ 是否在 ±pct% 或 ±1σ 内。expected=None 表示黄金样本没有 μ。"""
     if expected is None:
@@ -254,6 +259,7 @@ class Context:
         self.started_perf = time.perf_counter()
         self.invocation = " ".join(shlex.quote(x) for x in ["./run.sh", *sys.argv[1:]])
         self.view_available = False
+        self.db_service_ok = False
         self.db_available = False
         self.db_status = "unchecked"
         self.db_block_reason: str | None = None
@@ -297,6 +303,7 @@ def add_case(
     repro: str | None = None,
     details: list[dict] | None = None,
     duration_ms: float | None = None,
+    cause: str | None = None,
 ) -> None:
     case = {
         "id": cid,
@@ -311,6 +318,8 @@ def add_case(
     }
     if details:
         case["details"] = details
+    if cause:
+        case["cause"] = cause
     ctx.cases.append(case)
     line = f"[{status}] {cid} ({severity}) {actual}"
     print(line[:260], flush=True)
@@ -326,8 +335,13 @@ def add_blocked(
     reason: str,
     evidence: str | None = None,
     repro: str | None = None,
+    blocked_by: str = "dependency",
 ) -> None:
-    """依赖服务/数据不可用：不算 PASS，也不算 P0 FAIL，单列 BLOCKED。"""
+    """依赖服务/数据不可用：不算 PASS，也不算 P0 FAIL，单列 BLOCKED。
+
+    BLOCKED 表示“没验证”，绝不能计入 PASS；DB 停止/``/api/v1/epochs`` 404
+    这类情况只让 DB 相关用例 BLOCKED，app-only 用例继续跑。
+    """
     case = {
         "id": cid,
         "group": group,
@@ -339,6 +353,8 @@ def add_blocked(
         "repro": repro,
         "duration_ms": None,
         "blocked_reason": reason,
+        "blocked_by": blocked_by,
+        "cause": "DB 停止/契约不可用" if blocked_by == "DB" else "依赖不可用",
     }
     ctx.cases.append(case)
     line = f"[BLOCKED] {cid} ({severity}) {actual}"
@@ -365,6 +381,7 @@ def case_from_problems(
     evidence: str | None = None,
     repro: str | None = None,
     duration_ms: float | None = None,
+    cause: str | None = None,
 ) -> None:
     severity = worst_severity(problems) or nominal
     if problems:
@@ -380,6 +397,7 @@ def case_from_problems(
             repro,
             [dict(p) for p in problems],
             duration_ms,
+            cause,
         )
     else:
         add_case(ctx, cid, group, nominal, "PASS", expected, actual_pass, evidence, repro, None, duration_ms)
@@ -414,6 +432,7 @@ def probe_services(ctx: Context) -> list[str]:
         and isinstance(v1.json_data, dict)
         and isinstance(v1.json_data.get("epochs"), list)
     )
+    ctx.db_service_ok = bool(db_ok)
     ctx.db_available = bool(db_ok and v1_ok)
     if not db_ok:
         ctx.db_status = "unreachable"
@@ -421,12 +440,20 @@ def probe_services(ctx: Context) -> list[str]:
             f"DB 服务不可达（{ctx.db_url}/api/health HTTP {db.status}，{db.snippet(100)}）；"
             "DB 相关用例 BLOCKED，未改用 legacy 端口通过"
         )
+        ctx.notes.append(
+            "DB 停止：A.targets.db / A.epoch_ref / A.coverage / G.* 记为 BLOCKED（不是 PASS）；"
+            "R1 自定义坐标仍按实际降级记 FAIL（DB_UNAVAILABLE），便于区分“产品红”与“DB 停”。"
+        )
     elif not v1_ok:
         ctx.db_status = "legacy-only"
         ctx.db_block_reason = (
             f"DB 服务可达但 /api/v1/epochs HTTP {v1.status}"
             f"（schema_version={(db.json_data or {}).get('schema_version')!r}；"
             f"{v1.snippet(100)}）；契约不可验证，DB 相关用例 BLOCKED"
+        )
+        ctx.notes.append(
+            "DB /api/v1/epochs 不可用：A.epoch_ref / A.coverage / G.v1_* 记为 BLOCKED；"
+            "G.header_frames 与 targets 源仍按健康检查/SQLite 核对。"
         )
     else:
         ctx.db_status = "v1-ok"
@@ -550,7 +577,7 @@ def _target_source(ctx: Context, key: str) -> dict:
         }
     if key == "db":
         url = ctx.db_url + "/api/v1/targets"
-        if not ctx.db_available:
+        if not ctx.db_service_ok:
             # 只做 legacy 诊断留证，不把 legacy 当 PASS。
             legacy_url = ctx.db_url + "/api/targets"
             legacy = ctx.http.get(legacy_url)
@@ -606,6 +633,21 @@ def run_a(ctx: Context) -> None:
     validated = {}
     for key, nominal in (("app", "P0"), ("db", "P0"), ("view", "P1")):
         source = sources[key]
+        if source.get("blocked"):
+            validated[key] = {"by_id": {}, "count": 0, "problems": []}
+            add_blocked(
+                ctx,
+                f"A.targets.{key}",
+                "A",
+                nominal,
+                "7 条目标；8 个契约字段齐全；coord_unc_arcsec 非空",
+                f"DB 服务不可达（{ctx.db_status}），/api/v1/targets 目标契约未验证",
+                source["blocked"],
+                source["evidence"],
+                curl_repro(source["url"]),
+                blocked_by="DB",
+            )
+            continue
         result = target_contract.validate_payload(source["payload"], source["label"])
         validated[key] = result
         actual_pass = f"{source['label']}：{result['count']} 条；字段齐全；coord_unc_arcsec 非空"
@@ -621,20 +663,35 @@ def run_a(ctx: Context) -> None:
             curl_repro(source["url"]),
         )
 
-    parity_db = target_contract.compare(
-        validated["app"]["by_id"], validated["db"]["by_id"], "app", "db", severity="P0"
-    )
-    case_from_problems(
-        ctx,
-        "A.targets.app_db",
-        "A",
-        "P0",
-        "app 与 DB 的 7 条目标逐字段一致（含 coord_unc_arcsec / truth）",
-        parity_db,
-        "7 条目标全部一致",
-        f"{sources['app']['evidence']} , {sources['db']['evidence']}",
-        "见 A.targets.app / A.targets.db 的复现命令",
-    )
+    if sources["db"].get("blocked"):
+        add_blocked(
+            ctx,
+            "A.targets.app_db",
+            "A",
+            "P0",
+            "app 与 DB 的 7 条目标逐字段一致（含 coord_unc_arcsec / truth）",
+            "DB 目标源不可验证（DB 停止），无法与 app 对账",
+            sources["db"]["blocked"],
+            f"{sources['app']['evidence']} , {sources['db']['evidence']}",
+            "见 A.targets.app / A.targets.db 的复现命令",
+            blocked_by="DB",
+        )
+    else:
+        parity_db = target_contract.compare(
+            validated["app"]["by_id"], validated["db"]["by_id"], "app", "db", severity="P0"
+        )
+        case_from_problems(
+            ctx,
+            "A.targets.app_db",
+            "A",
+            "P0",
+            "app 与 DB 的 7 条目标逐字段一致（含 coord_unc_arcsec / truth）",
+            parity_db,
+            "7 条目标全部一致",
+            f"{sources['app']['evidence']} , {sources['db']['evidence']}",
+            "见 A.targets.app / A.targets.db 的复现命令",
+            cause="DB 契约（truth 字段缺失/不一致）" if parity_db else None,
+        )
 
     parity_view = target_contract.compare(
         validated["app"]["by_id"], validated["view"]["by_id"], "app", "view", severity="P1"
@@ -727,20 +784,48 @@ def run_a(ctx: Context) -> None:
             repro,
         )
 
-    epoch_case(
-        "A.epoch_ref.barnard",
-        4,
-        [("target_id=barnard", barnard_target_url, barnard_target), ("ra/dec", barnard_coord_url, barnard_coord)],
-        "Barnard",
-        ["A.epochs_barnard_target.json", "A.epochs_barnard_coord.json"],
-    )
-    epoch_case(
-        "A.epoch_ref.rw_aur",
-        1,
-        [("target_id=rw_aur", rw_target_url, rw_target), ("ra/dec", rw_coord_url, rw_coord)],
-        "RW Aur",
-        ["A.epochs_rw_target.json", "A.epochs_rw_coord.json"],
-    )
+    if ctx.db_available:
+        epoch_case(
+            "A.epoch_ref.barnard",
+            4,
+            [("target_id=barnard", barnard_target_url, barnard_target), ("ra/dec", barnard_coord_url, barnard_coord)],
+            "Barnard",
+            ["A.epochs_barnard_target.json", "A.epochs_barnard_coord.json"],
+        )
+        epoch_case(
+            "A.epoch_ref.rw_aur",
+            1,
+            [("target_id=rw_aur", rw_target_url, rw_target), ("ra/dec", rw_coord_url, rw_coord)],
+            "RW Aur",
+            ["A.epochs_rw_target.json", "A.epochs_rw_coord.json"],
+        )
+    else:
+        reason = ctx.db_block_reason or "DB 契约 /api/v1/epochs 不可用"
+        add_blocked(
+            ctx,
+            "A.epoch_ref.barnard",
+            "A",
+            "P0",
+            "Barnard：两入口各 4 条，十字段非空、date_obs 非空、无重复、逐字段一致",
+            f"DB /api/v1/epochs 不可验证（target_id {http_label(barnard_target)}，"
+            f"ra/dec {http_label(barnard_coord)}）",
+            reason,
+            "artifacts/A.epochs_barnard_target.json , artifacts/A.epochs_barnard_coord.json",
+            " ; ".join(curl_repro(u) for u in (barnard_target_url, barnard_coord_url)),
+            blocked_by="DB",
+        )
+        add_blocked(
+            ctx,
+            "A.epoch_ref.rw_aur",
+            "A",
+            "P0",
+            "RW Aur：两入口各 1 条，十字段非空、date_obs 非空、无重复、逐字段一致",
+            f"DB /api/v1/epochs 不可验证（target_id {http_label(rw_target)}，ra/dec {http_label(rw_coord)}）",
+            reason,
+            "artifacts/A.epochs_rw_target.json , artifacts/A.epochs_rw_coord.json",
+            " ; ".join(curl_repro(u) for u in (rw_target_url, rw_coord_url)),
+            blocked_by="DB",
+        )
 
     # ---------------------------------------------------------------- Coverage
     cov_url = ctx.db_url + "/api/v1/coverage?ra=269.452077&dec=4.693365"
@@ -753,17 +838,31 @@ def run_a(ctx: Context) -> None:
         )
     else:
         cov_problems.extend(coverage.validate_coverage(cov.json_data, "db /api/v1/coverage"))
-    case_from_problems(
-        ctx,
-        "A.coverage",
-        "A",
-        "P0",
-        "Coverage：radius_deg 默认 2.47；coverage_level 以 C 开头；baseline_days 数值；不返回 readiness",
-        cov_problems,
-        coverage.summary(cov.json_data) if isinstance(cov.json_data, dict) else "",
-        cov_evidence,
-        curl_repro(cov_url),
-    )
+    if not ctx.db_available:
+        add_blocked(
+            ctx,
+            "A.coverage",
+            "A",
+            "P0",
+            "Coverage：radius_deg 默认 2.47；coverage_level 以 C 开头；baseline_days 数值；不返回 readiness",
+            f"DB /api/v1/coverage 不可验证（{http_label(cov)}）",
+            ctx.db_block_reason or "DB /api/v1/coverage 不可用",
+            cov_evidence,
+            curl_repro(cov_url),
+            blocked_by="DB",
+        )
+    else:
+        case_from_problems(
+            ctx,
+            "A.coverage",
+            "A",
+            "P0",
+            "Coverage：radius_deg 默认 2.47；coverage_level 以 C 开头；baseline_days 数值；不返回 readiness",
+            cov_problems,
+            coverage.summary(cov.json_data) if isinstance(cov.json_data, dict) else "",
+            cov_evidence,
+            curl_repro(cov_url),
+        )
 
     # ---------------------------------------------------------------- AnalysisResult
     analysis_url = ctx.base_url + "/api/analyze"
@@ -796,6 +895,7 @@ def run_a(ctx: Context) -> None:
         actual,
         evidence,
         curl_repro(analysis_url, payload, "POST"),
+        cause="app /api/analyze 契约（缺 schema_version / readiness_scope）" if contract_problems else None,
     )
     case_from_problems(
         ctx,
@@ -815,7 +915,46 @@ def _run(argv: list[str], cwd: Path, timeout: int = 180) -> subprocess.Completed
     return subprocess.run(argv, cwd=str(cwd), capture_output=True, text=True, timeout=timeout)
 
 
+def _sqlite_readable() -> bool:
+    if not DB_SQLITE.exists():
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{DB_SQLITE}?mode=ro", uri=True)
+        try:
+            conn.execute("SELECT COUNT(*) FROM frames").fetchone()
+        finally:
+            conn.close()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def run_b(ctx: Context) -> None:
+    if not _sqlite_readable():
+        reason = f"本地 DB 文件不可读或不存在：{DB_SQLITE}（导出对账依赖它，不使用运行中的服务）"
+        add_blocked(
+            ctx,
+            "B.export",
+            "B",
+            "P0",
+            "cli.py export all --out <tmp> 退出码 0，生成 4 个导出 JSON",
+            "DB 文件不可读，导出对账未执行",
+            reason,
+            repro=f"cd 数据库工具 && {shlex.quote(sys.executable)} cli.py export all --out <tmp>",
+            blocked_by="DB",
+        )
+        add_blocked(
+            ctx,
+            "B.check_compat",
+            "B",
+            "P0",
+            "check_compat.py 四项 OK（fields / epoch_catalog / targets / week_index）",
+            "DB 文件不可读，兼容对账未执行",
+            reason,
+            repro=f"cd 数据库工具 && {shlex.quote(sys.executable)} tools/check_compat.py --root .. --exports <tmp>",
+            blocked_by="DB",
+        )
+        return
     tmp = tempfile.mkdtemp(prefix="t1_export_", dir="/tmp")
     ctx.export_tmp = tmp
     export_argv = [sys.executable, "cli.py", "export", "all", "--out", tmp]
@@ -1044,10 +1183,12 @@ def run_d(ctx: Context) -> None:
     evidence = "artifacts/D.custom_barnard.json"
     problems: list[dict] = []
     actual = f"HTTP {resp.status}（{resp.snippet(140)}）"
+    cause = None
     if resp.status != 200 or not isinstance(resp.json_data, dict):
         problems.append(
             {"code": "CUSTOM_HTTP", "severity": "P0", "message": f"HTTP {resp.status}（{resp.snippet(160)}）"}
         )
+        cause = f"app /api/analyze HTTP {resp.status}"
     else:
         doc = resp.json_data
         summary = analysis.summary(doc)
@@ -1115,6 +1256,10 @@ def run_d(ctx: Context) -> None:
             f"real_epochs={summary.get('real_epochs')}；{summary.get('readiness')}；{summary.get('class')}；"
             f"fallback={summary.get('fallback_reason')}；μ={_fmt_mu(summary.get('mu_mas_yr'))}"
         )
+        if summary.get("fallback_reason") == "DB_UNAVAILABLE":
+            cause = "DB 停止导致（DB_UNAVAILABLE）；R1 未闭环"
+        elif problems:
+            cause = "app /api/analyze 结果与 R1 黄金样本不符"
     case_from_problems(
         ctx,
         "D.custom_barnard",
@@ -1126,6 +1271,7 @@ def run_d(ctx: Context) -> None:
         evidence,
         curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
         resp.elapsed_ms,
+        cause,
     )
 
     # D2：RW Aur 坐标至少 1 条真实历元
@@ -1134,10 +1280,12 @@ def run_d(ctx: Context) -> None:
     evidence = "artifacts/D.custom_rw_aur.json"
     problems = []
     actual = f"HTTP {resp.status}（{resp.snippet(140)}）"
+    cause = None
     if resp.status != 200 or not isinstance(resp.json_data, dict):
         problems.append(
             {"code": "CUSTOM_RW_HTTP", "severity": "P0", "message": f"HTTP {resp.status}（{resp.snippet(160)}）"}
         )
+        cause = f"app /api/analyze HTTP {resp.status}（R1 核心路径）"
     else:
         summary = analysis.summary(resp.json_data)
         real_epochs = summary.get("real_epochs")
@@ -1177,6 +1325,10 @@ def run_d(ctx: Context) -> None:
             f"HTTP 200；mode={summary.get('mode')}；n={summary.get('n_epochs')}；"
             f"real_epochs={summary.get('real_epochs')}；fallback={summary.get('fallback_reason')}"
         )
+        if summary.get("fallback_reason") == "DB_UNAVAILABLE":
+            cause = "DB 停止导致（DB_UNAVAILABLE）；R1 未闭环"
+        elif problems:
+            cause = "app /api/analyze 结果与 R1 黄金样本不符"
     case_from_problems(
         ctx,
         "D.custom_rw_aur",
@@ -1188,6 +1340,7 @@ def run_d(ctx: Context) -> None:
         evidence,
         curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
         resp.elapsed_ms,
+        cause,
     )
 
     # D3：未覆盖天区
@@ -1260,18 +1413,38 @@ def run_d(ctx: Context) -> None:
             f"HTTP 200；mode={summary.get('mode')}；fallback={summary.get('fallback_reason')}；"
             f"real_epochs={summary.get('real_epochs')}；note={note[:80]}"
         )
-    case_from_problems(
-        ctx,
-        "D.uncovered",
-        "D",
-        "P0",
-        "RA0/Dec0 本地无覆盖：DB count=0；mode=synthetic、fallback_reason=NO_LOCAL_COVERAGE、real_epochs=0、note 明确",
-        problems,
-        actual,
-        evidence,
-        curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
-        resp.elapsed_ms,
+    db_unavailable = not ctx.db_available and (
+        db_resp.status != 200 or not isinstance(db_resp.json_data, dict)
     )
+    if db_unavailable:
+        add_blocked(
+            ctx,
+            "D.uncovered",
+            "D",
+            "P0",
+            "RA0/Dec0 本地无覆盖：DB count=0；mode=synthetic、fallback_reason=NO_LOCAL_COVERAGE、real_epochs=0、note 明确",
+            f"DB /api/v1/epochs 不可用（{http_label(db_resp)}），未覆盖天区语义无法验证；"
+            f"app 实际 {actual}",
+            f"{ctx.db_block_reason or 'DB /api/v1/epochs 不可用'}；app 在 DB 停止时只能报 DB_UNAVAILABLE，"
+            "无法区分 NO_LOCAL_COVERAGE",
+            f"{evidence} , artifacts/D.uncovered_db.json",
+            curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
+            blocked_by="DB",
+        )
+    else:
+        case_from_problems(
+            ctx,
+            "D.uncovered",
+            "D",
+            "P0",
+            "RA0/Dec0 本地无覆盖：DB count=0；mode=synthetic、fallback_reason=NO_LOCAL_COVERAGE、real_epochs=0、note 明确",
+            problems,
+            actual,
+            evidence,
+            curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
+            resp.elapsed_ms,
+            cause="app 未覆盖天区降级语义" if problems else None,
+        )
 
     # D4（可选）：DB 停机
     if not ctx.args.db_down:
@@ -1558,6 +1731,21 @@ def _port_in_use(host: str, port: int) -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
+def _url_port(url: str) -> int | None:
+    parsed = urllib.parse.urlparse(url)
+    try:
+        if parsed.port is not None:
+            return parsed.port
+        return 443 if parsed.scheme == "https" else 80 if parsed.scheme == "http" else None
+    except ValueError:
+        return None
+
+
+def _is_local_url(url: str) -> bool:
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
 def start_isolated_app(ctx: Context, port: int, env_extra: dict, log_name: str):
     """启动一个只属于验收的 app 子进程；绝不动用户已在跑的服务。"""
     if _port_in_use("127.0.0.1", port):
@@ -1756,7 +1944,155 @@ def run_f(ctx: Context) -> None:
 EXPECTED_DB_COUNTS = {"epsind_b": 10, "wise0855": 10, "r_dra": 3}
 
 
+def _g_header_case(ctx: Context) -> None:
+    # header_frames 与实际一致（DB 服务可达时独立可核对）
+    health = ctx.http.get(ctx.db_url + "/api/v1/health")
+    if health.status != 200:
+        health = ctx.http.get(ctx.db_url + "/api/health")
+    health_evidence = save_response(ctx, "G.health.json", health)
+    header_problems = []
+    actual_header = None
+    truth_header = None
+    if health.status != 200 or not isinstance(health.json_data, dict):
+        header_problems.append(
+            {"code": "G_HEALTH", "severity": "P0", "message": f"健康检查 HTTP {health.status}"}
+        )
+    else:
+        counts = health.json_data.get("counts") or {}
+        actual_header = counts.get("header_frames")
+        if DB_SQLITE.exists():
+            try:
+                conn = sqlite3.connect(f"file:{DB_SQLITE}?mode=ro", uri=True)
+                try:
+                    truth_header = conn.execute(
+                        "SELECT COUNT(*) FROM frames WHERE header_sha256 IS NOT NULL"
+                    ).fetchone()[0]
+                    truth_frames = conn.execute("SELECT COUNT(*) FROM frames").fetchone()[0]
+                    truth_epochs = conn.execute("SELECT COUNT(*) FROM target_epochs").fetchone()[0]
+                finally:
+                    conn.close()
+                if actual_header != truth_header:
+                    header_problems.append(
+                        {
+                            "code": "G_HEADER_FRAMES",
+                            "severity": "P0",
+                            "message": f"health.header_frames={actual_header}，DB 实际 {truth_header}",
+                        }
+                    )
+                if counts.get("frames") != truth_frames:
+                    header_problems.append(
+                        {
+                            "code": "G_FRAMES",
+                            "severity": "P0",
+                            "message": f"health.frames={counts.get('frames')}，DB 实际 {truth_frames}",
+                        }
+                    )
+                if counts.get("epochs") != truth_epochs:
+                    header_problems.append(
+                        {
+                            "code": "G_EPOCHS",
+                            "severity": "P0",
+                            "message": f"health.epochs={counts.get('epochs')}，DB 实际 {truth_epochs}",
+                        }
+                    )
+            except Exception as exc:  # noqa: BLE001
+                header_problems.append(
+                    {
+                        "code": "G_SQLITE",
+                        "severity": "P1",
+                        "message": f"无法只读核对 sqlite：{exc}",
+                    }
+                )
+        else:
+            header_problems.append(
+                {
+                    "code": "G_SQLITE",
+                    "severity": "P1",
+                    "message": f"本地 DB 文件不存在：{DB_SQLITE}",
+                }
+            )
+    case_from_problems(
+        ctx,
+        "G.header_frames",
+        "G",
+        "P0",
+        "health.header_frames 与 DB 实际一致（不要求 >0，但不能虚报）",
+        header_problems,
+        f"header_frames={actual_header}，DB 实际={truth_header}",
+        health_evidence,
+        curl_repro(ctx.db_url + "/api/v1/health"),
+    )
+
+
 def run_g(ctx: Context) -> None:
+    if not ctx.db_available:
+        reason = ctx.db_block_reason or "DB /api/v1/epochs 不可用，DB 契约不可验证"
+        probe_evidence = "artifacts/env/db_v1_probe.json , artifacts/env/db_health.json"
+        specs = (
+            (
+                "G.v1_epochs.barnard",
+                "Barnard：target_id 与 ra/dec 两入口各 4 条、逐字段一致",
+                "target_id=barnard",
+            ),
+            (
+                "G.v1_epochs.rw_aur",
+                "RW Aur：target_id 与 ra/dec 两入口各 1 条、逐字段一致",
+                "target_id=rw_aur",
+            ),
+            (
+                "G.v1_epochs.counts",
+                "Eps/WISE/R Dra 两入口条数一致且为 10/10/3",
+                "target_id=epsind_b",
+            ),
+            (
+                "G.v1_epochs.fields",
+                "全部 v1 历元 12 字段齐全、date_obs/key 非空、无重复 (obsid,detector)",
+                "target_id=barnard",
+            ),
+            (
+                "G.v1_schema",
+                "v1 响应 schema_version=1.0、query.radius=2.47、count=len(epochs)",
+                "target_id=barnard",
+            ),
+            (
+                "G.v1_coverage",
+                "coverage 默认 radius=2.47、coverage_level 以 C 开头、baseline_days 数值",
+                "ra=269.452077&dec=4.693365",
+            ),
+        )
+        for cid, expected, query in specs:
+            url = f"{ctx.db_url}/api/v1/epochs?{query}" if cid != "G.v1_coverage" else (
+                f"{ctx.db_url}/api/v1/coverage?{query}"
+            )
+            add_blocked(
+                ctx,
+                cid,
+                "G",
+                "P0",
+                expected,
+                f"DB 契约不可验证（{ctx.db_status}）：未向 /api/v1 取到合法响应",
+                reason,
+                probe_evidence,
+                curl_repro(url),
+                blocked_by="DB",
+            )
+        if ctx.db_service_ok:
+            _g_header_case(ctx)
+        else:
+            add_blocked(
+                ctx,
+                "G.header_frames",
+                "G",
+                "P0",
+                "health.header_frames 与 DB 实际一致（不要求 >0，但不能虚报）",
+                "DB 服务不可达，health/SQLite 对账无法执行",
+                reason,
+                "artifacts/env/db_health.json",
+                curl_repro(ctx.db_url + "/api/v1/health"),
+                blocked_by="DB",
+            )
+        return
+
     def v1(params: dict, artifact: str) -> tuple[str, HttpResponse]:
         url = ctx.db_url + "/api/v1/epochs?" + urllib.parse.urlencode(params)
         resp = ctx.http.get(url)
@@ -1975,83 +2311,7 @@ def run_g(ctx: Context) -> None:
         curl_repro(cov_url),
     )
 
-    # header_frames 与实际一致
-    health = ctx.http.get(ctx.db_url + "/api/v1/health")
-    if health.status != 200:
-        health = ctx.http.get(ctx.db_url + "/api/health")
-    health_evidence = save_response(ctx, "G.health.json", health)
-    header_problems = []
-    actual_header = None
-    truth_header = None
-    if health.status != 200 or not isinstance(health.json_data, dict):
-        header_problems.append(
-            {"code": "G_HEALTH", "severity": "P0", "message": f"健康检查 HTTP {health.status}"}
-        )
-    else:
-        counts = health.json_data.get("counts") or {}
-        actual_header = counts.get("header_frames")
-        if DB_SQLITE.exists():
-            try:
-                conn = sqlite3.connect(f"file:{DB_SQLITE}?mode=ro", uri=True)
-                try:
-                    truth_header = conn.execute(
-                        "SELECT COUNT(*) FROM frames WHERE header_sha256 IS NOT NULL"
-                    ).fetchone()[0]
-                    truth_frames = conn.execute("SELECT COUNT(*) FROM frames").fetchone()[0]
-                    truth_epochs = conn.execute("SELECT COUNT(*) FROM target_epochs").fetchone()[0]
-                finally:
-                    conn.close()
-                if actual_header != truth_header:
-                    header_problems.append(
-                        {
-                            "code": "G_HEADER_FRAMES",
-                            "severity": "P0",
-                            "message": f"health.header_frames={actual_header}，DB 实际 {truth_header}",
-                        }
-                    )
-                if counts.get("frames") != truth_frames:
-                    header_problems.append(
-                        {
-                            "code": "G_FRAMES",
-                            "severity": "P0",
-                            "message": f"health.frames={counts.get('frames')}，DB 实际 {truth_frames}",
-                        }
-                    )
-                if counts.get("epochs") != truth_epochs:
-                    header_problems.append(
-                        {
-                            "code": "G_EPOCHS",
-                            "severity": "P0",
-                            "message": f"health.epochs={counts.get('epochs')}，DB 实际 {truth_epochs}",
-                        }
-                    )
-            except Exception as exc:  # noqa: BLE001
-                header_problems.append(
-                    {
-                        "code": "G_SQLITE",
-                        "severity": "P1",
-                        "message": f"无法只读核对 sqlite：{exc}",
-                    }
-                )
-        else:
-            header_problems.append(
-                {
-                    "code": "G_SQLITE",
-                    "severity": "P1",
-                    "message": f"本地 DB 文件不存在：{DB_SQLITE}",
-                }
-            )
-    case_from_problems(
-        ctx,
-        "G.header_frames",
-        "G",
-        "P0",
-        "health.header_frames 与 DB 实际一致（不要求 >0，但不能虚报）",
-        header_problems,
-        f"header_frames={actual_header}，DB 实际={truth_header}",
-        health_evidence,
-        curl_repro(ctx.db_url + "/api/v1/health"),
-    )
+    _g_header_case(ctx)
 
 
 # --------------------------------------------------------------------------- H. 视图工具
@@ -2215,7 +2475,16 @@ def maybe_update_golden(ctx: Context) -> None:
 
 # --------------------------------------------------------------------------- 报告写盘
 def summarize(cases: list[dict]) -> dict:
-    out = {"pass": 0, "fail": 0, "warn": 0, "p0_fail": 0, "p1_fail": 0}
+    out = {
+        "pass": 0,
+        "fail": 0,
+        "warn": 0,
+        "blocked": 0,
+        "p0_fail": 0,
+        "p1_fail": 0,
+        "p0_blocked": 0,
+        "p1_blocked": 0,
+    }
     for case in cases:
         if case["status"] == "PASS":
             out["pass"] += 1
@@ -2227,6 +2496,12 @@ def summarize(cases: list[dict]) -> dict:
                 out["p1_fail"] += 1
         elif case["status"] == "WARN":
             out["warn"] += 1
+        elif case["status"] == "BLOCKED":
+            out["blocked"] += 1
+            if case["severity"] == "P0":
+                out["p0_blocked"] += 1
+            else:
+                out["p1_blocked"] += 1
     return out
 
 
@@ -2239,6 +2514,7 @@ def group_stats(cases: list[dict]) -> dict:
             "pass": sum(1 for c in rows if c["status"] == "PASS"),
             "fail": sum(1 for c in rows if c["status"] == "FAIL"),
             "warn": sum(1 for c in rows if c["status"] == "WARN"),
+            "blocked": sum(1 for c in rows if c["status"] == "BLOCKED"),
         }
     return stats
 
@@ -2267,16 +2543,24 @@ def md_cell(value, limit: int = 220) -> str:
 
 
 def status_badge(status: str) -> str:
-    return {"PASS": "PASS", "FAIL": "FAIL", "WARN": "WARN"}.get(status, status)
+    return {"PASS": "PASS", "FAIL": "FAIL", "WARN": "WARN", "BLOCKED": "**BLOCKED**"}.get(status, status)
 
 
 def render_markdown(ctx: Context, exit_code: int, summary: dict, env_error: str | None) -> str:
     stats = group_stats(ctx.cases)
+    blocked_total = summary.get("blocked", 0)
+    p0_blocked = summary.get("p0_blocked", 0)
     if env_error:
         conclusion = f"环境错误（退出码 2）：{env_error}"
     elif summary["p0_fail"] > 0:
         conclusion = (
-            f"**红**：P0 失败 {summary['p0_fail']} 条，P1 失败 {summary['p1_fail']} 条，"
+            f"**红**：P0 失败 {summary['p0_fail']} 条，P0 BLOCKED {p0_blocked} 条，"
+            f"P1 失败 {summary['p1_fail']} 条，WARN {summary['warn']} 条，退出码 {exit_code}。"
+        )
+    elif p0_blocked > 0:
+        conclusion = (
+            f"**黄（有阻断，未验收）**：无 P0 失败，但 P0 BLOCKED {p0_blocked} 条"
+            f"（依赖不可用，未验证，不计 PASS），P1 失败 {summary['p1_fail']} 条，"
             f"WARN {summary['warn']} 条，退出码 {exit_code}。"
         )
     else:
@@ -2320,6 +2604,16 @@ def render_markdown(ctx: Context, exit_code: int, summary: dict, env_error: str 
     drift = "有变化：" + ", ".join(ctx.source_drift) if ctx.source_drift else "运行期间源文件未变"
     lines.append(f"| 源码快照 | {drift} |")
     lines.append("")
+    lines.append("### 1.0 DB 状态（决定哪些用例 BLOCKED）")
+    lines.append("")
+    lines.append("| 项 | 值 |")
+    lines.append("|---|---|")
+    lines.append(f"| DB 契约状态 | `{ctx.db_status}`（v1-ok / legacy-only / unreachable） |")
+    lines.append(f"| DB 服务可达 | {ctx.db_service_ok} |")
+    lines.append(f"| /api/v1/epochs 可用 | {ctx.db_available} |")
+    if ctx.db_block_reason:
+        lines.append(f"| BLOCKED 原因 | {md_cell(ctx.db_block_reason)} |")
+    lines.append("")
     lines.append("### 1.1 数据文件快照")
     lines.append("")
     lines.append("| 文件 | 大小 | sha256 |")
@@ -2334,20 +2628,37 @@ def render_markdown(ctx: Context, exit_code: int, summary: dict, env_error: str 
     lines.append("")
     lines.append("## 2. 汇总")
     lines.append("")
-    lines.append("| 组 | 名称 | 用例 | PASS | FAIL | WARN |")
-    lines.append("|---|---|---:|---:|---:|---:|")
+    lines.append("| 组 | 名称 | 用例 | PASS | FAIL | BLOCKED | WARN |")
+    lines.append("|---|---|---:|---:|---:|---:|---:|")
     for group in GROUP_ORDER:
         s = stats[group]
         if s["total"] == 0:
             continue
         lines.append(
-            f"| {group} | {GROUP_NAMES[group]} | {s['total']} | {s['pass']} | {s['fail']} | {s['warn']} |"
+            f"| {group} | {GROUP_NAMES[group]} | {s['total']} | {s['pass']} | {s['fail']} | "
+            f"{s['blocked']} | {s['warn']} |"
         )
+    total = summary["pass"] + summary["fail"] + summary["warn"] + blocked_total
     lines.append(
-        f"| **合计** |  | **{summary['pass'] + summary['fail'] + summary['warn']}** | "
-        f"**{summary['pass']}** | **{summary['fail']}** | **{summary['warn']}** |"
+        f"| **合计** |  | **{total}** | **{summary['pass']}** | **{summary['fail']}** | "
+        f"**{blocked_total}** | **{summary['warn']}** |"
     )
     lines.append("")
+
+    # 红在哪 / 哪些是 DB 停止导致——报告要能直接回答这两个问题
+    red = [c for c in ctx.cases if c["status"] in ("FAIL", "BLOCKED") and c["severity"] == "P0"]
+    if red:
+        lines.append("### 2.1 红在哪 / 归因（仅 P0 FAIL + BLOCKED）")
+        lines.append("")
+        lines.append("| 用例 | 结果 | 归因 | 实际 |")
+        lines.append("|---|---|---|---|")
+        for case in red:
+            cause = case.get("cause") or ("DB 停止/契约不可用" if case.get("blocked_by") == "DB" else "应用/契约")
+            lines.append(
+                f"| `{case['id']}` | {status_badge(case['status'])} | {md_cell(cause, 80)} | "
+                f"{md_cell(case['actual'], 180)} |"
+            )
+        lines.append("")
 
     lines.append("## 3. 用例结果")
     for group in GROUP_ORDER:
@@ -2374,6 +2685,8 @@ def render_markdown(ctx: Context, exit_code: int, summary: dict, env_error: str 
             lines.append("")
             lines.append(f"### `{case['id']}` · {case['severity']}")
             lines.append("")
+            if case.get("cause"):
+                lines.append(f"- 归因：{case['cause']}")
             lines.append(f"- 期望：{case['expected']}")
             lines.append(f"- 实际：{case['actual']}")
             if case.get("repro"):
@@ -2390,22 +2703,39 @@ def render_markdown(ctx: Context, exit_code: int, summary: dict, env_error: str 
                 for item in case["details"]:
                     lines.append(f"  - `{item.get('code')}`：{item.get('message')}")
 
+    blocked = [c for c in ctx.cases if c["status"] == "BLOCKED"]
+    if blocked:
+        lines.append("")
+        lines.append("## 5. BLOCKED（依赖不可用，未验证，不计 PASS）")
+        lines.append("")
+        if ctx.db_block_reason:
+            lines.append(f"> DB 状态：`{ctx.db_status}`。{ctx.db_block_reason}")
+            lines.append("")
+        lines.append("| 用例 | 级别 | 阻塞原因 | 实际 |")
+        lines.append("|---|---|---|---|")
+        for case in blocked:
+            lines.append(
+                f"| `{case['id']}` | {case['severity']} | {md_cell(case.get('cause'), 80)} | "
+                f"{md_cell(case['actual'], 160)} |"
+            )
+        lines.append("")
+
     warnings = [c for c in ctx.cases if c["status"] == "WARN"]
     if warnings:
         lines.append("")
-        lines.append("## 5. WARN / 手动项")
+        lines.append("## 6. WARN / 手动项")
         for case in warnings:
             lines.append(f"- `{case['id']}`（{case['severity']}）：{case['actual']}")
 
     if ctx.not_run:
         lines.append("")
-        lines.append("## 6. 未执行")
+        lines.append("## 7. 未执行")
         for item in ctx.not_run:
             lines.append(f"- `{item['case']}`：{item['reason']}")
 
     if ctx.notes:
         lines.append("")
-        lines.append("## 7. 备注")
+        lines.append("## 8. 备注")
         for note in ctx.notes:
             lines.append(f"- {note}")
 
@@ -2414,7 +2744,8 @@ def render_markdown(ctx: Context, exit_code: int, summary: dict, env_error: str 
     lines.append("")
     lines.append(
         "说明：本工具只读 `app/`、`数据库工具/`、`视图工具/`；所有写入都在本报告目录与 `/tmp`。"
-        "P0 失败退出码 1；环境错误退出码 2；P1（视图工具/非阻塞契约）失败不改变退出码。"
+        "P0 失败退出码 1；P0 BLOCKED（依赖不可用、未验证）同样非绿，退出码 1；"
+        "环境错误退出码 2；P1（视图工具/非阻塞契约）失败不改变退出码。"
     )
     lines.append("")
     return "\n".join(lines)
@@ -2453,6 +2784,8 @@ def write_report(ctx: Context, exit_code: int, env_error: str | None) -> None:
         },
         "cases": ctx.cases,
         "summary": summary,
+        "blocked_reason": ctx.db_block_reason if not ctx.db_available else None,
+        "db_status": ctx.db_status,
         "groups": stats,
         "not_run": ctx.not_run,
         "notes": ctx.notes,
@@ -2506,6 +2839,11 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--only", default="", help="只跑某些组/用例，如 C 或 C,D 或 C.barnard")
     ap.add_argument("--skip", default="", help="跳过某些组/用例，如 H 或 E.sample")
     ap.add_argument("--no-start", action="store_true", help="只测已运行服务；不启动任何子进程")
+    ap.add_argument(
+        "--start",
+        action="store_true",
+        help="app 未运行时，在 base-url 端口启动一个验收专用 app 子进程（默认不启动；与 --no-start 冲突）",
+    )
     ap.add_argument("--db-down", action="store_true", help="可选：DB 停机降级用例（D4）")
     ap.add_argument("--confirm", action="store_true", help="配合 --update-golden 的人工确认")
     ap.add_argument("--offline-port", type=int, default=8810, help="离线/D4 子进程端口（默认 8810）")
@@ -2541,9 +2879,54 @@ def main(argv: list[str] | None = None) -> int:
     ctx.git = git_info()
     ctx.source_before = snapshot_sources()
 
+    if (args.offline or args.db_down) and not args.no_start:
+        if _url_port(ctx.base_url) == args.offline_port:
+            ctx.env_error = (
+                f"--offline/--db-down 子进程端口与 app 端口相同（{args.offline_port}）；"
+                "请加 --offline-port 8813 或改用其他空闲端口"
+            )
+            write_report(ctx, 2, ctx.env_error)
+            print(f"[ENV] {ctx.env_error}", file=sys.stderr)
+            return 2
+
+    if args.start and args.no_start:
+        ctx.env_error = "--start 与 --no-start 冲突"
+        write_report(ctx, 2, ctx.env_error)
+        print(f"[ENV] {ctx.env_error}", file=sys.stderr)
+        return 2
+    if args.start:
+        if not _is_local_url(ctx.base_url):
+            ctx.env_error = f"--start 只支持本地 base-url，当前为 {ctx.base_url}"
+            write_report(ctx, 2, ctx.env_error)
+            print(f"[ENV] {ctx.env_error}", file=sys.stderr)
+            return 2
+        port = _url_port(ctx.base_url)
+        if port is None:
+            ctx.env_error = f"无法从 base-url 解析端口：{ctx.base_url}"
+            write_report(ctx, 2, ctx.env_error)
+            print(f"[ENV] {ctx.env_error}", file=sys.stderr)
+            return 2
+        if _port_in_use("127.0.0.1", port):
+            ctx.notes.append(f"--start：{ctx.base_url} 已有服务，直接使用（不接管、不杀进程）")
+        else:
+            base, err, log_path = start_isolated_app(
+                ctx, port, {"SPHEREX_DB_URL": ctx.db_url}, "ENV.app.log"
+            )
+            if err:
+                ctx.env_error = f"--start 启动 app 失败：{err}"
+                stop_isolated_apps(ctx)
+                write_report(ctx, 2, ctx.env_error)
+                print(f"[ENV] {ctx.env_error}", file=sys.stderr)
+                return 2
+            ctx.notes.append(
+                f"--start 启动验收专用 app：{base}（SPHEREX_DB_URL={ctx.db_url}；"
+                f"日志 {log_path.name if log_path else 'artifacts/ENV.app.log'}）"
+            )
+
     missing = probe_services(ctx)
     if missing:
         ctx.env_error = "；".join(missing)
+        stop_isolated_apps(ctx)
         write_report(ctx, 2, ctx.env_error)
         print(f"[ENV] {ctx.env_error}", file=sys.stderr)
         print(f"报告：{report_dir / 'report.md'}", flush=True)
@@ -2615,15 +2998,21 @@ def main(argv: list[str] | None = None) -> int:
     summary = summarize(ctx.cases)
     if ctx.env_error:
         exit_code = 2
-    elif summary["p0_fail"] > 0:
+    elif summary["p0_fail"] > 0 or summary["p0_blocked"] > 0:
+        # BLOCKED 不是 PASS：P0 契约未验证时不能给 0；退出码 1 表示“未转绿”
         exit_code = 1
     else:
         exit_code = 0
     write_report(ctx, exit_code, ctx.env_error)
 
     print("\n=== T1 汇总 ===")
-    print(f"PASS={summary['pass']} FAIL={summary['fail']} WARN={summary['warn']} "
-          f"P0_FAIL={summary['p0_fail']} P1_FAIL={summary['p1_fail']}")
+    print(
+        f"PASS={summary['pass']} FAIL={summary['fail']} WARN={summary['warn']} "
+        f"BLOCKED={summary['blocked']} P0_FAIL={summary['p0_fail']} "
+        f"P0_BLOCKED={summary['p0_blocked']} P1_FAIL={summary['p1_fail']}"
+    )
+    if ctx.db_block_reason:
+        print(f"DB 阻塞：{ctx.db_block_reason}")
     if ctx.env_error:
         print(f"环境错误：{ctx.env_error}")
     print(f"耗时：{ctx.elapsed_s:.1f}s")
