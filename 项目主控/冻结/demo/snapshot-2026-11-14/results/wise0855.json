@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "target_id": "wise0855",
+  "frozen_at": "2026-11-14T22:46:26Z",
+  "fov": 0.25,
+  "source": "http://127.0.0.1:8790/api/analyze",
+  "status": "ok",
+  "data_mode": "real",
+  "readiness": "L0",
+  "class": "U",
+  "mu_mas_yr": 0.0,
+  "mu_err_mas_yr": null,
+  "pa_deg": null,
+  "confidence": 0.2,
+  "n_epochs": 8,
+  "detected_epochs": 1,
+  "provenance": [
+    "real"
+  ],
+  "quality": [
+    "FEW_EPOCHS",
+    "SHORT_BASELINE",
+    "LARGE_CENTROID_ERROR"
+  ],
+  "truth_check": null
+}

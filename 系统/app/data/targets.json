@@ -1,0 +1,154 @@
+{
+  "schema": "movescope/targets/v1",
+  "updated": "2026-11-14",
+  "notes": "官方 5 目标坐标取赛道原文/SIMBAD（ICRS J2000）。truth 用于验收对照，不参与拟合。",
+  "targets": [
+    {
+      "id": "barnard",
+      "name": "Barnard's Star",
+      "name_zh": "巴纳德星",
+      "official": true,
+      "ra": 269.452077,
+      "dec": 4.693365,
+      "type": "M4V",
+      "expected": "L",
+      "truth": {
+        "mu_mas_yr": 10393.4,
+        "pa_deg": 355.6,
+        "parallax_mas": 546.98,
+        "pmra_mas_yr": -801.551,
+        "pmdec_mas_yr": 10362.394,
+        "period_d": null,
+        "amp_mag": null
+      },
+      "note": "高自行的教科书样本；10.4″/yr，6 个月基线约 5.1″，在 6.15″ 像素下可测。",
+      "coord_unc_arcsec": 3.0
+    },
+    {
+      "id": "epsind_b",
+      "name": "Epsilon Indi B",
+      "name_zh": "印第安座 ε B",
+      "official": true,
+      "ra": 331.044147,
+      "dec": -56.782844,
+      "type": "T1V+T6V",
+      "expected": "L+O",
+      "truth": {
+        "mu_mas_yr": 4684.2,
+        "pa_deg": 121.8,
+        "parallax_mas": 270.66,
+        "pmra_mas_yr": 3981.977,
+        "pmdec_mas_yr": -2466.832,
+        "period_d": null,
+        "amp_mag": null
+      },
+      "note": "绕 Eps Ind A（330.840240,−56.785972）公转；A/B 相距约 0.30°，视场需 ≥0.3° 才能同框。",
+      "coord_unc_arcsec": 6.0
+    },
+    {
+      "id": "wise0855",
+      "name": "WISE 0855−0714",
+      "name_zh": "WISE 0855−0714",
+      "official": true,
+      "ra": 133.795129,
+      "dec": -7.245147,
+      "type": "Y2",
+      "expected": "L",
+      "truth": {
+        "mu_mas_yr": 8151.5,
+        "pa_deg": 265.3,
+        "parallax_mas": 439.0,
+        "pmra_mas_yr": -8123.7,
+        "pmdec_mas_yr": 673.2,
+        "period_d": null,
+        "amp_mag": null
+      },
+      "note": "赛道给定坐标（与 SIMBAD MIR 相差 1.6′）；取图视场 ≥0.05° 以覆盖偏差。",
+      "coord_unc_arcsec": 18.0
+    },
+    {
+      "id": "rw_aur",
+      "name": "RW Aurigae",
+      "name_zh": "御夫座 RW",
+      "official": true,
+      "ra": 76.956526,
+      "dec": 30.401438,
+      "type": "K1/5e+K5e",
+      "expected": "V",
+      "truth": {
+        "mu_mas_yr": 21.6,
+        "pa_deg": 160.4,
+        "parallax_mas": 15.42,
+        "pmra_mas_yr": 7.23,
+        "pmdec_mas_yr": -20.33,
+        "period_d": 12.0,
+        "amp_mag": 0.85
+      },
+      "note": "金牛 T 型变星：位置几乎不动、亮度变。反例考点。",
+      "coord_unc_arcsec": 3.0
+    },
+    {
+      "id": "r_dra",
+      "name": "R Draconis",
+      "name_zh": "天龙座 R",
+      "official": true,
+      "ra": 248.167611,
+      "dec": 66.754979,
+      "type": "M4.5-6e",
+      "expected": "V",
+      "truth": {
+        "mu_mas_yr": 21.5,
+        "pa_deg": 286.6,
+        "parallax_mas": 1.25,
+        "pmra_mas_yr": -20.643,
+        "pmdec_mas_yr": 6.149,
+        "period_d": 245.0,
+        "amp_mag": 4.0
+      },
+      "note": "米拉型长周期变星，周期约 245 天，亮度振幅可达数等。反例考点。",
+      "coord_unc_arcsec": 3.0
+    },
+    {
+      "id": "m101",
+      "name": "M101 视场",
+      "name_zh": "M101 视场",
+      "official": false,
+      "ra": 210.80227,
+      "dec": 54.34895,
+      "type": "galaxy field",
+      "expected": "S",
+      "truth": {
+        "mu_mas_yr": null,
+        "pa_deg": null,
+        "parallax_mas": null,
+        "pmra_mas_yr": null,
+        "pmdec_mas_yr": null,
+        "period_d": null,
+        "amp_mag": null
+      },
+      "note": "真实 SPHEREx QR3 切片（D2，2026W25）。用于离线核验解析与渲染。",
+      "coord_unc_arcsec": 3.0
+    },
+    {
+      "id": "campo_a",
+      "name": "场 A（DR1）",
+      "name_zh": "场 A（DR1）",
+      "official": false,
+      "ra": 160.617,
+      "dec": 30.67,
+      "type": "field",
+      "expected": "S",
+      "truth": {
+        "mu_mas_yr": null,
+        "pa_deg": null,
+        "parallax_mas": null,
+        "pmra_mas_yr": null,
+        "pmdec_mas_yr": null,
+        "period_d": null,
+        "amp_mag": null
+      },
+      "note": "真实 SPHEREx DR1 切片（D6，2025W48）。用于离线核验解析与渲染。",
+      "coord_unc_arcsec": 3.0
+    }
+  ]
+}

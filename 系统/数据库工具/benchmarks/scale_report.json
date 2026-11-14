@@ -1,0 +1,92 @@
+{
+  "generated_at": "2026-11-14T21:58:30Z",
+  "runs_per_case": 200,
+  "targets": 5,
+  "db": {
+    "path": "/Users/yiao/Documents/huellaX/数据库工具/var/bench_scale.sqlite",
+    "disk_bytes": 117841920,
+    "sqlite_version": "3.53.1",
+    "schema_version": 2
+  },
+  "cases": [
+    {
+      "case": "cone radius=0.1° (targets + sampled frames)",
+      "runs": 200,
+      "p50_ms": 0.343,
+      "p95_ms": 0.613,
+      "p99_ms": 2.946,
+      "max_ms": 4.808,
+      "mean_ms": 0.4,
+      "qps": 2500.2,
+      "last_count": 2
+    },
+    {
+      "case": "cone radius=0.2° (targets + sampled frames)",
+      "runs": 200,
+      "p50_ms": 0.365,
+      "p95_ms": 0.717,
+      "p99_ms": 0.971,
+      "max_ms": 4.222,
+      "mean_ms": 0.453,
+      "qps": 2206.1,
+      "last_count": 2
+    },
+    {
+      "case": "cone radius=0.5° (targets + sampled frames)",
+      "runs": 200,
+      "p50_ms": 0.746,
+      "p95_ms": 1.131,
+      "p99_ms": 1.567,
+      "max_ms": 1.722,
+      "mean_ms": 0.75,
+      "qps": 1332.9,
+      "last_count": 5
+    },
+    {
+      "case": "cone radius=1.0° (targets + sampled frames)",
+      "runs": 200,
+      "p50_ms": 1.491,
+      "p95_ms": 2.032,
+      "p99_ms": 2.169,
+      "max_ms": 2.248,
+      "mean_ms": 1.441,
+      "qps": 694.1,
+      "last_count": 19
+    },
+    {
+      "case": "coverage radius=0.2° (sampled frames)",
+      "runs": 200,
+      "p50_ms": 0.266,
+      "p95_ms": 0.345,
+      "p99_ms": 0.369,
+      "max_ms": 0.383,
+      "mean_ms": 0.26,
+      "qps": 3845.9,
+      "last_count": null
+    },
+    {
+      "case": "epochs_for_target",
+      "runs": 200,
+      "p50_ms": 2.599,
+      "p95_ms": 3.569,
+      "p99_ms": 3.88,
+      "max_ms": 4.013,
+      "mean_ms": 2.526,
+      "qps": 395.9,
+      "last_count": 58
+    },
+    {
+      "case": "cone filters (detector/release/mjd/order)",
+      "runs": 200,
+      "p50_ms": 0.162,
+      "p95_ms": 0.173,
+      "p99_ms": 0.285,
+      "max_ms": 0.545,
+      "mean_ms": 0.166,
+      "qps": 6024.3,
+      "last_count": 0
+    }
+  ],
+  "stats_ms_mean": 203.73,
+  "note": "单机、只读 SQLite、本地页缓存已预热；不含 HTTP 序列化与网络。"
+}

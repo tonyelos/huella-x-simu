@@ -1,0 +1,121 @@
+{
+  "snapshot_at": "2026-11-14T23:08:00+0100",
+  "root": "/Users/yiao/Documents/huellaX",
+  "files": {
+    "README.md": {
+      "sha256": "cf9debc94442760d0ac3c29fc92f38b0ac775faa59a57103e4aa28cc939f05ee",
+      "bytes": 6591,
+      "mtime": "2026-11-14T23:02:35+0100"
+    },
+    "app/server.py": {
+      "sha256": "4453a49896f28da914a26eef088360165d3ed06fe4a71685086930ade08b04fe",
+      "bytes": 13360,
+      "mtime": "2026-11-14T22:52:26+0100"
+    },
+    "app/core/data.py": {
+      "sha256": "a192e7a01801c3838931b885d000149abc53cb2d1ba9db37ad2bcf5fafd4aae9",
+      "bytes": 10706,
+      "mtime": "2026-11-14T22:45:14+0100"
+    },
+    "app/core/motion.py": {
+      "sha256": "7c8f58d6f3bf4355f696d97925a55eb01f7bd7750722e78bdb6d1274a0de6961",
+      "bytes": 28182,
+      "mtime": "2026-11-14T23:03:19+0100"
+    },
+    "app/core/pipeline.py": {
+      "sha256": "9d028ea6145acaa6ed527730001f4c364ae15783fe13d81c03e6ada10c291d49",
+      "bytes": 17206,
+      "mtime": "2026-11-14T22:50:54+0100"
+    },
+    "app/web/app.js": {
+      "sha256": "96718626d389e213f098ae0bdc9136b1ff75332ec63d6477e0671dce1462aacf",
+      "bytes": 25117,
+      "mtime": "2026-11-14T23:02:18+0100"
+    },
+    "app/data/targets.json": {
+      "sha256": "c6b67231eb8db9e12dc0f8d11e730106c843cccd453b74095808ca73bbbc57b3",
+      "bytes": 4261,
+      "mtime": "2026-11-14T22:51:57+0100"
+    },
+    "app/data/epoch_catalog.json": {
+      "sha256": "831fc44a4894e3bac9d8c0e645c66e7992886e05a0dc2473bf9e18eb842c8f8a",
+      "bytes": 44345,
+      "mtime": "2026-11-14T22:43:35+0100"
+    },
+    "app/data/week_index.json": {
+      "sha256": "2618387148c9e7b78dc778425c482dedb0f8188e0bea151fe3a43e674266b39a",
+      "bytes": 63488,
+      "mtime": "2026-11-14T22:23:48+0100"
+    },
+    "数据库工具/db/schema.py": {
+      "sha256": "5f3976a29fc9b469395c608c1965e8c80a5621b724b6e97040f56d72d1e65208",
+      "bytes": 9565,
+      "mtime": "2026-11-14T23:03:24+0100"
+    },
+    "数据库工具/db/server.py": {
+      "sha256": "7f9a93e34ae38a3f3adba2188661bf926a4d5f633c699d6e10dff9324b4c1630",
+      "bytes": 16529,
+      "mtime": "2026-11-14T23:00:46+0100"
+    },
+    "数据库工具/db/catalog.py": {
+      "sha256": "95c039af4c3a81749c7d42a3b401403437946ab045cc99136769277c379773f1",
+      "bytes": 21219,
+      "mtime": "2026-11-14T23:05:06+0100"
+    },
+    "数据库工具/db/export.py": {
+      "sha256": "3fafffc8007a7f15c58a94eecb18dbb1693477fa4d53015027c8789bed5d494b",
+      "bytes": 7612,
+      "mtime": "2026-11-14T23:04:07+0100"
+    },
+    "数据库工具/README.md": {
+      "sha256": "af561020a15e95c0fd33b547ad81dd8078c973e77f305cc4e3a0654dfce4bc76",
+      "bytes": 15374,
+      "mtime": "2026-11-14T23:05:30+0100"
+    },
+    "数据库工具/docs/INTEGRATION.md": {
+      "sha256": "b96685311d6732af322ea487adb6fd8d1fc16ab8dba98fc855574cddd4ecd226",
+      "bytes": 6258,
+      "mtime": "2026-11-14T23:03:33+0100"
+    },
+    "视图工具/js/main.js": {
+      "sha256": "423c3fb9b9690a8cefbd9fd7b7733e2cd39ee9f3e9b3b0cccff14777c42849f0",
+      "bytes": 18113,
+      "mtime": "2026-11-14T22:46:48+0100"
+    },
+    "视图工具/data/fields.json": {
+      "sha256": "517d94e2e941f54d9042e9b1f36583596944303f43d9772b16d8af0a891c8648",
+      "bytes": 547033,
+      "mtime": "2026-11-14T22:33:40+0100"
+    },
+    "视图工具/data/targets.json": {
+      "sha256": "28b05a828c0941b0164d8281b83fef459cc6cb344049b6980dad8e7bba210921",
+      "bytes": 4043,
+      "mtime": "2026-11-14T22:33:48+0100"
+    },
+    "docs/01_理论设计编排.md": {
+      "sha256": "9ce1afd175b7a342937af16b1f07fc959368097319a8321416376856fd47d01c",
+      "bytes": 44112,
+      "mtime": "2026-11-14T23:03:33+0100"
+    },
+    "docs/02_实现与实测记录.md": {
+      "sha256": "c0ea82f9935596ca0423169fd6d2440b8421ac5f93cc930a57468760c3578a90",
+      "bytes": 15568,
+      "mtime": "2026-11-14T23:03:33+0100"
+    }
+  },
+  "counts": {
+    "app_targets": 7,
+    "app_targets_official": 5,
+    "app_epoch_rows": 74,
+    "app_epoch_targets": 7,
+    "view_fields": 5857,
+    "db_frames": 5857,
+    "db_observations": 5544,
+    "db_weeks": 151,
+    "db_targets": 7,
+    "db_epochs": 74,
+    "db_cutouts": 55,
+    "db_header_frames": 0,
+    "db_schema_version": "4"
+  }
+}

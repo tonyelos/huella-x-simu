@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoveScope · 星动仪 — SPHEREx 天体运动规律识别</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">◈</div>
+    <div>
+      <h1>MoveScope <span class="zh">星动仪</span></h1>
+      <p>从多期 SPHEREx 图像，读出天体的运动规律</p>
+    </div>
+  </div>
+  <div class="top-right">
+    <span id="modeBadge" class="badge ghost">未分析</span>
+    <span id="readyBadge" class="badge ghost">—</span>
+    <label class="switch" title="显示协方差、BIC、质量标记等科研细节">
+      <input type="checkbox" id="expert"><span>研究者模式</span>
+    </label>
+    <button id="theoryBtn" class="ghost small">理论设计</button>
+  </div>
+</header>
+
+<main>
+  <!-- 左：输入 -->
+  <aside class="panel left">
+    <section>
+      <h2><span class="num">01</span> 选择天区</h2>
+      <div id="presets" class="presets"></div>
+      <div class="fields">
+        <label>赤经 RA <span class="unit">deg</span><input id="ra" inputmode="decimal"></label>
+        <label>赤纬 Dec <span class="unit">deg</span><input id="dec" inputmode="decimal"></label>
+        <label>视场 FOV <span class="unit">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01" title="0.02–3.0 度"></label>
+        <label>数据模式
+          <select id="mode">
+            <option value="auto">自动（真实优先）</option>
+            <option value="real">仅真实历元</option>
+            <option value="synthetic">模拟时序</option>
+            <option value="sample">离线样本（解析核验）</option>
+          </select>
+        </label>
+      </div>
+      <button id="runBtn" class="primary"><span class="dot"></span>识别运动规律</button>
+      <div id="sourceNote" class="note">选择目标或输入坐标后开始。</div>
+    </section>
+
+    <section>
+      <h2><span class="num">02</span> 数据就绪度</h2>
+      <div id="readiness" class="readiness">
+        <div class="ready-row" data-level="L0"><b>L0</b><span>1 期 · 只能判有无源</span></div>
+        <div class="ready-row" data-level="L1"><b>L1</b><span>2 期 · 一次位移</span></div>
+        <div class="ready-row" data-level="L2"><b>L2</b><span>3–5 期 · 速率与方向</span></div>
+        <div class="ready-row" data-level="L3"><b>L3</b><span>≥6 期 · 可判加速/周期</span></div>
+      </div>
+      <div id="quality" class="flags expert-only"></div>
+    </section>
+
+    <section class="expert-only">
+      <h2><span class="num">03</span> 观测配置</h2>
+      <div id="epochList" class="epoch-list"></div>
+      <div id="matchStats" class="match-stats"></div>
+    </section>
+  </aside>
+
+  <!-- 中：天区视图 -->
+  <section class="panel center">
+    <div class="viewer-head">
+      <div class="viewer-title">
+        <span class="eyebrow">SKY PATCH</span>
+        <strong id="epochLabel">等待分析</strong>
+      </div>
+      <div class="modes" role="group" aria-label="显示模式">
+        <button data-mode="blink" class="active">闪烁</button>
+        <button data-mode="stack">叠加</button>
+        <button data-mode="diff">相减</button>
+        <button data-mode="track">轨迹</button>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="sky" width="936" height="936"></canvas>
+      <div id="canvasEmpty" class="canvas-empty">
+        <div class="glyph">✧</div>
+        <p>输入一个天区，让多期图像动起来</p>
+        <span>blink · stack · difference · trajectory</span>
+      </div>
+      <div id="canvasLoading" class="canvas-loading hidden"><div class="spinner"></div><p>读取历元 / 测量 / 拟合…</p></div>
+    </div>
+    <div class="timeline">
+      <button id="play" aria-label="播放">▶</button>
+      <input type="range" id="slider" min="0" max="0" value="0">
+      <span id="timeLabel">—</span>
+    </div>
+    <div class="strip" id="strip"></div>
+    <div class="legend">
+      <span><i class="sw target"></i>目标测量位置</span>
+      <span><i class="sw trail"></i>轨迹</span>
+      <span class="muted" id="stretchNote">asinh · 6–99.6%</span>
+    </div>
+  </section>
+
+  <!-- 右：鉴定卡 -->
+  <aside class="panel right">
+    <div id="verdict" class="verdict empty">
+      <div class="eyebrow">MOTION FINGERPRINT</div>
+      <div class="verdict-main">
+        <div class="class-dot"></div>
+        <div>
+          <h3>尚未分析</h3>
+          <p>运行一次识别，查看运动规律与证据链。</p>
+        </div>
+      </div>
+    </div>
+
+    <blockquote id="publicText" class="public hidden"></blockquote>
+
+    <section id="metrics" class="metrics hidden"></section>
+
+    <section class="charts hidden" id="charts">
+      <div class="chart-head"><span>光变曲线</span><span class="muted" id="lcMeta"></span></div>
+      <canvas id="lc" width="560" height="220"></canvas>
+      <div class="chart-head"><span>切平面轨迹</span><span class="muted" id="trackMeta"></span></div>
+      <canvas id="track" width="560" height="300"></canvas>
+    </section>
+
+    <section class="models hidden expert-only" id="modelsWrap">
+      <div class="chart-head"><span>模型选择 · BIC</span><span class="muted">概率</span></div>
+      <div id="models"></div>
+    </section>
+
+    <section class="evidence hidden" id="evidenceWrap">
+      <h4>证据链</h4>
+      <ul id="evidence"></ul>
+      <div class="falsifier"><b>可证伪条件</b><p id="falsifier"></p></div>
+      <div id="caveats" class="caveats hidden"></div>
+      <div class="truthbox hidden" id="truthBox"></div>
+    </section>
+
+    <div class="actions">
+      <button id="download" class="ghost small" disabled>下载 JSON</button>
+      <button id="copyLink" class="ghost small" disabled>复制可嵌入链接</button>
+    </div>
+  </aside>
+</main>
+
+<footer class="foot">
+  <span>数据：NASA/IPAC IRSA · SPHEREx level2（QR3 / DR1）</span>
+  <span>方法：切平面加权最小二乘 · BIC 模型选择 · 参考星相对天体测量</span>
+  <span>模拟数据均带 <b>SIM/HYBRID</b> 标识</span>
+</footer>
+
+<div id="theoryModal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <button class="close" id="closeTheory">✕</button>
+    <div class="eyebrow">THEORY · 理论设计编排</div>
+    <h2>一个天体，五类运动规律</h2>
+    <p class="lead">工具不靠"看图猜"，而是把位置序列与亮度序列分别拟合，再用 BIC 在模型族里选一个，最后输出可证伪的结论。</p>
+    <div class="theory-grid">
+      <div><b>① 测量</b><p>PSF 匹配滤波探测；PSF 模板拟合质心；孔径测光；FLAGS 三级掩膜；参考星仿射定标。</p></div>
+      <div><b>② 模型族</b><p>M0 静止 · M1 变光 · M2 匀速自行 · M3 自行+视差 · M4 自行+加速。位置与流量联合 χ²。</p></div>
+      <div><b>③ 判据</b><p>ΔBIC &gt; 6 且参数 &gt; 3σ 才下结论；数据就绪度 L0–L3 决定结论强度。</p></div>
+      <div><b>④ 反例</b><p>变星位置不动、亮度变。位置通道与流量通道分离，避免把"变亮"误判成"移动"。</p></div>
+    </div>
+    <table class="theory-table">
+      <thead><tr><th>规律</th><th>生成机制</th><th>可观测签名</th><th>最少历元</th></tr></thead>
+      <tbody>
+        <tr><td>S 静止</td><td>背景恒星/星系</td><td>斜率与 0 相容</td><td>2（给上限）</td></tr>
+        <tr><td>V 变光</td><td>脉动/爆发/食变/AGN</td><td>流量显著变，位置不变</td><td>3</td></tr>
+        <tr><td>L 匀速直线</td><td>近邻恒星自行</td><td>切平面直线，斜率显著</td><td>3</td></tr>
+        <tr><td>A 加速/弯曲</td><td>太阳系天体/双星</td><td>二次项显著优于直线</td><td>4</td></tr>
+        <tr><td>P 视差</td><td>地球绕日</td><td>残差与地球位置矢量相关</td><td>≥6，跨 1 年</td></tr>
+      </tbody>
+    </table>
+    <p class="fine">完整文档：docs/01_理论设计编排.md · 数据访问：实测 IRSA 静态切片 + S3 头部探测（TAP/SIA 在采集时段不可用）。</p>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

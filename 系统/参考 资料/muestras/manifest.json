@@ -1,0 +1,140 @@
+[
+  {
+    "archivo": "muestras/M101_D2_2026W25_qr3_cutout.fits",
+    "bytes": 3954240,
+    "sha256": "35015a30623c4fa66aacbcdddb0d3feec52c24313cb98a09132babd0b2a14ea8",
+    "origen": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0279_1D2_spx_l2b-v27-2026-273.fits?center=210.80227,54.34895d&size=0.02",
+    "release": "qr3",
+    "centro_deg": [
+      210.80227,
+      54.34895
+    ],
+    "size_deg": 0.02,
+    "hdus": [
+      {
+        "index": 0,
+        "extname": "PRIMARY",
+        "dims": []
+      },
+      {
+        "index": 1,
+        "extname": "IMAGE",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 2,
+        "extname": "FLAGS",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 3,
+        "extname": "VARIANCE",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 4,
+        "extname": "ZODI",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 5,
+        "extname": "EPSF",
+        "dims": [
+          8752,
+          441
+        ]
+      },
+      {
+        "index": 6,
+        "extname": "WCS-WAVE",
+        "dims": [
+          1056,
+          1
+        ]
+      }
+    ],
+    "version_proceso": "7.0.5",
+    "fecha_creacion": ""
+  },
+  {
+    "archivo": "muestras/campoA_D6_2025W48_dr1_cutout.fits",
+    "bytes": 3951360,
+    "sha256": "e5b6108038695ef441c2b2c516e08c77927a9f848d033346c88c162de4972e9e",
+    "origen": "https://irsa.ipac.caltech.edu/ibe/data/spherex/dr1/level2/2025W48_1A/l2b-v27-2026-208/6/level2_2025W48_1A_0658_4D6_spx_l2b-v27-2026-208.fits?center=160.617,30.67&size=0.02",
+    "release": "dr1",
+    "centro_deg": [
+      160.617,
+      30.67
+    ],
+    "size_deg": 0.02,
+    "hdus": [
+      {
+        "index": 0,
+        "extname": "PRIMARY",
+        "dims": []
+      },
+      {
+        "index": 1,
+        "extname": "IMAGE",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 2,
+        "extname": "FLAGS",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 3,
+        "extname": "VARIANCE",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 4,
+        "extname": "ZODI",
+        "dims": [
+          12,
+          12
+        ]
+      },
+      {
+        "index": 5,
+        "extname": "EPSF",
+        "dims": [
+          8752,
+          441
+        ]
+      },
+      {
+        "index": 6,
+        "extname": "WCS-WAVE",
+        "dims": [
+          720,
+          1
+        ]
+      }
+    ],
+    "version_proceso": "7.0.5",
+    "fecha_creacion": ""
+  }
+]

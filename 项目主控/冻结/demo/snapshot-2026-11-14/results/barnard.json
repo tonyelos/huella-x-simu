@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "target_id": "barnard",
+  "frozen_at": "2026-11-14T22:46:21Z",
+  "fov": 0.25,
+  "source": "http://127.0.0.1:8790/api/analyze",
+  "status": "ok",
+  "data_mode": "real",
+  "readiness": "L2",
+  "class": "S",
+  "mu_mas_yr": 8032.88299249131,
+  "mu_err_mas_yr": 9898.93088016356,
+  "pa_deg": 34.238051243583826,
+  "confidence": 0.72,
+  "n_epochs": 4,
+  "detected_epochs": 4,
+  "provenance": [
+    "real"
+  ],
+  "quality": [
+    "SATURATED_SOURCE",
+    "LARGE_CENTROID_ERROR"
+  ],
+  "truth_check": null
+}

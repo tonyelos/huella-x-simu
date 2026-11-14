@@ -1,0 +1,112 @@
+{
+  "snapshot_at": "2026-11-14T23:08:03+0100",
+  "source": "live POST http://127.0.0.1:8790/api/analyze, mode=auto, fov=0.25",
+  "targets": {
+    "barnard": {
+      "expected": "L",
+      "mode": "real",
+      "n_epochs": 4,
+      "provenance": [
+        "real"
+      ],
+      "readiness": "L2",
+      "class": "S",
+      "mu_mas_yr": 8032.88299249131,
+      "mu_err_mas_yr": 9898.93088016356,
+      "detected_epochs": 4,
+      "baseline_days": 203.62253670099744,
+      "quality": [
+        "SATURATED_SOURCE",
+        "LARGE_CENTROID_ERROR"
+      ],
+      "note": "IRSA 静态切片实取 4 期，基线 204 天（dr1 / dr1）；参考星相对定标。"
+    },
+    "epsind_b": {
+      "expected": "L+O",
+      "mode": "real",
+      "n_epochs": 8,
+      "provenance": [
+        "real"
+      ],
+      "readiness": "L3",
+      "class": "L",
+      "mu_mas_yr": 4706.664472174226,
+      "mu_err_mas_yr": 547.2702599799022,
+      "detected_epochs": 8,
+      "baseline_days": 360.97624783599895,
+      "quality": [
+        "LARGE_CENTROID_ERROR"
+      ],
+      "note": "IRSA 静态切片实取 8 期，基线 361 天（dr1 / qr3）；参考星相对定标。"
+    },
+    "wise0855": {
+      "expected": "L",
+      "mode": "real",
+      "n_epochs": 8,
+      "provenance": [
+        "real"
+      ],
+      "readiness": "L0",
+      "class": "U",
+      "mu_mas_yr": 0.0,
+      "mu_err_mas_yr": null,
+      "detected_epochs": 1,
+      "baseline_days": 0.0,
+      "quality": [
+        "FEW_EPOCHS",
+        "SHORT_BASELINE",
+        "LARGE_CENTROID_ERROR"
+      ],
+      "note": "IRSA 静态切片实取 8 期，基线 183 天（dr1 / dr1）；参考星相对定标。"
+    },
+    "rw_aur": {
+      "expected": "V",
+      "mode": "hybrid",
+      "n_epochs": 8,
+      "provenance": [
+        "synthetic"
+      ],
+      "readiness": "L2",
+      "class": "V",
+      "mu_mas_yr": 49.327071582027905,
+      "mu_err_mas_yr": 2115.757236409582,
+      "detected_epochs": 8,
+      "baseline_days": 205.0,
+      "quality": [
+        "LARGE_CENTROID_ERROR"
+      ],
+      "note": "只找到 1 期真实观测（2026W37_2A），无法测运动；以下为验证时序（HYBRID，真实 PSF/噪声 + 注入目标）。"
+    },
+    "r_dra": {
+      "expected": "V",
+      "mode": "hybrid",
+      "n_epochs": 8,
+      "provenance": [
+        "synthetic"
+      ],
+      "readiness": "L2",
+      "class": "V",
+      "mu_mas_yr": 794.938063205092,
+      "mu_err_mas_yr": 2437.1147334830284,
+      "detected_epochs": 7,
+      "baseline_days": 205.0,
+      "quality": [
+        "LARGE_CENTROID_ERROR"
+      ],
+      "note": "真实历元 3 期但基线仅 1 天，不足以判定运动规律；以下为验证时序（HYBRID）。"
+    },
+    "custom_barnard_coords": {
+      "mode": "synthetic",
+      "n_epochs": 8,
+      "provenance": [
+        "synthetic"
+      ],
+      "note": "自定义坐标：使用模拟时序演示识别流程",
+      "class": "S"
+    }
+  },
+  "error_probes": {
+    "sample_mode_barnard": "HTTP 500 cannot convert float NaN to integer",
+    "fov_minus_0_2": "HTTP 500 high - low < 0"
+  }
+}

@@ -1,0 +1,1352 @@
+{
+  "generated_by": "数据库工具/tools/harvest_headers.py",
+  "generated_at": "2026-11-14T22:41:15Z",
+  "summary": {
+    "entries": 74,
+    "ok": 0,
+    "cached": 74,
+    "cached_this_run": 74,
+    "failed": 0,
+    "bytes_total": 4849664
+  },
+  "last_run": {
+    "planned": 74,
+    "fetched": 0,
+    "cached": 74,
+    "failed": 0
+  },
+  "entries": [
+    {
+      "key": "dr1/level2/2025W17_4B/l2b-v27-2026-196/1/level2_2025W17_4B_0001_1D1_spx_l2b-v27-2026-196.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W17_4B/l2b-v27-2026-196/1/level2_2025W17_4B_0001_1D1_spx_l2b-v27-2026-196.fits",
+      "release": "dr1",
+      "week": "2025W17_4B",
+      "version": "l2b-v27-2026-196",
+      "obsid": "2025W17_4B_0001_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W17_4B_2025W17_4B_0001_1_D1_l2b-v27-2026-196.hdr",
+      "sha256": "561f4cafff1a272acca3030ed8b03c80aa62653f69d702408248bde555db5122",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W17_4B/l2b-v27-2026-196/4/level2_2025W17_4B_0001_1D4_spx_l2b-v27-2026-196.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W17_4B/l2b-v27-2026-196/4/level2_2025W17_4B_0001_1D4_spx_l2b-v27-2026-196.fits",
+      "release": "dr1",
+      "week": "2025W17_4B",
+      "version": "l2b-v27-2026-196",
+      "obsid": "2025W17_4B_0001_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W17_4B_2025W17_4B_0001_1_D4_l2b-v27-2026-196.hdr",
+      "sha256": "16e7a9128384569343113c9eb845949a8274f50ff2e803900768ba77e044a5e2",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W24_1A/l2b-v27-2026-201/2/level2_2025W24_1A_0123_1D2_spx_l2b-v27-2026-201.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W24_1A/l2b-v27-2026-201/2/level2_2025W24_1A_0123_1D2_spx_l2b-v27-2026-201.fits",
+      "release": "dr1",
+      "week": "2025W24_1A",
+      "version": "l2b-v27-2026-201",
+      "obsid": "2025W24_1A_0123_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W24_1A_2025W24_1A_0123_1_D2_l2b-v27-2026-201.hdr",
+      "sha256": "3ea8bcce99af0b89b723ad29ceade417e15014cefc6b4e59d40ed134aa9e1d42",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "r_dra"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W24_1A/l2b-v27-2026-201/5/level2_2025W24_1A_0123_1D5_spx_l2b-v27-2026-201.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W24_1A/l2b-v27-2026-201/5/level2_2025W24_1A_0123_1D5_spx_l2b-v27-2026-201.fits",
+      "release": "dr1",
+      "week": "2025W24_1A",
+      "version": "l2b-v27-2026-201",
+      "obsid": "2025W24_1A_0123_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W24_1A_2025W24_1A_0123_1_D5_l2b-v27-2026-201.hdr",
+      "sha256": "d8435ac16dca3f44ba670abbe06d27e6d11934762aa1d5a63e64ae37f20ff3e7",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "r_dra"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W24_1A/l2b-v27-2026-201/2/level2_2025W24_1A_0215_1D2_spx_l2b-v27-2026-201.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W24_1A/l2b-v27-2026-201/2/level2_2025W24_1A_0215_1D2_spx_l2b-v27-2026-201.fits",
+      "release": "dr1",
+      "week": "2025W24_1A",
+      "version": "l2b-v27-2026-201",
+      "obsid": "2025W24_1A_0215_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W24_1A_2025W24_1A_0215_1_D2_l2b-v27-2026-201.hdr",
+      "sha256": "b763639539160ea9087a7347fe42ccaaed7e3a7feea1f316513c5db24c361460",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "r_dra"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W24_1A/l2b-v27-2026-201/5/level2_2025W24_1A_0215_1D5_spx_l2b-v27-2026-201.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W24_1A/l2b-v27-2026-201/5/level2_2025W24_1A_0215_1D5_spx_l2b-v27-2026-201.fits",
+      "release": "dr1",
+      "week": "2025W24_1A",
+      "version": "l2b-v27-2026-201",
+      "obsid": "2025W24_1A_0215_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W24_1A_2025W24_1A_0215_1_D5_l2b-v27-2026-201.hdr",
+      "sha256": "358afdb5bb9f95e2855ced5a705d3f2338d5a7e2e5a20357f2b9294d5f81f2b0",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "r_dra"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W24_1A/l2b-v27-2026-201/2/level2_2025W24_1A_0358_1D2_spx_l2b-v27-2026-201.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W24_1A/l2b-v27-2026-201/2/level2_2025W24_1A_0358_1D2_spx_l2b-v27-2026-201.fits",
+      "release": "dr1",
+      "week": "2025W24_1A",
+      "version": "l2b-v27-2026-201",
+      "obsid": "2025W24_1A_0358_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W24_1A_2025W24_1A_0358_1_D2_l2b-v27-2026-201.hdr",
+      "sha256": "0340a74baca385bf7175fe62bbf9aa4cfb53b95ce9d01d19e2714ef05cfef274",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "r_dra"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W24_1A/l2b-v27-2026-201/5/level2_2025W24_1A_0358_1D5_spx_l2b-v27-2026-201.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W24_1A/l2b-v27-2026-201/5/level2_2025W24_1A_0358_1D5_spx_l2b-v27-2026-201.fits",
+      "release": "dr1",
+      "week": "2025W24_1A",
+      "version": "l2b-v27-2026-201",
+      "obsid": "2025W24_1A_0358_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W24_1A_2025W24_1A_0358_1_D5_l2b-v27-2026-201.hdr",
+      "sha256": "d8080a7daead62b371536a45356a682d014629ba6e818a23bff896d8aff3d505",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "r_dra"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W35_2A/l2b-v27-2026-231/2/level2_2025W35_2A_0221_1D2_spx_l2b-v27-2026-231.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W35_2A/l2b-v27-2026-231/2/level2_2025W35_2A_0221_1D2_spx_l2b-v27-2026-231.fits",
+      "release": "dr1",
+      "week": "2025W35_2A",
+      "version": "l2b-v27-2026-231",
+      "obsid": "2025W35_2A_0221_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W35_2A_2025W35_2A_0221_1_D2_l2b-v27-2026-231.hdr",
+      "sha256": "92e20121b9d446f4a22c6906ac66b99cc0f4bc8fa133f6e41eb17029133176e2",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W35_2A/l2b-v27-2026-231/5/level2_2025W35_2A_0221_1D5_spx_l2b-v27-2026-231.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W35_2A/l2b-v27-2026-231/5/level2_2025W35_2A_0221_1D5_spx_l2b-v27-2026-231.fits",
+      "release": "dr1",
+      "week": "2025W35_2A",
+      "version": "l2b-v27-2026-231",
+      "obsid": "2025W35_2A_0221_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W35_2A_2025W35_2A_0221_1_D5_l2b-v27-2026-231.hdr",
+      "sha256": "68f79473d312d25731712f731419b2b8fa9b40e35e8f80c4a2ba95f6f25b81af",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W35_2A/l2b-v27-2026-231/1/level2_2025W35_2A_0233_1D1_spx_l2b-v27-2026-231.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W35_2A/l2b-v27-2026-231/1/level2_2025W35_2A_0233_1D1_spx_l2b-v27-2026-231.fits",
+      "release": "dr1",
+      "week": "2025W35_2A",
+      "version": "l2b-v27-2026-231",
+      "obsid": "2025W35_2A_0233_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W35_2A_2025W35_2A_0233_1_D1_l2b-v27-2026-231.hdr",
+      "sha256": "3025dc597f478cf8be80730dd192fba4e1d66d55f4ca1a5937e8b65f1c703d70",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W35_2A/l2b-v27-2026-231/4/level2_2025W35_2A_0233_1D4_spx_l2b-v27-2026-231.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W35_2A/l2b-v27-2026-231/4/level2_2025W35_2A_0233_1D4_spx_l2b-v27-2026-231.fits",
+      "release": "dr1",
+      "week": "2025W35_2A",
+      "version": "l2b-v27-2026-231",
+      "obsid": "2025W35_2A_0233_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W35_2A_2025W35_2A_0233_1_D4_l2b-v27-2026-231.hdr",
+      "sha256": "ca885fb0601cda34928e0f92e657c8b818dec5f6d401571d924b6539df9f24a9",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W36_2B/l2b-v27-2026-234/1/level2_2025W36_2B_0123_1D1_spx_l2b-v27-2026-234.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W36_2B/l2b-v27-2026-234/1/level2_2025W36_2B_0123_1D1_spx_l2b-v27-2026-234.fits",
+      "release": "dr1",
+      "week": "2025W36_2B",
+      "version": "l2b-v27-2026-234",
+      "obsid": "2025W36_2B_0123_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W36_2B_2025W36_2B_0123_1_D1_l2b-v27-2026-234.hdr",
+      "sha256": "eda54e280d5f6324ed5b8e9abab30c79a58503946d4e5f5910153e3b8dc2e817",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W36_2B/l2b-v27-2026-234/4/level2_2025W36_2B_0123_1D4_spx_l2b-v27-2026-234.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W36_2B/l2b-v27-2026-234/4/level2_2025W36_2B_0123_1D4_spx_l2b-v27-2026-234.fits",
+      "release": "dr1",
+      "week": "2025W36_2B",
+      "version": "l2b-v27-2026-234",
+      "obsid": "2025W36_2B_0123_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W36_2B_2025W36_2B_0123_1_D4_l2b-v27-2026-234.hdr",
+      "sha256": "b795ecd044fe1ee0ac0498fb76e092633ef6fcab2de8d98a544cf4fb1ec8210b",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W41_1A/l2b-v27-2026-241/2/level2_2025W41_1A_0108_1D2_spx_l2b-v27-2026-241.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W41_1A/l2b-v27-2026-241/2/level2_2025W41_1A_0108_1D2_spx_l2b-v27-2026-241.fits",
+      "release": "dr1",
+      "week": "2025W41_1A",
+      "version": "l2b-v27-2026-241",
+      "obsid": "2025W41_1A_0108_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W41_1A_2025W41_1A_0108_1_D2_l2b-v27-2026-241.hdr",
+      "sha256": "38a700e98ddbc0651e56ff9967afb2a24643d2fc171c0364f3fa9e779e4dd3d3",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W41_1A/l2b-v27-2026-241/5/level2_2025W41_1A_0108_1D5_spx_l2b-v27-2026-241.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W41_1A/l2b-v27-2026-241/5/level2_2025W41_1A_0108_1D5_spx_l2b-v27-2026-241.fits",
+      "release": "dr1",
+      "week": "2025W41_1A",
+      "version": "l2b-v27-2026-241",
+      "obsid": "2025W41_1A_0108_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W41_1A_2025W41_1A_0108_1_D5_l2b-v27-2026-241.hdr",
+      "sha256": "ec62fd4cdfe0310f4441d760fe9412e80c3d6dd8946c5751a60063a4aa6b8c63",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W41_1A/l2b-v27-2026-241/1/level2_2025W41_1A_0242_2D1_spx_l2b-v27-2026-241.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W41_1A/l2b-v27-2026-241/1/level2_2025W41_1A_0242_2D1_spx_l2b-v27-2026-241.fits",
+      "release": "dr1",
+      "week": "2025W41_1A",
+      "version": "l2b-v27-2026-241",
+      "obsid": "2025W41_1A_0242_2",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W41_1A_2025W41_1A_0242_2_D1_l2b-v27-2026-241.hdr",
+      "sha256": "f27f644e6e16fa04d2e1efb872b9882f87052496b56bbfa2f2ca351f6c12acfb",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W41_1A/l2b-v27-2026-241/4/level2_2025W41_1A_0242_2D4_spx_l2b-v27-2026-241.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W41_1A/l2b-v27-2026-241/4/level2_2025W41_1A_0242_2D4_spx_l2b-v27-2026-241.fits",
+      "release": "dr1",
+      "week": "2025W41_1A",
+      "version": "l2b-v27-2026-241",
+      "obsid": "2025W41_1A_0242_2",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W41_1A_2025W41_1A_0242_2_D4_l2b-v27-2026-241.hdr",
+      "sha256": "e32bb57e0e2478394b13969b756f469a79745ff88cf0736720795c28e73dac9c",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W41_1A/l2b-v27-2026-241/1/level2_2025W41_1A_0373_1D1_spx_l2b-v27-2026-241.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W41_1A/l2b-v27-2026-241/1/level2_2025W41_1A_0373_1D1_spx_l2b-v27-2026-241.fits",
+      "release": "dr1",
+      "week": "2025W41_1A",
+      "version": "l2b-v27-2026-241",
+      "obsid": "2025W41_1A_0373_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W41_1A_2025W41_1A_0373_1_D1_l2b-v27-2026-241.hdr",
+      "sha256": "688b22277a43dd642ee02e58ca116161e21a153099f95c115f3fa1b10963b597",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W41_1A/l2b-v27-2026-241/4/level2_2025W41_1A_0373_1D4_spx_l2b-v27-2026-241.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W41_1A/l2b-v27-2026-241/4/level2_2025W41_1A_0373_1D4_spx_l2b-v27-2026-241.fits",
+      "release": "dr1",
+      "week": "2025W41_1A",
+      "version": "l2b-v27-2026-241",
+      "obsid": "2025W41_1A_0373_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W41_1A_2025W41_1A_0373_1_D4_l2b-v27-2026-241.hdr",
+      "sha256": "288e1a5c6373f1e8aed68b5277fd20231fb2dc1d08d56a31acc4707865eae66a",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W43_1A/l2b-v27-2026-244/1/level2_2025W43_1A_0019_1D1_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W43_1A/l2b-v27-2026-244/1/level2_2025W43_1A_0019_1D1_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2025W43_1A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2025W43_1A_0019_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W43_1A_2025W43_1A_0019_1_D1_l2b-v27-2026-244.hdr",
+      "sha256": "a25905004f219b2389fe5f9c5f2dfdb593236e2f9649bcdc3cc07cbeaffc0a5d",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W43_1A/l2b-v27-2026-244/4/level2_2025W43_1A_0019_1D4_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W43_1A/l2b-v27-2026-244/4/level2_2025W43_1A_0019_1D4_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2025W43_1A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2025W43_1A_0019_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W43_1A_2025W43_1A_0019_1_D4_l2b-v27-2026-244.hdr",
+      "sha256": "05d90b54849e326020695d99063e070b5a0979ed3bcfea6789c9ac52986482c1",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W44_2B/l2b-v27-2026-246/1/level2_2025W44_2B_0305_1D1_spx_l2b-v27-2026-246.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W44_2B/l2b-v27-2026-246/1/level2_2025W44_2B_0305_1D1_spx_l2b-v27-2026-246.fits",
+      "release": "dr1",
+      "week": "2025W44_2B",
+      "version": "l2b-v27-2026-246",
+      "obsid": "2025W44_2B_0305_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W44_2B_2025W44_2B_0305_1_D1_l2b-v27-2026-246.hdr",
+      "sha256": "eba08b8226b2dfc52d2a1a50667142ced1bbf123b90badfbb9d53e1f624efdf0",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W44_2B/l2b-v27-2026-246/4/level2_2025W44_2B_0305_1D4_spx_l2b-v27-2026-246.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W44_2B/l2b-v27-2026-246/4/level2_2025W44_2B_0305_1D4_spx_l2b-v27-2026-246.fits",
+      "release": "dr1",
+      "week": "2025W44_2B",
+      "version": "l2b-v27-2026-246",
+      "obsid": "2025W44_2B_0305_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W44_2B_2025W44_2B_0305_1_D4_l2b-v27-2026-246.hdr",
+      "sha256": "a8ff853b4d8486910d387cb1ba06d90648e37c8e83e32a55c6225d5a4138b7ff",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W44_2B/l2b-v27-2026-246/1/level2_2025W44_2B_0321_1D1_spx_l2b-v27-2026-246.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W44_2B/l2b-v27-2026-246/1/level2_2025W44_2B_0321_1D1_spx_l2b-v27-2026-246.fits",
+      "release": "dr1",
+      "week": "2025W44_2B",
+      "version": "l2b-v27-2026-246",
+      "obsid": "2025W44_2B_0321_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W44_2B_2025W44_2B_0321_1_D1_l2b-v27-2026-246.hdr",
+      "sha256": "b100cb6a6be0055ccd46aeb2c2414fa1c49d3d9c0cc984540d110ad8aafe471f",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W44_2B/l2b-v27-2026-246/4/level2_2025W44_2B_0321_1D4_spx_l2b-v27-2026-246.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W44_2B/l2b-v27-2026-246/4/level2_2025W44_2B_0321_1D4_spx_l2b-v27-2026-246.fits",
+      "release": "dr1",
+      "week": "2025W44_2B",
+      "version": "l2b-v27-2026-246",
+      "obsid": "2025W44_2B_0321_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W44_2B_2025W44_2B_0321_1_D4_l2b-v27-2026-246.hdr",
+      "sha256": "8f7818adf162908a7a2222a7901a56f127b7f1739d182a9063967696bbd7541d",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W44_2B/l2b-v27-2026-246/1/level2_2025W44_2B_0322_1D1_spx_l2b-v27-2026-246.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W44_2B/l2b-v27-2026-246/1/level2_2025W44_2B_0322_1D1_spx_l2b-v27-2026-246.fits",
+      "release": "dr1",
+      "week": "2025W44_2B",
+      "version": "l2b-v27-2026-246",
+      "obsid": "2025W44_2B_0322_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W44_2B_2025W44_2B_0322_1_D1_l2b-v27-2026-246.hdr",
+      "sha256": "2c79cadb4e95effb5d0d74670fa7a1095613392879bdc11e47a46172771b1e11",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W44_2B/l2b-v27-2026-246/4/level2_2025W44_2B_0322_1D4_spx_l2b-v27-2026-246.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W44_2B/l2b-v27-2026-246/4/level2_2025W44_2B_0322_1D4_spx_l2b-v27-2026-246.fits",
+      "release": "dr1",
+      "week": "2025W44_2B",
+      "version": "l2b-v27-2026-246",
+      "obsid": "2025W44_2B_0322_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W44_2B_2025W44_2B_0322_1_D4_l2b-v27-2026-246.hdr",
+      "sha256": "5aeb3d4484c9020a86c69c7c3a2803d188ef682b75c3720d433f108e755f2e06",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0164_1D2_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0164_1D2_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0164_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0164_1_D2_l2b-v27-2026-247.hdr",
+      "sha256": "4d79a4eb86f57f5a9c73b048a84e9e3e7309d3af40d2cd4d5bd497219b57612d",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0164_1D5_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0164_1D5_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0164_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0164_1_D5_l2b-v27-2026-247.hdr",
+      "sha256": "8c9200b7fa2b61a6ac574fe8c54140c0a2404a937e6060788d2c78dfd81cbd8f",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0192_1D2_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0192_1D2_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0192_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0192_1_D2_l2b-v27-2026-247.hdr",
+      "sha256": "b2ced15f4415ab463136eae51f44be15f6d82a56d0f2f19fe81172ec4cbb2f9f",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0192_1D5_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0192_1D5_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0192_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0192_1_D5_l2b-v27-2026-247.hdr",
+      "sha256": "9256a71c3bcbeb9dc000ad623f02197a559207d1415e83ab49c910c8e14e110b",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0278_1D2_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0278_1D2_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0278_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0278_1_D2_l2b-v27-2026-247.hdr",
+      "sha256": "3fa20347a567f2b48702bc0f5fc9368bc640199b7f7f1fbd7365c796056ce252",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0278_1D5_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0278_1D5_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0278_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0278_1_D5_l2b-v27-2026-247.hdr",
+      "sha256": "40e32d0d97322d6efd3ff6cc0753707f1f541234ddf61561d6d579e11be77f17",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0292_1D2_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0292_1D2_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0292_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0292_1_D2_l2b-v27-2026-247.hdr",
+      "sha256": "a4dd5199a64365220fe527dff359ffbf8ba86546c77ce54d5186a053c8333c27",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0292_1D5_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0292_1D5_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0292_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0292_1_D5_l2b-v27-2026-247.hdr",
+      "sha256": "6577087c207ceffef9cd93ad9e7be3eebc32da75d92195db45d450b6a1c534ae",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0367_1D2_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/2/level2_2025W45_2A_0367_1D2_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0367_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0367_1_D2_l2b-v27-2026-247.hdr",
+      "sha256": "a11f5fa1e03e60b2f14d772756edc6692097157e08bc5b531ade7c80d0b69922",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0367_1D5_spx_l2b-v27-2026-247.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W45_2A/l2b-v27-2026-247/5/level2_2025W45_2A_0367_1D5_spx_l2b-v27-2026-247.fits",
+      "release": "dr1",
+      "week": "2025W45_2A",
+      "version": "l2b-v27-2026-247",
+      "obsid": "2025W45_2A_0367_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W45_2A_2025W45_2A_0367_1_D5_l2b-v27-2026-247.hdr",
+      "sha256": "1498dbe237962743c28bf0c010d1b97573ecd184a13b61c74d7582769c3a923f",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W48_1A/l2b-v27-2026-208/3/level2_2025W48_1A_0005_1D3_spx_l2b-v27-2026-208.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W48_1A/l2b-v27-2026-208/3/level2_2025W48_1A_0005_1D3_spx_l2b-v27-2026-208.fits",
+      "release": "dr1",
+      "week": "2025W48_1A",
+      "version": "l2b-v27-2026-208",
+      "obsid": "2025W48_1A_0005_1",
+      "detector": 3,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W48_1A_2025W48_1A_0005_1_D3_l2b-v27-2026-208.hdr",
+      "sha256": "925d92e0a06b86f118e1ccdead59901c7a80774827ccd8bf90572b495febe585",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W48_1A/l2b-v27-2026-208/6/level2_2025W48_1A_0005_1D6_spx_l2b-v27-2026-208.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W48_1A/l2b-v27-2026-208/6/level2_2025W48_1A_0005_1D6_spx_l2b-v27-2026-208.fits",
+      "release": "dr1",
+      "week": "2025W48_1A",
+      "version": "l2b-v27-2026-208",
+      "obsid": "2025W48_1A_0005_1",
+      "detector": 6,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W48_1A_2025W48_1A_0005_1_D6_l2b-v27-2026-208.hdr",
+      "sha256": "8d3ea2ed65c94a03a441ce466e501a7b7b6e1ea0c06603c0c22085aa173d2857",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W48_1A/l2b-v27-2026-208/2/level2_2025W48_1A_0272_1D2_spx_l2b-v27-2026-208.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W48_1A/l2b-v27-2026-208/2/level2_2025W48_1A_0272_1D2_spx_l2b-v27-2026-208.fits",
+      "release": "dr1",
+      "week": "2025W48_1A",
+      "version": "l2b-v27-2026-208",
+      "obsid": "2025W48_1A_0272_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W48_1A_2025W48_1A_0272_1_D2_l2b-v27-2026-208.hdr",
+      "sha256": "c74c1f9311d7705ba8f3ffefcec199d0e261badd87d216c4958e0a7c798962a5",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W48_1A/l2b-v27-2026-208/5/level2_2025W48_1A_0272_1D5_spx_l2b-v27-2026-208.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W48_1A/l2b-v27-2026-208/5/level2_2025W48_1A_0272_1D5_spx_l2b-v27-2026-208.fits",
+      "release": "dr1",
+      "week": "2025W48_1A",
+      "version": "l2b-v27-2026-208",
+      "obsid": "2025W48_1A_0272_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W48_1A_2025W48_1A_0272_1_D5_l2b-v27-2026-208.hdr",
+      "sha256": "d8f7bdb1baeee1cd6fdc884969c2e9df6d7931c3803c28e6fd6a4e73e96fcd1d",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W48_1A/l2b-v27-2026-208/2/level2_2025W48_1A_0273_1D2_spx_l2b-v27-2026-208.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W48_1A/l2b-v27-2026-208/2/level2_2025W48_1A_0273_1D2_spx_l2b-v27-2026-208.fits",
+      "release": "dr1",
+      "week": "2025W48_1A",
+      "version": "l2b-v27-2026-208",
+      "obsid": "2025W48_1A_0273_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W48_1A_2025W48_1A_0273_1_D2_l2b-v27-2026-208.hdr",
+      "sha256": "3157ae241cf0bb0edb23f9c3008663a0421e89356174e4b920489bb94a0af7f7",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W48_1A/l2b-v27-2026-208/5/level2_2025W48_1A_0273_1D5_spx_l2b-v27-2026-208.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W48_1A/l2b-v27-2026-208/5/level2_2025W48_1A_0273_1D5_spx_l2b-v27-2026-208.fits",
+      "release": "dr1",
+      "week": "2025W48_1A",
+      "version": "l2b-v27-2026-208",
+      "obsid": "2025W48_1A_0273_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W48_1A_2025W48_1A_0273_1_D5_l2b-v27-2026-208.hdr",
+      "sha256": "04223f4e2ecdda78c9cf1528ee1cc73e8aa0ef9a086f026213367c169ba7f99f",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "campo_a"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W51_1A/l2b-v27-2026-210/3/level2_2025W51_1A_0061_1D3_spx_l2b-v27-2026-210.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W51_1A/l2b-v27-2026-210/3/level2_2025W51_1A_0061_1D3_spx_l2b-v27-2026-210.fits",
+      "release": "dr1",
+      "week": "2025W51_1A",
+      "version": "l2b-v27-2026-210",
+      "obsid": "2025W51_1A_0061_1",
+      "detector": 3,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W51_1A_2025W51_1A_0061_1_D3_l2b-v27-2026-210.hdr",
+      "sha256": "b6e552595898f883231ec58d4f7c6a1d2a7a3cc42a017e0a98854627183610f5",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "dr1/level2/2025W51_1A/l2b-v27-2026-210/6/level2_2025W51_1A_0061_1D6_spx_l2b-v27-2026-210.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2025W51_1A/l2b-v27-2026-210/6/level2_2025W51_1A_0061_1D6_spx_l2b-v27-2026-210.fits",
+      "release": "dr1",
+      "week": "2025W51_1A",
+      "version": "l2b-v27-2026-210",
+      "obsid": "2025W51_1A_0061_1",
+      "detector": 6,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2025W51_1A_2025W51_1A_0061_1_D6_l2b-v27-2026-210.hdr",
+      "sha256": "33ae88b257d722af58091dbd5b67e625c898cefbe7ca5d63f1d74a0afce3e326",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W12_2A/l2b-v27-2026-235/3/level2_2026W12_2A_0324_1D3_spx_l2b-v27-2026-235.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W12_2A/l2b-v27-2026-235/3/level2_2026W12_2A_0324_1D3_spx_l2b-v27-2026-235.fits",
+      "release": "dr1",
+      "week": "2026W12_2A",
+      "version": "l2b-v27-2026-235",
+      "obsid": "2026W12_2A_0324_1",
+      "detector": 3,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W12_2A_2026W12_2A_0324_1_D3_l2b-v27-2026-235.hdr",
+      "sha256": "0b9f88375ac9375e2589331c96ec43e50908c8248e90c423092f7eceb017ad81",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W12_2A/l2b-v27-2026-235/6/level2_2026W12_2A_0324_1D6_spx_l2b-v27-2026-235.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W12_2A/l2b-v27-2026-235/6/level2_2026W12_2A_0324_1D6_spx_l2b-v27-2026-235.fits",
+      "release": "dr1",
+      "week": "2026W12_2A",
+      "version": "l2b-v27-2026-235",
+      "obsid": "2026W12_2A_0324_1",
+      "detector": 6,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W12_2A_2026W12_2A_0324_1_D6_l2b-v27-2026-235.hdr",
+      "sha256": "b60564bf935e31b135c16f709a6ed854231faaee6ed8f42ce3408390b8a49c7c",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "barnard"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W18_1A/l2b-v27-2026-244/1/level2_2026W18_1A_0032_1D1_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W18_1A/l2b-v27-2026-244/1/level2_2026W18_1A_0032_1D1_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2026W18_1A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2026W18_1A_0032_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W18_1A_2026W18_1A_0032_1_D1_l2b-v27-2026-244.hdr",
+      "sha256": "ff7763f2400ea34ae8622479e91055a5170e9c82c766d316fea3422e4b89f032",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W18_1A/l2b-v27-2026-244/4/level2_2026W18_1A_0032_1D4_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W18_1A/l2b-v27-2026-244/4/level2_2026W18_1A_0032_1D4_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2026W18_1A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2026W18_1A_0032_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W18_1A_2026W18_1A_0032_1_D4_l2b-v27-2026-244.hdr",
+      "sha256": "206a9ea5220e5b51e348f32ec973b539d3150066d8e1ad93113f6c96317e67aa",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W18_2A/l2b-v27-2026-244/1/level2_2026W18_2A_0264_1D1_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W18_2A/l2b-v27-2026-244/1/level2_2026W18_2A_0264_1D1_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2026W18_2A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2026W18_2A_0264_1",
+      "detector": 1,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W18_2A_2026W18_2A_0264_1_D1_l2b-v27-2026-244.hdr",
+      "sha256": "43ddaaac97865fcb7585386d017a77db869d03e829526f7606d8a09fc119c7fe",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W18_2A/l2b-v27-2026-244/4/level2_2026W18_2A_0264_1D4_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W18_2A/l2b-v27-2026-244/4/level2_2026W18_2A_0264_1D4_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2026W18_2A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2026W18_2A_0264_1",
+      "detector": 4,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W18_2A_2026W18_2A_0264_1_D4_l2b-v27-2026-244.hdr",
+      "sha256": "253ab0430eabb1811fb8e93dbea4f36cb8074f76e887de571ff691105ad0670f",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W18_2A/l2b-v27-2026-244/2/level2_2026W18_2A_0441_1D2_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W18_2A/l2b-v27-2026-244/2/level2_2026W18_2A_0441_1D2_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2026W18_2A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2026W18_2A_0441_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W18_2A_2026W18_2A_0441_1_D2_l2b-v27-2026-244.hdr",
+      "sha256": "4abcb21d7aba8aba680286358934943ae919ea4aabf70acbe4e5893e0d2b4fa3",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "dr1/level2/2026W18_2A/l2b-v27-2026-244/5/level2_2026W18_2A_0441_1D5_spx_l2b-v27-2026-244.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/level2/2026W18_2A/l2b-v27-2026-244/5/level2_2026W18_2A_0441_1D5_spx_l2b-v27-2026-244.fits",
+      "release": "dr1",
+      "week": "2026W18_2A",
+      "version": "l2b-v27-2026-244",
+      "obsid": "2026W18_2A_0441_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/dr1_2026W18_2A_2026W18_2A_0441_1_D5_l2b-v27-2026-244.hdr",
+      "sha256": "fe5125f042f2bd6f9f9b72496c0e52215c4bfd52a17017e3276df16c07f28f92",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "wise0855"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0170_1D2_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0170_1D2_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0170_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0170_1_D2_l2b-v27-2026-273.hdr",
+      "sha256": "7b50e0f2405c237ac4a34f7567212007e9d15d522e90c60921e92c97ce29c1fd",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0170_1D5_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0170_1D5_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0170_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0170_1_D5_l2b-v27-2026-273.hdr",
+      "sha256": "298974563f6d0de0053f5265abf8dcad87f739247b94e7a757db1ce1baa4ba21",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0214_1D2_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0214_1D2_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0214_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0214_1_D2_l2b-v27-2026-273.hdr",
+      "sha256": "fc37b377ebc0c8f0e6177a9f5916b358e9db73d13860c0b496d860768e00250d",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0214_1D5_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0214_1D5_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0214_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0214_1_D5_l2b-v27-2026-273.hdr",
+      "sha256": "f316afca4d2ce657145070191637bb61921ee61952785ac535dbc69b516c5023",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0279_1D2_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0279_1D2_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0279_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0279_1_D2_l2b-v27-2026-273.hdr",
+      "sha256": "3ea2f500a9e0971ce4ad1d09abf5fc7964d42a79bc713db824a0eae5b7d26bae",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0279_1D5_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0279_1D5_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0279_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0279_1_D5_l2b-v27-2026-273.hdr",
+      "sha256": "a1ee17b13d46ab0008ff32a15075ee691c8b94511f0eda9c1717099bce79f3f3",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0311_1D2_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/2/level2_2026W25_2A_0311_1D2_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0311_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0311_1_D2_l2b-v27-2026-273.hdr",
+      "sha256": "576c8c443cf095d5ac3406d4d6923de694ae27cbc0835259a753c44cd7ca33ab",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0311_1D5_spx_l2b-v27-2026-273.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W25_2A/l2b-v27-2026-273/5/level2_2026W25_2A_0311_1D5_spx_l2b-v27-2026-273.fits",
+      "release": "qr3",
+      "week": "2026W25_2A",
+      "version": "l2b-v27-2026-273",
+      "obsid": "2026W25_2A_0311_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W25_2A_2026W25_2A_0311_1_D5_l2b-v27-2026-273.hdr",
+      "sha256": "2028ecd7bab04e0804f510611c7123511e0480dc2c344cbc590646122c5303a4",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "m101"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W37_2A/l2b-v27-2026-259/2/level2_2026W37_2A_0230_1D2_spx_l2b-v27-2026-259.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W37_2A/l2b-v27-2026-259/2/level2_2026W37_2A_0230_1D2_spx_l2b-v27-2026-259.fits",
+      "release": "qr3",
+      "week": "2026W37_2A",
+      "version": "l2b-v27-2026-259",
+      "obsid": "2026W37_2A_0230_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W37_2A_2026W37_2A_0230_1_D2_l2b-v27-2026-259.hdr",
+      "sha256": "a6f9c467ff64e4aa3144d29ed5b85614cfb278d2a4322bfe05f085ea3dfc226e",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "rw_aur"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W37_2A/l2b-v27-2026-259/5/level2_2026W37_2A_0230_1D5_spx_l2b-v27-2026-259.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W37_2A/l2b-v27-2026-259/5/level2_2026W37_2A_0230_1D5_spx_l2b-v27-2026-259.fits",
+      "release": "qr3",
+      "week": "2026W37_2A",
+      "version": "l2b-v27-2026-259",
+      "obsid": "2026W37_2A_0230_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W37_2A_2026W37_2A_0230_1_D5_l2b-v27-2026-259.hdr",
+      "sha256": "9683634e1a69253a6c7901bd4438181edb5242ecbab1becb056f979b3630ccca",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "rw_aur"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_1A/l2b-v27-2026-276/3/level2_2026W40_1A_0070_1D3_spx_l2b-v27-2026-276.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_1A/l2b-v27-2026-276/3/level2_2026W40_1A_0070_1D3_spx_l2b-v27-2026-276.fits",
+      "release": "qr3",
+      "week": "2026W40_1A",
+      "version": "l2b-v27-2026-276",
+      "obsid": "2026W40_1A_0070_1",
+      "detector": 3,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_1A_2026W40_1A_0070_1_D3_l2b-v27-2026-276.hdr",
+      "sha256": "41ea3bf393dcd696f2e7cc52728d1697e67e7b4b4aba250741f2d3e27e15975c",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_1A/l2b-v27-2026-276/6/level2_2026W40_1A_0070_1D6_spx_l2b-v27-2026-276.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_1A/l2b-v27-2026-276/6/level2_2026W40_1A_0070_1D6_spx_l2b-v27-2026-276.fits",
+      "release": "qr3",
+      "week": "2026W40_1A",
+      "version": "l2b-v27-2026-276",
+      "obsid": "2026W40_1A_0070_1",
+      "detector": 6,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_1A_2026W40_1A_0070_1_D6_l2b-v27-2026-276.hdr",
+      "sha256": "fa1ef438d366978e6346322e3f0b838820b016b9cb5921b3c693fed436245318",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_1A/l2b-v27-2026-276/2/level2_2026W40_1A_0407_1D2_spx_l2b-v27-2026-276.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_1A/l2b-v27-2026-276/2/level2_2026W40_1A_0407_1D2_spx_l2b-v27-2026-276.fits",
+      "release": "qr3",
+      "week": "2026W40_1A",
+      "version": "l2b-v27-2026-276",
+      "obsid": "2026W40_1A_0407_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_1A_2026W40_1A_0407_1_D2_l2b-v27-2026-276.hdr",
+      "sha256": "f62765381bb4ab4b4bdedd1d5e7ee01a78930934215e7972474e9b13f2e7bedc",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_1A/l2b-v27-2026-276/5/level2_2026W40_1A_0407_1D5_spx_l2b-v27-2026-276.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_1A/l2b-v27-2026-276/5/level2_2026W40_1A_0407_1D5_spx_l2b-v27-2026-276.fits",
+      "release": "qr3",
+      "week": "2026W40_1A",
+      "version": "l2b-v27-2026-276",
+      "obsid": "2026W40_1A_0407_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_1A_2026W40_1A_0407_1_D5_l2b-v27-2026-276.hdr",
+      "sha256": "1d236d2ad0cb8583643759e7e3bb5ca11a079a0c6411c5ffda064395aba74cc8",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_2A/l2b-v27-2026-285/2/level2_2026W40_2A_0143_1D2_spx_l2b-v27-2026-285.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_2A/l2b-v27-2026-285/2/level2_2026W40_2A_0143_1D2_spx_l2b-v27-2026-285.fits",
+      "release": "qr3",
+      "week": "2026W40_2A",
+      "version": "l2b-v27-2026-285",
+      "obsid": "2026W40_2A_0143_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_2A_2026W40_2A_0143_1_D2_l2b-v27-2026-285.hdr",
+      "sha256": "54982d919179ef30932708a76884b7cb41005c56ca8ae21f4b1b0daa2e8beb90",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_2A/l2b-v27-2026-285/5/level2_2026W40_2A_0143_1D5_spx_l2b-v27-2026-285.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_2A/l2b-v27-2026-285/5/level2_2026W40_2A_0143_1D5_spx_l2b-v27-2026-285.fits",
+      "release": "qr3",
+      "week": "2026W40_2A",
+      "version": "l2b-v27-2026-285",
+      "obsid": "2026W40_2A_0143_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_2A_2026W40_2A_0143_1_D5_l2b-v27-2026-285.hdr",
+      "sha256": "f761cad52d05dd5925319337b57ac071fb94d64b864b37c17400248fed72ca38",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_2A/l2b-v27-2026-285/2/level2_2026W40_2A_0172_1D2_spx_l2b-v27-2026-285.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_2A/l2b-v27-2026-285/2/level2_2026W40_2A_0172_1D2_spx_l2b-v27-2026-285.fits",
+      "release": "qr3",
+      "week": "2026W40_2A",
+      "version": "l2b-v27-2026-285",
+      "obsid": "2026W40_2A_0172_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_2A_2026W40_2A_0172_1_D2_l2b-v27-2026-285.hdr",
+      "sha256": "a759aef14a5b3d06e6a254ee252787f390a10ad1203fdd233bf605d5777864dd",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_2A/l2b-v27-2026-285/5/level2_2026W40_2A_0172_1D5_spx_l2b-v27-2026-285.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_2A/l2b-v27-2026-285/5/level2_2026W40_2A_0172_1D5_spx_l2b-v27-2026-285.fits",
+      "release": "qr3",
+      "week": "2026W40_2A",
+      "version": "l2b-v27-2026-285",
+      "obsid": "2026W40_2A_0172_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_2A_2026W40_2A_0172_1_D5_l2b-v27-2026-285.hdr",
+      "sha256": "927673c13eb58d58778ee988df7fe2264b99bd9e871b88bd16258dc5415e1a4c",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_2A/l2b-v27-2026-285/2/level2_2026W40_2A_0216_1D2_spx_l2b-v27-2026-285.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_2A/l2b-v27-2026-285/2/level2_2026W40_2A_0216_1D2_spx_l2b-v27-2026-285.fits",
+      "release": "qr3",
+      "week": "2026W40_2A",
+      "version": "l2b-v27-2026-285",
+      "obsid": "2026W40_2A_0216_1",
+      "detector": 2,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_2A_2026W40_2A_0216_1_D2_l2b-v27-2026-285.hdr",
+      "sha256": "de1aa5f39396385f9f8bb7cd888c5f1ff4993de30008b33db00ec0357f95b86c",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    },
+    {
+      "key": "qr3/level2/2026W40_2A/l2b-v27-2026-285/5/level2_2026W40_2A_0216_1D5_spx_l2b-v27-2026-285.fits",
+      "url": "https://nasa-irsa-spherex.s3.amazonaws.com/qr3/level2/2026W40_2A/l2b-v27-2026-285/5/level2_2026W40_2A_0216_1D5_spx_l2b-v27-2026-285.fits",
+      "release": "qr3",
+      "week": "2026W40_2A",
+      "version": "l2b-v27-2026-285",
+      "obsid": "2026W40_2A_0216_1",
+      "detector": 5,
+      "file": "/Users/yiao/Documents/huellaX/app/data/header_cache/qr3_2026W40_2A_2026W40_2A_0216_1_D5_l2b-v27-2026-285.hdr",
+      "sha256": "4f59d77f672248b954698d7b3b92af8db2f4a54592574f99dfe97755d49754ca",
+      "bytes": 65536,
+      "status": "cached",
+      "error": null,
+      "fetched_at": "2026-11-14T22:41:15Z",
+      "targets": [
+        "epsind_b"
+      ]
+    }
+  ]
+}

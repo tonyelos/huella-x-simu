@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "source": "项目主控/01_验收基线与结果.md §2（2026-11-14 23:07 CET 快照）",
+  "request": {
+    "mode": "auto",
+    "fov": 0.25
+  },
+  "tolerance": {
+    "mu_pct": 5.0,
+    "mu_sigma": true,
+    "duration_s": 30.0
+  },
+  "targets": {
+    "barnard": {
+      "mode": "real",
+      "n_epochs": 4,
+      "readiness": "L2",
+      "class": "S",
+      "mu_mas_yr": 8033.0,
+      "mu_sigma_mas_yr": 9899.0
+    },
+    "epsind_b": {
+      "mode": "real",
+      "n_epochs": 8,
+      "readiness": "L3",
+      "class": "L",
+      "mu_mas_yr": 4707.0,
+      "mu_sigma_mas_yr": 547.0
+    },
+    "wise0855": {
+      "mode": "real",
+      "n_epochs": 8,
+      "readiness": "L0",
+      "class": "U",
+      "mu_mas_yr": null,
+      "mu_sigma_mas_yr": null
+    },
+    "rw_aur": {
+      "mode": "hybrid",
+      "n_epochs": 8,
+      "readiness": "L2",
+      "class": "V",
+      "mu_mas_yr": 49.0,
+      "mu_sigma_mas_yr": 2116.0
+    },
+    "r_dra": {
+      "mode": "hybrid",
+      "n_epochs": 8,
+      "readiness": "L2",
+      "class": "V",
+      "mu_mas_yr": 795.0,
+      "mu_sigma_mas_yr": 2437.0
+    }
+  }
+}

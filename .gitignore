@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# 迁移/冲突归档与工作树，不进仓库
+项目主控/_归档/
+项目主控/_worktrees/
+项目主控/_secrets/
+
+# 运行时产物
+项目主控/验收/report/
+项目主控/启动/logs/
+项目主控/启动/run/
+系统/数据库工具/var/catalog.sqlite-wal
+系统/数据库工具/var/catalog.sqlite-shm
+系统/数据库工具/var/smoke*
+系统/数据库工具/var/bench_scale*.sqlite*
+系统/数据库工具/var/*.log
+系统/数据库工具/var/*.pid

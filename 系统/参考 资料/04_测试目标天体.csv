@@ -1,0 +1,7 @@
+目标,英文名,SIMBAD_标识,RA_deg,Dec_deg,坐标来源,类型,预期变化
+1,Barnard's Star,"Barnard's star",269.452077,4.693365,SIMBAD ICRS J2000,M4 矮星,高自行（约 10.3 角秒/年）
+2,Epsilon Indi B,"eps Ind B",331.044147,-56.782844,SIMBAD ICRS J2000,褐矮星双星,绕 Eps Ind A 公转的角位移
+3,WISE 0855-0714,WISE J085510.83-071442.5,133.818908,-7.247048,SIMBAD ICRS J2000（MIR）,Y 型褐矮星,快速移动
+3b,WISE 0855-0714（赛道给定坐标）,WISE J085510.83-071442.5,133.795129,-7.245147,赛道原文,同上,同上（与 SIMBAD 差 1.6 角分）
+4,RW Aurigae,"RW Aur",76.956526,30.401438,SIMBAD ICRS J2000,金牛 T 型变星,亮度变、位置不变
+5,R Draconis,"R Dra",248.167611,66.754979,SIMBAD ICRS J2000,米拉型长周期变星,亮度大幅变、位置不变

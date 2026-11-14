@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "target_id": "rw_aur",
+  "frozen_at": "2026-11-14T22:46:28Z",
+  "fov": 0.25,
+  "source": "http://127.0.0.1:8790/api/analyze",
+  "status": "ok",
+  "data_mode": "hybrid",
+  "readiness": "L2",
+  "class": "V",
+  "mu_mas_yr": 49.327071582027905,
+  "mu_err_mas_yr": 2115.757236409582,
+  "pa_deg": 77.18006883648837,
+  "confidence": 0.8140254822106863,
+  "n_epochs": 8,
+  "detected_epochs": 8,
+  "provenance": [
+    "synthetic"
+  ],
+  "quality": [
+    "LARGE_CENTROID_ERROR"
+  ],
+  "truth_check": {
+    "injected_mu_mas_yr": 23.303532168321606,
+    "injected_pa_deg": 156.92298228428834,
+    "measured_mu_mas_yr": 49.327071582027905,
+    "ratio": 2.1167208140696467
+  }
+}

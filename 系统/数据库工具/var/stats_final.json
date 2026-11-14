@@ -1,0 +1,206 @@
+{
+  "db": {
+    "path": "/Users/yiao/Documents/huellaX/数据库工具/var/catalog.sqlite",
+    "disk_bytes": 5414912,
+    "sqlite_version": "3.53.1",
+    "schema_version": 6,
+    "api_schema_version": "1.0"
+  },
+  "counts": {
+    "frames": 5893,
+    "observations": 5562,
+    "weeks": 151,
+    "targets": 7,
+    "epochs": 74,
+    "cutouts": 101,
+    "header_frames": 74,
+    "frames_with_cutouts": 30
+  },
+  "time": {
+    "mjd_min": 60789.750762072,
+    "mjd_max": 61316.529902,
+    "baseline_days": 526.779
+  },
+  "releases": [
+    {
+      "release": "dr1",
+      "frames": 4961,
+      "weeks": 19
+    },
+    {
+      "release": "qr3",
+      "frames": 932,
+      "weeks": 4
+    }
+  ],
+  "detectors": [
+    {
+      "detector": 1,
+      "frames": 5548
+    },
+    {
+      "detector": 2,
+      "frames": 75
+    },
+    {
+      "detector": 3,
+      "frames": 66
+    },
+    {
+      "detector": 4,
+      "frames": 68
+    },
+    {
+      "detector": 5,
+      "frames": 73
+    },
+    {
+      "detector": 6,
+      "frames": 63
+    }
+  ],
+  "top_weeks": [
+    {
+      "week": "2026W40_2A",
+      "release": "qr3",
+      "frames": 490
+    },
+    {
+      "week": "2026W17_2A",
+      "release": "dr1",
+      "frames": 446
+    },
+    {
+      "week": "2026W40_1A",
+      "release": "qr3",
+      "frames": 432
+    },
+    {
+      "week": "2025W43_1A",
+      "release": "dr1",
+      "frames": 428
+    },
+    {
+      "week": "2025W45_2A",
+      "release": "dr1",
+      "frames": 426
+    },
+    {
+      "week": "2026W18_1A",
+      "release": "dr1",
+      "frames": 414
+    },
+    {
+      "week": "2025W41_1A",
+      "release": "dr1",
+      "frames": 410
+    },
+    {
+      "week": "2025W36_2B",
+      "release": "dr1",
+      "frames": 402
+    },
+    {
+      "week": "2026W01_1A",
+      "release": "dr1",
+      "frames": 388
+    },
+    {
+      "week": "2026W11_2A",
+      "release": "dr1",
+      "frames": 387
+    }
+  ],
+  "storage": {
+    "blobs": 144,
+    "raw_bytes": 18849314,
+    "stored_bytes": 16904163,
+    "ratio": 0.8968052099933186,
+    "by_kind": [
+      {
+        "kind": "fits-header",
+        "blobs": 74,
+        "raw_bytes": 4849664,
+        "stored_bytes": 2971492
+      },
+      {
+        "kind": "npz-cutout",
+        "blobs": 70,
+        "raw_bytes": 13999650,
+        "stored_bytes": 13932671
+      }
+    ]
+  },
+  "last_ingests": [
+    {
+      "run_id": 46,
+      "kind": "fields_json",
+      "started_at": "2026-11-14T22:45:28Z",
+      "finished_at": "2026-11-14T22:45:29Z",
+      "status": "ok",
+      "files_seen": 1,
+      "files_ingested": 5893,
+      "rows_inserted": 0,
+      "rows_updated": 5893,
+      "bytes_read": 550501,
+      "errors": 0,
+      "stats_json": "{\"run_id\": 46, \"kind\": \"fields_json\", \"files_seen\": 1, \"files_ingested\": 5893, \"rows_inserted\": 0, \"rows_updated\": 5893, \"bytes_read\": 550501, \"errors\": 0, \"elapsed_sec\": 0.22}"
+    },
+    {
+      "run_id": 45,
+      "kind": "cutouts",
+      "started_at": "2026-11-14T22:45:28Z",
+      "finished_at": "2026-11-14T22:45:28Z",
+      "status": "ok",
+      "files_seen": 101,
+      "files_ingested": 101,
+      "rows_inserted": 46,
+      "rows_updated": 55,
+      "bytes_read": 20569207,
+      "errors": 0,
+      "stats_json": "{\"run_id\": 45, \"kind\": \"cutouts\", \"files_seen\": 101, \"files_ingested\": 101, \"rows_inserted\": 46, \"rows_updated\": 55, \"bytes_read\": 20569207, \"errors\": 0, \"elapsed_sec\": 0.41}"
+    },
+    {
+      "run_id": 44,
+      "kind": "epoch_catalog",
+      "started_at": "2026-11-14T22:45:28Z",
+      "finished_at": "2026-11-14T22:45:28Z",
+      "status": "ok",
+      "files_seen": 1,
+      "files_ingested": 1,
+      "rows_inserted": 0,
+      "rows_updated": 74,
+      "bytes_read": 44345,
+      "errors": 0,
+      "stats_json": "{\"run_id\": 44, \"kind\": \"epoch_catalog\", \"files_seen\": 1, \"files_ingested\": 1, \"rows_inserted\": 0, \"rows_updated\": 74, \"bytes_read\": 44345, \"errors\": 0, \"elapsed_sec\": 0.01}"
+    },
+    {
+      "run_id": 43,
+      "kind": "headers",
+      "started_at": "2026-11-14T22:45:28Z",
+      "finished_at": "2026-11-14T22:45:28Z",
+      "status": "ok",
+      "files_seen": 74,
+      "files_ingested": 74,
+      "rows_inserted": 0,
+      "rows_updated": 74,
+      "bytes_read": 4849664,
+      "errors": 0,
+      "stats_json": "{\"run_id\": 43, \"kind\": \"headers\", \"files_seen\": 74, \"files_ingested\": 74, \"rows_inserted\": 0, \"rows_updated\": 74, \"bytes_read\": 4849664, \"errors\": 0, \"elapsed_sec\": 0.15}"
+    },
+    {
+      "run_id": 42,
+      "kind": "targets",
+      "started_at": "2026-11-14T22:45:28Z",
+      "finished_at": "2026-11-14T22:45:28Z",
+      "status": "ok",
+      "files_seen": 1,
+      "files_ingested": 1,
+      "rows_inserted": 0,
+      "rows_updated": 7,
+      "bytes_read": 4261,
+      "errors": 0,
+      "stats_json": "{\"run_id\": 42, \"kind\": \"targets\", \"files_seen\": 1, \"files_ingested\": 1, \"rows_inserted\": 0, \"rows_updated\": 7, \"bytes_read\": 4261, \"errors\": 0, \"elapsed_sec\": 0.0}"
+    }
+  ]
+}

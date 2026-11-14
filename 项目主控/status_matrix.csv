@@ -1,0 +1,33 @@
+id,category,item,status,severity,evidence,owner,next_action,gate
+R1,hard,任意RA/Dec显示该天区真实多期SPHEREx图像,FAIL,blocker,"custom 分支只调 generate_epochs；Barnard 精确坐标返回 mode=synthetic",app+data,接入 DB /api/v1/epochs 并保留本地回退,G1
+R2,hard,多期图像时间序列播放,PASS,-,"4–8 帧；闪烁/叠加/相减/轨迹；时间轴；1–2.6s",app,-,-
+R3,hard,5个官方目标跑通,PARTIAL,major,"5/5 HTTP 200；3/5 real；仅 Eps Ind B 真实正确运动；RW/R Dra 为 HYBRID",app+data,补 Barnard/WISE 真实历元；演示明确 HYBRID 边界,G2
+R4,hard,面向公众可用,PARTIAL,major,"中文公众解释/置信度/证伪条件好；仅本机、仅中文、无引导；BIC 面板不可见",app+frontend,修可见性/错误提示；补英文摘要,G3
+B1,bonus,跟上数据发布/易更新,PARTIAL,medium,"有增量导入；但 header_cache 已删、无采集器、数据止于 2026-10-03",data,开发 T4 头文件采集器,P1
+B2,bonus,102波段/6阵列/实时光谱,NOT_IMPLEMENTED,low,"只有 D1–D6 标签与 multi_band 开关；无合图/光谱",app,暂缓（加分项非必需）,-
+B3,bonus,多期相加/相减,PASS,-,"叠加/相减模式实测可用",app,-,-
+B4,bonus,视场可调,PASS,minor,"FOV 可调；负数 500、0 静默 24px、极大值 269MB",app,参数校验 400 + 上限,G3
+B5,bonus,叠加Gaia/WISE,NOT_IMPLEMENTED,low,"仅离线 SIMBAD 真值",app,暂缓,-
+B6,bonus,URL参数便于嵌入,PARTIAL,major,"app 支持 target/ra/dec/fov；view 只读 hash；两工具交接断",app+view,统一 URL 语法与全精度坐标,G3
+B7,bonus,显示污染标记,PARTIAL,minor,"FLAGS 参与掩膜；UI 只有质量标记，无逐像素 flags 层",app,加 flags 图层（可选）,-
+B8,bonus,借鉴Astropy/Aladin,N/A,-,"自写最小 FITS/WCS/测光栈；合理取舍",-,-,-
+I1,integration,数据库为唯一数据源,FAIL,blocker,"app/view 运行时不调用 DB；DB 只是离线物化视图",data+app,ADR-001/002；T2 接线,P0
+I2,integration,DB导出与app/view兼容,PASS,-,"check_compat.py：fields 5857/epochs 74/targets 7/weeks 151 全过",data,纳入验收门禁,P0
+I3,integration,/api/epochs 形状统一,FAIL,blocker,"target 分支返回 obs_id/fits_key，无 key/obsid；ra 分支 date_obs=null",data,新增 /api/v1/epochs 规范 DTO,P0
+I4,integration,覆盖半径一致,PARTIAL,blocker,"DB/view 1.745°；app 1.9°/7.5°；半对角线 2.47°；Barnard 丢 204 天、RW 丢唯一历元",data+view,默认 2.47° + 422 探测；统一常量,P0
+I5,integration,就绪度语义一致,FAIL,major,"DB coverage WISE L2(0.95d) vs app L0(1 探测)",data+app,拆 coverage_level 与 analysis_readiness,P0
+I6,integration,视图→MoveScope 深链,FAIL,blocker,"路径 ../app/index.html 不存在；HEAD 501；toFixed(5) 触发 custom→SIM",view+app,改 GET + 全精度 + target_id,P0
+I7,integration,端口/启动一致,FAIL,major,"app 8765默认/8790文档；view 扫8790–8829；DB 8797",lead,固定端口 + T5 启动器,P1
+I8,integration,版本控制基线,FAIL,blocker,"无 .git；审计期间 schema v2→v4、app.js 23:02 改动",lead,git init + tag baseline,P0
+Q1,quality,app 测试覆盖,FAIL,major,"0 个自动化测试；仅 validate_pipeline 合成注入",app,接入 T1 验收用例,P0
+Q2,quality,DB 测试与完整性,PASS,-,"27 tests OK；verify --deep 0 missing/0 corrupt；55 blobs",data,保持,P0
+Q3,quality,视图工具可复现,FAIL,major,"header_cache 已删；build_field_index 硬编码输出且 FileNotFoundError；0 tests",view,改用 DB 导出 fields + 快照,P1
+Q4,quality,数据溯源,FAIL,major,"header_frames=0/5857；header 列全空；34 次 ingest 全 ok 但 0 headers；bytes_read=0",data,T4 + ingest 审计修正,P1
+Q5,quality,错误路径健壮性,FAIL,major,"sample 500；fov=-0.2 500；内存常驻无淘汰；缓存非原子/无版本",app,修 500 + 淘汰 + 原子缓存,P0
+Q6,quality,文档与实测一致,PARTIAL,medium,"match stars 10–21 vs 6–34；RMS 0.108–0.784 vs 0.07–0.42；Barnard 0.2° μ=12.24 vs 8.0；PA σ 无字段",app+data,逐条纠偏,P1
+T1,tool,验收与契约工具,NOT_BUILT,blocker,"无 HTTP/UI/离线/契约回归；40/40 仅合成",lead,开发（1.5–2.5d）,"DoD"
+T2,tool,数据桥接,NOT_BUILT,blocker,"R1 断点；DB 有数据但 app 不查",app+data,开发（1–2d）,"G1"
+T3,tool,离线演示冻结器,NOT_BUILT,major,"5 目标断网实跑 5/5 通过；但缓存隐式、无 manifest/sha 校验、任意坐标未冻结",lead,开发（0.5–1d）,"G5"
+T4,tool,头文件采集器,NOT_BUILT,major,"header_cache 删除；DB 0 头；D1 94.6%",data,开发（1.5–2.5d；先 74 条）,"B1"
+T5,tool,统一启动器,NOT_BUILT,medium,"三套启动/端口冲突/健康检查靠人",lead,开发（0.5d）,"G6"
+T6,tool,漂移检查器,NOT_BUILT,low,"3 份 targets/2 套历元/4 个常量",lead,并入 T1（0.5d）,"P2"

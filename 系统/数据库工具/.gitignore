@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# 运行时临时库/基准库（生产库 var/catalog.sqlite 保留，便于直接使用）
+var/bench_scale*.sqlite
+var/bench_scale_blobs/
+var/smoke/
+var/smoke_blobs/
+var/smoke_exports/
+var/*.sqlite-wal
+var/*.sqlite-shm
+var/*.log
+var/*.pid

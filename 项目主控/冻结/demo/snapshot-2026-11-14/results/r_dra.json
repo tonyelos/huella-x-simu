@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "target_id": "r_dra",
+  "frozen_at": "2026-11-14T22:46:31Z",
+  "fov": 0.25,
+  "source": "http://127.0.0.1:8790/api/analyze",
+  "status": "ok",
+  "data_mode": "hybrid",
+  "readiness": "L2",
+  "class": "V",
+  "mu_mas_yr": 794.938063205092,
+  "mu_err_mas_yr": 2437.1147334830284,
+  "pa_deg": 58.010702355334224,
+  "confidence": 0.97,
+  "n_epochs": 8,
+  "detected_epochs": 7,
+  "provenance": [
+    "synthetic"
+  ],
+  "quality": [
+    "LARGE_CENTROID_ERROR"
+  ],
+  "truth_check": {
+    "injected_mu_mas_yr": 23.26249929306823,
+    "injected_pa_deg": 283.0873927985253,
+    "measured_mu_mas_yr": 794.938063205092,
+    "ratio": 34.17251315906404
+  }
+}

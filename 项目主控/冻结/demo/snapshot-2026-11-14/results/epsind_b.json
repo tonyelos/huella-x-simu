@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "target_id": "epsind_b",
+  "frozen_at": "2026-11-14T22:46:23Z",
+  "fov": 0.25,
+  "source": "http://127.0.0.1:8790/api/analyze",
+  "status": "ok",
+  "data_mode": "real",
+  "readiness": "L3",
+  "class": "L",
+  "mu_mas_yr": 4706.664472174226,
+  "mu_err_mas_yr": 547.2702599799022,
+  "pa_deg": 129.62203878091213,
+  "confidence": 0.9300128123486076,
+  "n_epochs": 8,
+  "detected_epochs": 8,
+  "provenance": [
+    "real"
+  ],
+  "quality": [
+    "LARGE_CENTROID_ERROR"
+  ],
+  "truth_check": null
+}

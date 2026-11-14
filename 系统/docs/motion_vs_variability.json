@@ -1,0 +1,79 @@
+{
+ "A": {
+  "label": "纯变星 μ=0",
+  "counts": {
+   "L": 0,
+   "V": 30,
+   "S": 0,
+   "U": 0,
+   "A": 0
+  },
+  "mu_median": 335.1045231526624,
+  "mu_signif_median": 0.83707266799417,
+  "false_motion_rate": 0.0,
+  "flags": []
+ },
+ "B": {
+  "label": "纯移动 μ=10.4″/yr",
+  "counts": {
+   "L": 30,
+   "V": 0,
+   "S": 0,
+   "U": 0,
+   "A": 0
+  },
+  "mu_median": 10328.332524360503,
+  "mu_signif_median": 27.108627077076,
+  "false_motion_rate": 1.0,
+  "flags": []
+ },
+ "C": {
+  "label": "又动又变",
+  "counts": {
+   "L": 30,
+   "V": 0,
+   "S": 0,
+   "U": 0,
+   "A": 0
+  },
+  "mu_median": 7970.290249097638,
+  "mu_signif_median": 21.033684177315294,
+  "false_motion_rate": 1.0,
+  "flags": []
+ },
+ "D": {
+  "label": "变星+混叠（假移动陷阱）",
+  "counts": {
+   "L": 0,
+   "V": 30,
+   "S": 0,
+   "U": 0,
+   "A": 0
+  },
+  "mu_median": 4378.815821916038,
+  "mu_signif_median": 11.23394535266363,
+  "false_motion_rate": 0.0,
+  "flags": [
+   "BLEND_INDUCED_WANDER",
+   "BLEND_SUSPECTED",
+   "CAVEAT"
+  ]
+ },
+ "E": {
+  "label": "移动+混叠",
+  "counts": {
+   "L": 5,
+   "V": 8,
+   "S": 0,
+   "U": 0,
+   "A": 17
+  },
+  "mu_median": 8667.589441782347,
+  "mu_signif_median": 22.843805621543087,
+  "false_motion_rate": 0.7333333333333333,
+  "flags": [
+   "BLEND_SUSPECTED",
+   "CAVEAT"
+  ]
+ }
+}

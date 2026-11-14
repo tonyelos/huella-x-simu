@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SPHEREx 天区视图 · Sky Region Viewer</title>
+<meta name="description" content="用真实 SPHEREx 曝光头数据驱动的三维地球 + 天区选择器" />
+<link rel="stylesheet" href="./css/style.css" />
+<script>
+  window.__errs = [];
+  addEventListener('error', (e) => window.__errs.push(String(e.message || e)));
+  addEventListener('unhandledrejection', (e) => window.__errs.push(String(e.reason)));
+</script>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="globe" aria-label="三维地球"></canvas>
+  <div id="labels">
+    <div class="globe-label" id="lb-site" hidden>
+      <span class="k">天顶站点</span><span class="v" id="lb-site-val">—</span>
+    </div>
+    <div class="globe-label" id="lb-sky" hidden>
+      <span class="k">天区中心</span><span class="v" id="lb-sky-val">—</span>
+    </div>
+  </div>
+  <div class="vignette"></div>
+  <div class="scanlines"></div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="13" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".7"/>
+      <circle cx="20" cy="20" r="4.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M20 2v8M20 30v8M2 20h8M30 20h8" stroke="currentColor" stroke-width="1.2"/>
+    </svg>
+    <div>
+      <h1>SPHEREx <em>天区视图</em></h1>
+      <p>SKY REGION VIEWER · <span class="mono">MOVESCOPE</span></p>
+    </div>
+  </div>
+
+  <div class="dataset">
+    <div class="chip" id="chip-count">— 帧 / — 曝光</div>
+    <div class="chip dim" id="chip-range">—</div>
+    <div class="chip dim">ICRS · J2000</div>
+  </div>
+
+  <div class="clockbox">
+    <div class="clock" id="clock-date">—</div>
+    <div class="clock-sub"><span class="mono" id="clock-mjd">—</span><span class="dot"></span><span id="clock-mode">数据时相</span></div>
+    <button class="btn ghost tiny" id="btn-now" title="回到当前真实时刻">现在</button>
+  </div>
+</header>
+
+<aside class="panel" id="panel-left">
+  <div class="panel-head">
+    <span class="ttl">天区选择器</span>
+    <span class="sub">SKY REGION</span>
+    <span class="hud-corner"></span>
+  </div>
+
+  <div class="skymap-wrap">
+    <canvas id="skymap"></canvas>
+    <canvas id="minimap" title="全天小地图：点击跳转"></canvas>
+    <div class="skymap-tag">全天 · 拖拽=平移 · 滚轮=缩放</div>
+  </div>
+
+  <div class="fields">
+    <label class="field">
+      <span>RA</span>
+      <input id="in-ra" type="number" min="0" max="360" step="0.01" value="210.80" />
+      <em id="ra-hms">—</em>
+    </label>
+    <label class="field">
+      <span>DEC</span>
+      <input id="in-dec" type="number" min="-90" max="90" step="0.01" value="54.35" />
+      <em id="dec-dms">—</em>
+    </label>
+    <label class="field">
+      <span>FOV</span>
+      <input id="in-fov" type="number" min="0.05" max="180" step="0.05" value="3.50" />
+      <em>度</em>
+    </label>
+  </div>
+
+  <div class="preset-row" id="presets"></div>
+
+  <div class="toggles">
+    <label class="sw"><input type="checkbox" id="tg-track" checked /><i></i><span>地面轨迹</span></label>
+    <label class="sw"><input type="checkbox" id="tg-cov" checked /><i></i><span>曝光地面点</span></label>
+    <label class="sw"><input type="checkbox" id="tg-mapcov" checked /><i></i><span>天区覆盖</span></label>
+  </div>
+
+  <p class="hint">
+    在地球上单击 = 取该地此刻的<b>天顶天区</b>；拖拽天空图方块移动天区，滚轮缩放窗口，双击复位。<br/>
+    空格 播放/暂停 · ←/→ 调时相 · N 回到现在<br/>
+    深链：<span class="mono">?ra=269.452077&amp;dec=4.693365&amp;fov=0.5&amp;target=barnard</span>
+  </p>
+</aside>
+
+<aside class="panel" id="panel-right">
+  <div class="panel-head">
+    <span class="ttl">选中天区</span>
+    <span class="sub">SELECTION</span>
+    <span class="hud-corner"></span>
+  </div>
+
+  <div class="readout">
+    <div class="row big"><span id="ro-ra">—</span><small>RA</small></div>
+    <div class="row big"><span id="ro-dec">—</span><small>DEC</small></div>
+  </div>
+
+  <div class="kv">
+    <div><span>视场</span><b id="ro-fov">—</b></div>
+    <div><span>银道</span><b id="ro-gal">—</b></div>
+    <div><span>天顶站点</span><b id="ro-site">—</b></div>
+    <div><span>地方恒星时</span><b id="ro-lst">—</b></div>
+  </div>
+
+  <div class="hits-head">
+    <span>本地命中 <em>2.47°</em></span>
+    <span class="count" id="hits-count">—</span>
+  </div>
+  <div class="curated" id="curated" hidden></div>
+  <div class="hits" id="hits"></div>
+
+  <div class="actions">
+    <button class="btn" id="btn-json">复制 JSON</button>
+    <button class="btn" id="btn-link">复制链接</button>
+    <button class="btn ghost" id="btn-movescope">在 MoveScope 打开</button>
+  </div>
+  <div class="ms-hint" id="ms-hint">—</div>
+
+  <p class="note" id="data-note">
+    数据：<span class="mono">data/fields.json</span>（由 <span class="mono">tools/build_field_index.py</span>
+    从数据库 <span class="mono">frames</span> 表导出）。
+  </p>
+</aside>
+
+<footer class="timebar">
+  <button class="play" id="btn-play" aria-label="播放">
+    <svg viewBox="0 0 16 16" class="ico-play"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
+    <svg viewBox="0 0 16 16" class="ico-pause" hidden><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
+  </button>
+  <div class="time-main">
+    <canvas id="density" height="26"></canvas>
+    <input id="time" type="range" min="0" max="1000" value="1000" step="0.1" />
+    <div class="time-ticks"><span id="t-start">—</span><span id="t-end">—</span></div>
+  </div>
+  <div class="time-side">
+    <div class="speed">
+      <span>速度</span>
+      <button data-speed="0.15" class="sbtn">0.15×</button>
+      <button data-speed="0.6" class="sbtn active">1×</button>
+      <button data-speed="2.4" class="sbtn">4×</button>
+    </div>
+    <div class="tracknote" id="tracknote">轨迹窗口 ±12 h</div>
+  </div>
+</footer>
+
+<div id="loader">
+  <div class="ld-ring"></div>
+  <p>正在装载地球与曝光索引…</p>
+</div>
+
+<div id="cursor"></div>
+<div id="toast" role="status"></div>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>
