@@ -36,7 +36,7 @@ from core import data as data_layer  # noqa: E402
 from core import epoch_source  # noqa: E402
 from core import pipeline  # noqa: E402
 from core.simulator import Epoch  # noqa: E402
-from core.wcs import WCS  # noqa: E402
+from core.wcs import WCS, angular_sep  # noqa: E402
 
 WEB = os.path.join(HERE, "web")
 
@@ -212,6 +212,40 @@ def resolve_request(payload: dict):
     if not (has_ra and has_dec):
         raise ApiError(400, "MISSING_COORDINATE", "需要同时提供 ra 和 dec（度）。")
     return "custom", ra, dec, None
+
+
+PRESET_MATCH_TOL_DEG = 0.05
+
+
+def match_preset_target(ra: float, dec: float, tol: float = PRESET_MATCH_TOL_DEG):
+    """自定义坐标 0.05° 内命中的最近预设目标；无命中返回 None。"""
+    best, best_sep = None, tol
+    for target in data_layer.load_targets():
+        try:
+            sep = angular_sep(float(ra), float(dec), float(target["ra"]), float(target["dec"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if sep <= best_sep:
+            best, best_sep = target, sep
+    return best
+
+
+def matched_custom_target(ra: float, dec: float, preset: dict) -> dict:
+    """响应里的自定义目标身份：保留用户坐标，同时标注命中的预设目标。"""
+    return {
+        "id": "custom",
+        "name": f"RA {ra:.4f}  Dec {dec:.4f}",
+        "name_zh": "自定义天区",
+        "ra": float(ra),
+        "dec": float(dec),
+        "type": preset.get("type", "unknown"),
+        "expected": preset.get("expected", "U"),
+        "note": preset.get("note", ""),
+        "truth": dict(preset.get("truth") or {}),
+        "coord_unc_arcsec": float(preset.get("coord_unc_arcsec") or 0.0),
+        "matched_target_id": preset.get("id"),
+        "matched_name": preset.get("name"),
+    }
 
 
 # ------------------------------------------------------------------ 结果存储
@@ -521,15 +555,33 @@ def run_analysis(payload: dict) -> dict:
         if payload.get("ra") is not None and payload.get("dec") is not None:
             target = dict(target, ra=float(ra), dec=float(dec))
         tgt, epochs, truth, meta = data_layer.build_dataset(tid, mode=mode, size_deg=fov)
+        response_target = None
     else:
-        # T2：任意坐标 → DB 真实历元 / 显式降级（不再无条件生成模拟时序）
-        tgt, epochs, truth, meta = data_layer.build_dataset(
-            "custom",
-            mode=mode,
-            size_deg=fov,
-            ra=ra,
-            dec=dec,
-        )
+        # 与预设目标保持产品一致：自定义坐标 0.05° 内命中且有本地历元目录时，
+        # 复用 build_dataset(target_id) 的 real/hybrid 规则（不再出现“少量真实+SIM”变 S）。
+        preset = match_preset_target(ra, dec)
+        if preset is not None and data_layer.load_epoch_catalog().get(preset["id"]):
+            tgt, epochs, truth, meta = data_layer.build_dataset(preset["id"], mode=mode, size_deg=fov)
+            meta = dict(meta)
+            meta["matched_target_id"] = preset["id"]
+            meta["matched_name"] = preset.get("name")
+            meta["source"] = "local_json_matched"
+            prefix = (
+                f"自定义坐标在 {PRESET_MATCH_TOL_DEG}° 内匹配到 {preset.get('name')}（{preset['id']}）；"
+                "复用该目标的本地历元与 HYBRID/SIM 回退规则（与预设一致）。"
+            )
+            meta["note"] = prefix + ((" " + meta["note"]) if meta.get("note") else "")
+            response_target = matched_custom_target(ra, dec, preset)
+        else:
+            # T2：任意坐标 → DB 真实历元 / 显式降级（不再无条件生成模拟时序）
+            tgt, epochs, truth, meta = data_layer.build_dataset(
+                "custom",
+                mode=mode,
+                size_deg=fov,
+                ra=ra,
+                dec=dec,
+            )
+            response_target = None
 
     if not epochs:
         raise ApiError(503, "NO_EPOCHS", "没有可用历元。")
@@ -597,7 +649,7 @@ def run_analysis(payload: dict) -> dict:
     payload = {
         "schema_version": "1.0",
         "analysis_id": aid,
-        "target": {k: tgt.get(k) for k in ("id", "name", "name_zh", "ra", "dec", "type", "expected", "note")},
+        "target": {k: (response_target or tgt).get(k) for k in ("id", "name", "name_zh", "ra", "dec", "type", "expected", "note")},
         "data": data_block,
         "truth": truth,
         "epochs": frames_json,
