@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """生成规模基准库（合成数据，明确不进入生产库）。
 
-用途：验证 zone + RA 索引在百万级元数据下的查询行为，而不是拿 5,857 行
+用途：验证 zone + RA 索引在百万级元数据下的查询行为，而不是拿 5,893 行
 真实缓存“感觉很快”。
 
     python3 tools/make_scale_fixture.py --rows 200000 --db var/bench_scale.sqlite
