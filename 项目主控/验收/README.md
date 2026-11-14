@@ -17,13 +17,14 @@
   `BLOCKED`（不是 PASS，也不伪造 FAIL）；app-only 用例继续跑；R1 自定义坐标仍按实际
   `DB_UNAVAILABLE` 记 FAIL。报告新增「DB 状态」「红在哪 / 归因」「BLOCKED」三节。
 - **主验收（DB 8798 无监听，模拟 DB 停止）**：`./run.sh --start ... --offline --offline-port 8813`
-  耗时约 35–42s，`PASS=28 FAIL=3 WARN=1 BLOCKED=13`，退出码 **1**。
+  耗时约 45–55s，`PASS=28 FAIL=4 WARN=1 BLOCKED=13`，退出码 **1**。
   （本轮运行期间 8797 被外部进程启动；8798 无监听，对 app 等价于 DB 停止。）
-  红：`A.analysis_schema`、`D.custom_barnard`、`D.custom_rw_aur`；
-  DB 相关 13 条全部 BLOCKED。
-- **补充验收（DB 8811 只读库可用）**：`PASS=40 FAIL=4 WARN=1 BLOCKED=0`，退出码 **1**。
-  红：`A.targets.db`、`A.targets.app_db`、`A.analysis_schema`、`D.custom_rw_aur`；
-  G 组 7/7 全绿，R1 Barnard 自定义坐标 **PASS**（real/4/L2/S，μ=8032.9）。
+  红：`A.analysis_schema`、`D.custom_barnard`、`D.custom_rw_aur`、
+  `D.coord_matches_preset`；DB 相关 13 条全部 BLOCKED。
+- **补充验收（DB 8811 只读库可用）**：`PASS=40 FAIL=5 WARN=1 BLOCKED=0`，退出码 **1**。
+  红：`A.targets.db`、`A.targets.app_db`、`A.analysis_schema`、`D.custom_rw_aur`、
+  `D.coord_matches_preset`；G 组 7/7 全绿，R1 Barnard 自定义坐标 **PASS**
+  （real/4/L2/S，μ=8032.9）。
 - **关键发现**：
   1. 从当前源码 `数据库工具/cli.py serve --port 8811` 启动后，`/api/v1/epochs` 正常，
      G 组全绿；此前“`/api/v1/epochs` 404”**无法从本 worktree 源码复现**。
@@ -35,6 +36,11 @@
   4. DB 旧 `/api/targets` 缺 `truth` 字段，导致 A.targets.db / app_db P0。
   5. B 导出对账只读本地 SQLite，**DB 服务停止也能跑**；当前 4/4 通过。
   6. F 离线 5/5 通过（黑洞代理 + 8813 子进程）。
+  7. **新增 R3 等价性用例** `D.coord_matches_preset`：5 个官方目标的自定义坐标输入
+     应与 target_id 预设等价（mode/readiness/class 严格、μ±5%）。DB 可用时
+     Barnard/Eps/WISE 一致；R Dra 自定义 `hybrid/L2/S` vs 预设 `hybrid/L2/V`，
+     RW 在本分支仍 HTTP 500（app owner 修复目标）。该用例按 P0 记 FAIL，
+     修复后应转绿；单跑：`--only D.coord_matches_preset`。
 
 ## 快速开始
 
@@ -89,7 +95,7 @@ app 子进程（8810/8813）。
 | A 契约 | `Target`（app/DB/view 三源、7 条、8 字段、`coord_unc_arcsec`）；`EpochRef`（两入口同形、十字段、`date_obs` 非空、无重复）；`Coverage`（默认 2.47、`C*`）；`AnalysisResult`（`schema_version`、`provenance`、`fallback_reason`、`readiness_scope`） | P0；视图源/`coord_unc`/`real_epochs` 为 P1；DB 停止时 DB 源/epoch_ref/coverage 为 BLOCKED |
 | B 导出对账 | `cli.py export all` + `tools/check_compat.py` 四项 OK（fields / epoch_catalog / targets / week_index）；只读本地 SQLite，不需要 DB 服务；SQLite 不可读时 BLOCKED | P0 |
 | C 5 目标 HTTP | 5 × `POST /api/analyze`（`mode=auto,fov=0.25`）：HTTP 200、schema、`mode`/`provenance` 自洽、`readiness`/`class` 严格黄金、μ 在 ±5% 或 ±1σ、<30s | 500/class/mode/readiness/μ = P0；期数/耗时 = P1 |
-| D 任意坐标 | ① Barnard 精确坐标 → REAL 4 期 L2 S；② RW Aur → ≥1 条真实历元；③ 未覆盖天区 → `NO_LOCAL_COVERAGE` + SIM；④ `--db-down` 可选 | ①/② = P0 FAIL（DB 停时归因 DB_UNAVAILABLE）；③ DB 不可用时 BLOCKED |
+| D 任意坐标 | ① Barnard 精确坐标 → REAL 4 期 L2 S；② RW Aur → ≥1 条真实历元；③ 未覆盖天区 → `NO_LOCAL_COVERAGE` + SIM；④ `--db-down` 可选；⑤ `D.coord_matches_preset`：5 官方目标自定义坐标应与 target_id 预设等价（R3） | ①/②/⑤ = P0 FAIL（DB 停时归因 DB_UNAVAILABLE）；③ DB 不可用时 BLOCKED |
 | E 错误路径 | `sample` 不 500；`fov=-0.2/0/999` → 400；target+冲突坐标不静默；非法 JSON/缺字段 → 400 | sample/FOV 500 = P0；其余 = P1 |
 | F 离线 | 8813 子进程 + `HTTPS_PROXY/HTTP_PROXY=http://127.0.0.1:9` + `NO_PROXY=127.0.0.1,localhost`；5 目标 200 且与在线一致 | P0 |
 | G DB 一致性 | `/api/v1/epochs` 两入口同形：Barnard 4 / RW 1；Eps/WISE/R Dra 10/10/3；`date_obs`/`key` 非空；无重复；`coverage` 默认 2.47；`header_frames` 与 SQLite 实际一致 | P0；DB 停止或 v1 404 时全部/部分 BLOCKED |
@@ -152,15 +158,17 @@ BLOCKED 用例带 `blocked_by: "DB"`、`blocked_reason`、`cause`；DB 停止时
 
 ### 主验收：DB 8798 无监听（模拟 DB 停止；app 8810 由 `--start` 启动）
 
-- 退出码 **1**；`PASS=28 FAIL=3 WARN=1 BLOCKED=13`。
+- 退出码 **1**；`PASS=28 FAIL=4 WARN=1 BLOCKED=13`。
 - 说明：本轮 8797 被外部进程启动，故停止态用 `--db-url http://127.0.0.1:8798`
   （无监听；app 同样拿到 `DB_UNAVAILABLE`），不杀外部服务。
-- P0 失败（3）：
+- P0 失败（4）：
   1. `A.analysis_schema`：app `/api/analyze` 缺顶层 `schema_version` 与
      `result.readiness_scope`（app/T2 侧）。
   2. `D.custom_barnard`：`mode=synthetic`、`fallback=DB_UNAVAILABLE`、`real_epochs=0`
      （DB 停止导致；DB 可用时通过）。
   3. `D.custom_rw_aur`：同上 `DB_UNAVAILABLE`；DB 可用时仍 500（见补充验收）。
+  4. `D.coord_matches_preset`：DB 停止时自定义坐标全为 synthetic，与预设不等价；
+     归因 DB 停止（DB 可用时只剩 RW/R Dra 两条不等价，见补充验收）。
 - P0 BLOCKED（13）：`A.targets.db`、`A.targets.app_db`、`A.epoch_ref.*`（2）、
   `A.coverage`、`D.uncovered`、`G.*`（7）。原因统一为 DB 服务不可达；报告
   「1.0 DB 状态」「2.1 红在哪 / 归因」「5. BLOCKED」三节可直接回答“哪些是 DB 停止导致”。
@@ -168,20 +176,24 @@ BLOCKED 用例带 `blocked_by: "DB"`、`blocked_reason`、`cause`；DB 停止时
 
 ### 补充验收：DB 8811 只读库可用（`cli.py serve --port 8811`）
 
-- 退出码 **1**；`PASS=40 FAIL=4 WARN=1 BLOCKED=0`。
-- P0 失败（4）：
+- 退出码 **1**；`PASS=40 FAIL=5 WARN=1 BLOCKED=0`。
+- P0 失败（5）：
   1. `A.targets.db`：旧 `/api/targets` 缺 `truth` 对象（DB 契约）。
   2. `A.targets.app_db`：app/DB 目标 `truth` 不一致。
   3. `A.analysis_schema`：同上（app 侧）。
   4. `D.custom_rw_aur`：HTTP 500 `negative dimensions are not allowed`
      （app `photometry.is_saturated` 负维度）。
+  5. `D.coord_matches_preset`：R3 等价性。Barnard/Eps/WISE 已一致；R Dra
+     自定义 `hybrid/L2/S/μ=7521.8` vs 预设 `hybrid/L2/V/μ=794.9`；RW 自定义
+     在本分支仍 500（app owner 修复目标）。
 - **G 组 7/7 全绿**（Barnard 4 / RW 1 / Eps 10 / WISE 10 / R Dra 3；2.47°；
   `date_obs`/`key` 非空；`header_frames=74` 与 SQLite 一致）。
 - **R1 自定义 Barnard 通过**：`real/4/L2/S/μ=8032.9`，`fallback=null`。
 - `D.uncovered` 通过：`NO_LOCAL_COVERAGE` + SIM。
 
 > 结论：当前“红”不是 T1 工具失败，而是 ① DB 服务未起（主验收）② app 缺
-> `schema_version`/`readiness_scope` ③ 自定义 RW Aur 500 ④ DB 目标 `truth` 字段缺失。
+> `schema_version`/`readiness_scope` ③ 自定义 RW Aur 500 ④ DB 目标 `truth` 字段缺失
+> ⑤ R3 等价性：R Dra/RW 自定义坐标与预设 class 不一致。
 > T2 的 R1 接线在 DB 可用时已对 Barnard 生效。
 
 ## 只跑某组 / 单条复现
