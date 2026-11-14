@@ -2,7 +2,7 @@
 
 | 文件 | 数据 | 生成方式 |
 |---|---|---|
-| `report.json` | 生产库 5,857 帧（真实元数据） | `python3 cli.py bench --runs 200` |
+| `report.json` | 生产库真实元数据（当前 **5,893 帧**；报告为 2026-11-14 快照） | `python3 cli.py bench --runs 200` |
 | `scale_report.json` | 200,000 帧（**合成**，仅用于规模测试） | `tools/make_scale_fixture.py --rows 200000` + `cli.py bench` |
 | `scale_report_1m.json` | 1,000,000 帧（**合成**，仅用于规模测试） | `tools/make_scale_fixture.py --rows 1000000` + `cli.py bench` |
 

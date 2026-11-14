@@ -319,7 +319,7 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 69 个单元/接口测试（含 T4 离线假 S3 契约 + 真实库 v1 契约回归）
+├── tests/                 76 个单元/接口测试（含 T4 7 个 + 真实库 v1 契约回归）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/
 │   ├── DESIGN.md          设计与取舍
