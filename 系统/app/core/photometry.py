@@ -78,11 +78,27 @@ def build_mask(flags: np.ndarray | None, shape: tuple[int, int] | None = None) -
     return bad, soft
 
 
-def is_saturated(flags: np.ndarray | None, x: int, y: int, r: int = 1) -> bool:
+def is_saturated(flags: np.ndarray | None, x: float, y: float, r: int = 1) -> bool:
+    """检查 (x,y) 周围 r 像素内是否存在饱和标志。
+
+    调用方可能在目标预测位置越界时调用（例如切片被探测器边缘截断）；
+    这里必须 clamp 到图像有效范围，越界/全空窗口返回 False，不能抛异常。
+    """
     if flags is None:
         return False
-    yy, xx = np.mgrid[max(0, y - r) : y + r + 1, max(0, x - r) : x + r + 1]
-    sub = np.asarray(flags)[yy, xx]
+    f = np.asarray(flags)
+    if f.ndim != 2 or f.size == 0:
+        return False
+    try:
+        xi, yi = int(round(float(x))), int(round(float(y)))
+    except (TypeError, ValueError, OverflowError):
+        return False
+    h, w = f.shape
+    x0, x1 = max(0, xi - r), min(w, xi + r + 1)
+    y0, y1 = max(0, yi - r), min(h, yi + r + 1)
+    if x1 <= x0 or y1 <= y0:
+        return False
+    sub = f[y0:y1, x0:x1]
     return bool(np.any((sub & SAT_BITS) != 0))
 
 
@@ -305,8 +321,8 @@ def centroid_psf(
 def centroid_bloom(image: np.ndarray, noise: np.ndarray, bad: np.ndarray, x0: int, y0: int, r: int = 8) -> dict | None:
     """饱和源（核心缺失/溢出）的质心：用环带内被截断的强度加权。"""
     h, w = image.shape
-    x_lo, x_hi = max(0, x0 - r), min(w, x0 + r + 1)
-    y_lo, y_hi = max(0, y0 - r), min(h, y0 + r + 1)
+    x_lo, x_hi = max(0, x0 - r), max(0, min(w, x0 + r + 1))
+    y_lo, y_hi = max(0, y0 - r), max(0, min(h, y0 + r + 1))
     sub = np.asarray(image[y_lo:y_hi, x_lo:x_hi], float)
     subb = np.asarray(bad[y_lo:y_hi, x_lo:x_hi], bool)
     ok = (~subb) & np.isfinite(sub)
@@ -387,15 +403,41 @@ def measure_at(
     psf: np.ndarray | None,
     sys_frac: float = 0.02,
 ) -> dict:
-    """在给定位置测质心与流量。x,y 为 0-based 浮点坐标。"""
+    """在给定位置测质心与流量。x,y 为 0-based 浮点坐标。
+
+    位置越界（例如切片只覆盖探测器边缘、目标在切片外）时返回显式的
+    ``out_of_frame=True`` 与 NaN 流量，交由管线跳过该历元，绝不抛异常。
+    """
     img = np.asarray(image, float)
+    if img.ndim != 2:
+        raise ValueError("image must be 2D")
+    h, w = img.shape
+    method = "psf" if psf is not None else "moments"
+    try:
+        xf, yf = float(x), float(y)
+        xi, yi = int(round(xf)), int(round(yf))
+    except (TypeError, ValueError, OverflowError):
+        xf = yf = float("nan")
+        xi = yi = -10**9
+    if not (math.isfinite(xf) and math.isfinite(yf)) or not (0 <= xi < w and 0 <= yi < h):
+        return {
+            "saturated": False,
+            "method": method,
+            "out_of_frame": True,
+            "x": xf,
+            "y": yf,
+            "sigma_x": 1.0,
+            "sigma_y": 1.0,
+            "flux": float("nan"),
+            "flux_err": float("nan"),
+        }
+
     var = np.asarray(variance, float) if variance is not None else np.ones_like(img) * 1e-6
     noise = np.sqrt(np.maximum(var, 0)) + sys_frac * np.abs(img)
     bad, soft = build_mask(flags, img.shape)
     bad = bad | ~np.isfinite(img)
-    xi, yi = int(round(x)), int(round(y))
     sat = is_saturated(flags, xi, yi, 1) or bool(np.any(~np.isfinite(img[max(0, yi - 1) : yi + 2, max(0, xi - 1) : xi + 2])))
-    out: dict = {"saturated": sat, "method": "psf" if psf is not None else "moments"}
+    out: dict = {"saturated": sat, "method": method, "out_of_frame": False}
 
     cen = None
     if psf is not None and not sat:

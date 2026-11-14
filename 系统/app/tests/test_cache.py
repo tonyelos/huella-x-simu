@@ -70,6 +70,45 @@ class CacheTest(unittest.TestCase):
         leftovers = [f for f in os.listdir(self.tmp.name) if ".tmp-" in f]
         self.assertEqual(leftovers, [])
 
+    def test_corrupt_cache_recovers_with_successful_refetch(self):
+        if not os.path.exists(SAMPLE):
+            self.skipTest("sample fits missing")
+        with open(SAMPLE, "rb") as fh:
+            blob = fh.read()
+        ep = fake_epoch()
+        path = data_layer._cache_path(ep, 10.0, 20.0, 0.2)
+        with open(path, "wb") as fh:
+            fh.write(b"not a real npz")
+        with mock.patch.object(data_layer, "_download", return_value=blob):
+            out = data_layer.fetch_epoch(ep, 10.0, 20.0, 0.2)
+        self.assertIsNotNone(out, "坏缓存应被删除并重新取数，而不是永久 500/None")
+        # 重取后写入的文件本身可读，且不再需要下载
+        out2 = data_layer.fetch_epoch(ep, 10.0, 20.0, 0.2)
+        self.assertIsNotNone(out2)
+        self.assertEqual(out2.mjd, out.mjd)
+        leftovers = [f for f in os.listdir(self.tmp.name) if ".tmp-" in f]
+        self.assertEqual(leftovers, [])
+
+    def test_old_version_cache_not_reused(self):
+        if not os.path.exists(SAMPLE):
+            self.skipTest("sample fits missing")
+        with open(SAMPLE, "rb") as fh:
+            blob = fh.read()
+        ep_v1 = fake_epoch(version="v1")
+        p1 = data_layer._cache_path(ep_v1, 10.0, 20.0, 0.2)
+        with mock.patch.object(data_layer, "_download", return_value=blob):
+            self.assertIsNotNone(data_layer.fetch_epoch(ep_v1, 10.0, 20.0, 0.2))
+        self.assertTrue(os.path.exists(p1))
+
+        ep_v2 = fake_epoch(version="v2")
+        p2 = data_layer._cache_path(ep_v2, 10.0, 20.0, 0.2)
+        self.assertNotEqual(p1, p2)
+        with mock.patch.object(data_layer, "_download", side_effect=RuntimeError("offline")), mock.patch("time.sleep"):
+            out = data_layer.fetch_epoch(ep_v2, 10.0, 20.0, 0.2)
+        self.assertIsNone(out, "不同处理版本不得复用旧 NPZ")
+        self.assertFalse(os.path.exists(p2))
+        self.assertTrue(os.path.exists(p1), "旧版本缓存不应被调用方改写")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -252,9 +252,15 @@ def run_pipeline(target: dict, epochs: list[Epoch], truth: dict | None = None, m
     ref_wcs = epochs[0].wcs
     ra0, dec0 = target["ra"], target["dec"]
     target_xy_common = []
+    out_of_frame_ids: list[str] = []
 
     for i, (ep, cat) in enumerate(zip(epochs, catalogs)):
         px, py = predicted_pixels(target, ep)
+        h_img, w_img = np.asarray(ep.image).shape[:2]
+        if not (np.isfinite(px) and np.isfinite(py)) or not (0 <= px < w_img and 0 <= py < h_img):
+            # 目标在切片外（常见于探测器边缘截断）：跳过该期，显式记录，不伪造测量
+            out_of_frame_ids.append(str(ep.id))
+            continue
         unc = float(target.get("coord_unc_arcsec", 0.0) or 0.0)
         radius = max(4.0, unc / max(ep.wcs.pixel_scale_arcsec(), 0.1) + 2.0)
         src = select_target_source(cat, px, py, radius=radius)
@@ -323,18 +329,25 @@ def run_pipeline(target: dict, epochs: list[Epoch], truth: dict | None = None, m
         fp.update({"pa_deg": None, "pa_disp_deg": None, "n_epochs": 0, "baseline_days": 0.0,
                    "scale_arcsec_px": 6.15, "mu_px_yr": 0.0, "mu_signif": 0.0, "mov_signif": 0.0,
                    "accel_arcsec_yr2": 0.0, "delta_bic_accel": 0.0})
+        quality = merge_quality(
+            ["TARGET_NOT_DETECTED"],
+            ["TARGET_OUT_OF_FRAME"] if out_of_frame_ids else None,
+        )
+        evidence = ["在预测位置附近没有达到 3σ 的探测", f"共尝试 {len(epochs)} 期"]
+        if out_of_frame_ids:
+            evidence.append(f"{len(out_of_frame_ids)} 期目标预测位置在切片外（{', '.join(out_of_frame_ids[:3])}…）")
         return {
-            "class": "U", "confidence": 0.1, "readiness": "L0", "fingerprint": fp,
+            "class": "U", "confidence": 0.1, "readiness": "L0", "readiness_scope": "analysis", "fingerprint": fp,
             "models": [], "best_model": None, "mu_mas_yr": 0.0, "mu_err_mas_yr": float("nan"),
             "pa_deg": None, "moving": False, "variable": False, "detected_epochs": 0,
             "baseline_days": 0.0, "n_boot": 0, "multi_band": False, "bands": [],
-            "quality": ["TARGET_NOT_DETECTED"], "match_stats": match_stats,
+            "quality": quality, "match_stats": match_stats,
             "n_detected_in_catalog": [len(c) for c in catalogs],
             "target_xy_common": [],
             "track": {"t": [], "xi": [], "eta": [], "sx": [], "sy": [], "flux": [], "flux_err": []},
             "measurements": [],
             "label_zh": "不可判定（目标未被探测到）",
-            "evidence": ["在预测位置附近没有达到 3σ 的探测", f"共尝试 {len(epochs)} 期"],
+            "evidence": evidence,
             "falsifier": "若后续更深的观测或更大的视场里出现该目标，则本结论失效。",
             "public_text": "在这个天区、这些历元里，我们没有探测到目标。它可能太暗，或位置预测偏差较大。需要更深的数据或核对该天体的坐标。",
         }
@@ -353,7 +366,16 @@ def run_pipeline(target: dict, epochs: list[Epoch], truth: dict | None = None, m
         saturated=np.array(tr_sat)[order],
     )
     result = analyze_track(track, ra0, dec0, truth=truth)
-    result["quality"] = merge_quality(result.get("quality"), quality_flags(track))
+    result["readiness_scope"] = "analysis"
+    result["quality"] = merge_quality(
+        result.get("quality"),
+        quality_flags(track),
+        ["TARGET_OUT_OF_FRAME"] if out_of_frame_ids else None,
+    )
+    if out_of_frame_ids:
+        result.setdefault("evidence", []).append(
+            f"{len(out_of_frame_ids)} 期目标预测位置在切片外，已跳过：{', '.join(out_of_frame_ids[:3])}"
+        )
     result["match_stats"] = match_stats
     result["n_detected_in_catalog"] = [len(c) for c in catalogs]
 
