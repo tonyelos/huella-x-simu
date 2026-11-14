@@ -74,7 +74,8 @@ def load_epochs_v1(ra, dec, fov=0.25, base="http://127.0.0.1:8797"):
 - v1 返回 `{"schema_version","query","matched_target_id","coverage","epochs","count"}`；
 - 每个 `EpochRef` 都有 `obsid/detector/key/date_obs/slice_url`，app 不再需要
   自己从 `fits_key` 拼路径；每条 `slice_url` 的 `size` 就是请求里的 `fov`；
-- `matched_target_id` 命中 0.05° 内的目标时，app 可复用该目标 truth/coord_unc；
+- `matched_target_id` 命中 0.05° 内的目标时，app 可复用该目标 truth/coord_unc
+  （`GET /api/v1/targets/<id>` 与 `app/data/targets.json` 逐字段一致，含 truth）；
   命中后返回的是该目标的 curated `target_epochs`（每个 obsid 一条，同曝光多探测器已合并）；
 - `radius`（默认 2.47°）只影响未命中目标时的 frames 锥搜索与覆盖统计；
 - 旧 `/api/epochs` 只是 v1 的兼容包装，**不要**再把它当稳定契约（`deprecated: true`）。
@@ -216,6 +217,7 @@ $PY tools/harvest_headers.py --source epochs --resume
 - [ ] `cli.py verify --deep` 无 missing/corrupt；
 - [ ] `curl /api/v1/epochs?target_id=barnard` 与 `ra/dec` 都返回 4 条；
 - [ ] 5 个官方目标两入口一致：barnard 4 / epsind_b 10 / wise0855 10 / rw_aur 1 / r_dra 3；
+- [ ] `curl /api/v1/targets` 返回 7 条，8 个契约字段齐全，`truth` 与 `app/data/targets.json` 逐字段一致；
 - [ ] `curl /api/v1/coverage?ra=269.452077&dec=4.693365` 返回 `coverage_level=C2`、`header_available=true`；
 - [ ] `curl /api/health` 正常，`counts.header_frames` 与库里实际有头的帧数一致；
 - [ ] 备份/回滚路径演练过一次。

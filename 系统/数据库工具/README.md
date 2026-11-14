@@ -169,6 +169,7 @@ $PY tools/check_compat.py --root .. --exports var/exports
 ```bash
 curl 'http://127.0.0.1:8797/api/v1/epochs?target_id=barnard'
 curl 'http://127.0.0.1:8797/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.25'
+curl 'http://127.0.0.1:8797/api/v1/targets'
 curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365'
 curl 'http://127.0.0.1:8797/api/cone?ra=269.452077&dec=4.693365&radius=2.47&limit=50'
 ```
@@ -179,7 +180,9 @@ v1 的硬规则：
 - `date_obs` 永不为 null（缺失由 MJD 反推 UTC）；`key` 与 `slice_url` 必填；
 - `slice_url` 的 `size` 等于查询 `fov`；
 - `target_id` 与 `ra/dec` 两入口返回同一组历元（0.05° 内自动匹配目标）；
-- 默认覆盖半径 **2.47°**（单片半对角线），等级用 **C0–C3**，不是 app 的 L0–L3。
+- 默认覆盖半径 **2.47°**（单片半对角线），等级用 **C0–C3**，不是 app 的 L0–L3；
+- `/api/v1/targets` 的 7 条目标与 `app/data/targets.json` 逐字段一致（含
+  `truth` 与 `coord_unc_arcsec`），T1 的 A 组用它做 app↔db 对账。
 
 旧 `/api/epochs` 仍保留，但已标 `deprecated: true`，内部委托 v1；
 APP 不应再把旧接口当作稳定契约。
@@ -316,7 +319,7 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 65 个单元/接口测试（含 T4 离线假 S3 契约 + 真实库 v1 契约回归）
+├── tests/                 69 个单元/接口测试（含 T4 离线假 S3 契约 + 真实库 v1 契约回归）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/
 │   ├── DESIGN.md          设计与取舍
@@ -338,7 +341,9 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
    范围 0.2–5°）；不是逐像素多边形求交，大倾角扫描带会偏保守。
 3. **单写者。** SQLite 允许多读，但同一时刻只建议一个导入进程；导入进程与 API
    可以并行（WAL）。
-4. **不认证。** API 默认只绑 `127.0.0.1`，面向本机/内网演示；公网部署需加反向代理与鉴权。
+4. **不认证，truth 默认可见。** API 默认只绑 `127.0.0.1`，面向本机/内网演示；
+   `/api/v1/targets` 与 `/api/targets` 默认带验收 `truth`（T1 逐字段对账需要），
+   公网部署请加反向代理/鉴权，或用 `?include_truth=0` 隐藏。
 5. **release 混用要显式过滤。** 同一目标的 `qr3` 与 `dr1` 处理版本不同，
    做时序光度时用 `?release=dr1` 或导出时只取一版；DB 保留 `frame_releases` 供追溯。
 6. **样本数据不伪装。** `var/bench_scale*.sqlite` 是合成基准库，命名和文档都标明；
