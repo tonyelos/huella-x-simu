@@ -44,6 +44,7 @@ $PY cli.py init                 # 建库（var/catalog.sqlite + var/blobs）
 $PY cli.py ingest all --root .. # 从 ../app 与 ../视图工具 导入现有数据
 $PY cli.py stats                # 看计数、时间范围、release、存储
 $PY cli.py query coverage --ra 269.452077 --dec 4.693365
+$PY cli.py query epochs --target barnard --v1   # 契约 v1（去重 + 目标感知）
 $PY cli.py query cone --ra 269.452077 --dec 4.693365 --radius 2.47 --limit 10
 $PY tools/harvest_headers.py --source epochs --resume   # 回填 74 条头（幂等）
 $PY tools/check_compat.py --root ..                     # 导出的 JSON 与两个项目逐项对账
@@ -315,7 +316,7 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 54 个单元/接口测试（含 T4 离线假 S3 契约）
+├── tests/                 65 个单元/接口测试（含 T4 离线假 S3 契约 + 真实库 v1 契约回归）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/
 │   ├── DESIGN.md          设计与取舍
@@ -344,6 +345,8 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
    生产库只接收真实头/切片/公开目录。
 7. **头文件是网络缓存。** `app/data/header_cache/` 可删可重采；manifest 的 sha256
    是“这份头是否已采过”的唯一凭据，删缓存后 `--resume` 会重新下载 74 条。
+8. **非法输入显式失败。** `ra=nan`、`fov=inf`、`dec>90` 等一律 400；不会静默
+   返回 0 条，更不会把非法坐标错配到某个目标上。
 
 ---
 

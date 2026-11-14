@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import unittest
 from pathlib import Path
 
-from db.catalog import Catalog
+from db.catalog import Catalog, angsep_deg
 from db.export import export_epochs, export_fields, export_targets
 from tests.fixtures import build_small_db
 
@@ -132,6 +133,25 @@ class CatalogTest(unittest.TestCase):
             self.assertIn("coverage_level", out)
             self.assertTrue(out["readiness"]["deprecated"])
             self.assertNotIn("readiness", c.epochs_v1(target_id="test_target")["coverage"])
+
+    def test_angsep_nonfinite_is_nan(self):
+        # NaN 经 min/max 夹取会变成 0°，足以把非法坐标错配到目标；必须显式返回 NaN。
+        self.assertTrue(math.isnan(angsep_deg(float("nan"), 4.69, 269.452077, 4.693365)))
+        self.assertTrue(math.isnan(angsep_deg(269.452077, float("inf"), 269.452077, 4.693365)))
+        self.assertAlmostEqual(angsep_deg(150.0, 20.0, 150.0, 20.0), 0.0)
+
+    def test_v1_rejects_nonfinite_coords(self):
+        with self.cat() as c:
+            for bad in (float("nan"), float("inf"), float("-inf")):
+                with self.assertRaises(ValueError):
+                    c.epochs_v1(ra=bad, dec=20.025)
+                with self.assertRaises(ValueError):
+                    c.epochs_v1(ra=150.05, dec=bad)
+                with self.assertRaises(ValueError):
+                    c.epochs_v1(target_id="test_target", ra=bad, dec=20.025)
+                with self.assertRaises(ValueError):
+                    c.cone(150.05, 20.025, bad)
+            self.assertIsNone(c.resolve_target(float("nan"), 20.025))
 
     def test_integrity(self):
         with self.cat() as c:

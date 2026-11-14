@@ -723,7 +723,7 @@ class Ingestor:
                         source_path=str(path),
                     )
                     st["rows_inserted"] += 1
-            # 冻结 fields.json 契约：只保存导入时的 5,857 行（顺序也保留），
+            # 冻结 fields.json 契约：只保存导入时 fields.json 的行（顺序也保留），
             # T4 新增的帧不改变视图工具的旧文件。
             self.conn.execute("DELETE FROM fields_snapshot")
             snap = []

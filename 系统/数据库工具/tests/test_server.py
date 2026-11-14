@@ -97,6 +97,19 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.get("/api/v1/epochs?ra=150&dec=200")[0], 400)
         self.assertEqual(self.get("/api/v1/epochs?target_id=nope")[0], 404)
 
+    def test_nonfinite_params_are_400(self):
+        # nan/inf 会让 SQL 与比较静默失效，甚至命中别的目标；一律 400，不是 500/200。
+        for path in (
+            "/api/v1/epochs?ra=nan&dec=20&fov=0.25",
+            "/api/v1/epochs?ra=inf&dec=20",
+            "/api/v1/epochs?ra=150&dec=20&fov=nan",
+            "/api/v1/epochs?ra=150&dec=20&radius=inf",
+            "/api/v1/coverage?ra=nan&dec=20",
+            "/api/cone?ra=nan&dec=20&radius=0.2",
+            "/api/coverage?ra=150&dec=inf",
+        ):
+            self.assertEqual(self.get(path)[0], 400, path)
+
     def test_export(self):
         code, body, _ = self.get("/api/export/fields.json")
         self.assertEqual(code, 200)

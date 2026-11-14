@@ -59,7 +59,7 @@ def run_bench(cat: Catalog, *, runs: int = 200, out_path: str | None = None) -> 
             {"id": "wise0855", "ra": 133.795129, "dec": -7.245147},
         ]
 
-    # 目标位置大多落在 5,857 帧的稀疏子集里；再抽一批真实帧中心，保证每个 case 有命中。
+    # 目标位置大多落在 5,893 帧的稀疏子集里；再抽一批真实帧中心，保证每个 case 有命中。
     sampled = [
         {"id": f"frame-{r[0]}", "ra": r[1], "dec": r[2]}
         for r in cat.conn.execute(
