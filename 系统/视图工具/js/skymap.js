@@ -175,7 +175,7 @@ export function createSkyMap({ canvas, minimap, fields = [], targets = [], onCha
   }
 
   function drawHits(list) {
-    const half = 1.745; // 足迹方块按真实半宽 3.49°/2 绘制
+    const half = 3.49 / 2; // 足迹方块按真实半宽绘制；命中半径仍是 2.47° 半对角线
     const px = (half * 2) / st.span * W;
     if (px < 3 || px > W * 0.55) return; // 视野太宽/太窄时足迹没有信息量
     ctx.save();
