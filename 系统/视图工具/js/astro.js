@@ -113,21 +113,24 @@ export function eclipticToEquatorial(lambdaDeg) {
 export const fmt = (v, n = 2) => v.toFixed(n);
 
 export function fmtRa(raDeg) {
-  const h = norm360(raDeg) / 15;
-  const hh = Math.floor(h);
-  const mm = Math.floor((h - hh) * 60);
-  const ss = ((h - hh) * 60 - mm) * 60;
+  // 先四舍五入到 0.1s，再拆分，避免出现 60.0s。
+  const tenths = Math.round((norm360(raDeg) / 15) * 36000);
+  const hh = Math.floor(tenths / 36000) % 24;
+  const rem = tenths % 36000;
+  const mm = Math.floor(rem / 600);
+  const ss = ((rem % 600) / 10).toFixed(1);
   return `${String(hh).padStart(2, '0')}h${String(mm).padStart(2, '0')}m${ss
-    .toFixed(1)
     .padStart(4, '0')}s`;
 }
 
 export function fmtDec(decDeg) {
+  // 先四舍五入到整角秒，再拆分，避免出现 60″。
+  const total = Math.round(Math.abs(decDeg) * 3600);
+  const dd = Math.floor(total / 3600);
+  const rem = total % 3600;
+  const mm = Math.floor(rem / 60);
+  const ss = rem % 60;
   const s = decDeg < 0 ? '-' : '+';
-  const a = Math.abs(decDeg);
-  const dd = Math.floor(a);
-  const mm = Math.floor((a - dd) * 60);
-  const ss = Math.round(((a - dd) * 60 - mm) * 60);
   return `${s}${String(dd).padStart(2, '0')}°${String(mm).padStart(2, '0')}′${String(
     ss
   ).padStart(2, '0')}″`;

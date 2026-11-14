@@ -5,8 +5,11 @@ import * as A from './astro.js';
 
 const $ = (id) => document.getElementById(id);
 
-// MoveScope 前端地址（app/server.py 提供，默认 8790）
-const MOVESCOPE_ORIGIN = 'http://127.0.0.1:8790';
+// MoveScope 前端地址（app/server.py 提供，默认 8790）。
+// 可在页面加载前用 window.MOVESCOPE_ORIGIN 覆盖（部署/联调时不必改源码）。
+const MOVESCOPE_ORIGIN = String(
+  window.MOVESCOPE_ORIGIN || 'http://127.0.0.1:8790'
+).replace(/\/+$/, '');
 const PRESET_FOV = { barnard: 0.5, epsind_b: 0.5, wise0855: 0.2, rw_aur: 0.5, r_dra: 0.5, m101: 0.1, campo_a: 0.1 };
 
 // 覆盖口径：单片 3.49° 方视场的半对角线 2.47°（中心落在这个半径里才算“这帧拍到了该天区”）
@@ -45,19 +48,27 @@ function toast(msg, ms = 2400) {
   toastTimer = setTimeout(() => el.classList.remove('show'), ms);
 }
 
-async function copy(text, label) {
+async function copy(text, label, { silent = false } = {}) {
+  let ok = false;
   try {
     await navigator.clipboard.writeText(text);
-    toast(`${label} 已复制`);
+    ok = true;
   } catch {
     const ta = document.createElement('textarea');
     ta.value = text;
     document.body.appendChild(ta);
     ta.select();
-    document.execCommand('copy');
+    try {
+      ok = document.execCommand('copy');
+    } catch {
+      ok = false;
+    }
     ta.remove();
-    toast(`${label} 已复制`);
   }
+  if (!silent) {
+    toast(ok ? `${label} 已复制` : `${label} 复制失败，请手动复制`, ok ? 2400 : 3600);
+  }
+  return ok;
 }
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -337,7 +348,7 @@ function writeUrl() {
   history.replaceState(null, '', url);
 }
 
-/** search 优先，hash 兜底（兼容旧链接）。非法值忽略。 */
+/** search 优先，hash 兜底（兼容旧链接）。非法值忽略，回退默认。 */
 function readUrlState() {
   const s = new URLSearchParams(location.search);
   const h = new URLSearchParams(location.hash.replace(/^#/, ''));
@@ -348,7 +359,15 @@ function readUrlState() {
     const f = parseFloat(v);
     return Number.isFinite(f) ? f : undefined;
   };
-  return { ra: num('ra'), dec: num('dec'), fov: num('fov'), t: num('t'), target: get('target') };
+  const dec = num('dec');
+  const fov = num('fov');
+  return {
+    ra: num('ra'),
+    dec: dec !== undefined && dec >= -90 && dec <= 90 ? dec : undefined,
+    fov: fov !== undefined && fov >= 0.05 && fov <= 180 ? fov : undefined,
+    t: num('t'),
+    target: get('target'),
+  };
 }
 
 // ---------------------------------------------------------------- 时间轴密度
@@ -570,12 +589,21 @@ async function boot() {
     const win = window.open('about:blank', '_blank');
     const alive = await moveScopeAlive();
     if (alive) {
-      if (win) win.location.replace(url);
-      else { copy(url, 'MoveScope 链接'); toast('浏览器拦截了新标签页，链接已复制', 3200); }
+      if (win) {
+        win.location.replace(url);
+      } else {
+        const copied = await copy(url, 'MoveScope 链接', { silent: true });
+        toast(copied ? '浏览器拦截了新标签页，MoveScope 链接已复制' : '浏览器拦截了新标签页；请手动打开 MoveScope', 4200);
+      }
     } else {
       if (win) win.close();
-      copy(url, 'MoveScope 链接');
-      toast(`连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），链接已复制`, 4200);
+      const copied = await copy(url, 'MoveScope 链接', { silent: true });
+      toast(
+        copied
+          ? `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），链接已复制`
+          : `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py）`,
+        5200,
+      );
     }
   });
 
@@ -637,7 +665,7 @@ function fatal(err) {
     : `<div style="max-width:440px;text-align:center;font-family:ui-monospace,monospace;font-size:11px;line-height:1.9;color:#ffb454">
         装载失败：${msg}<br><br>
         本页面依赖 <span style="color:#d7e8f8">fetch</span> 与 ES module，需通过本地 HTTP 服务打开：<br>
-        <span style="color:#d7e8f8">cd 视图工具 &amp;&amp; ./start.sh</span>（默认 8830）<br>
+        <span style="color:#d7e8f8">cd 系统/视图工具 &amp;&amp; ./start.sh</span>（默认 8830）<br>
         然后访问 <span style="color:#d7e8f8">http://127.0.0.1:8830/</span>
       </div>`;
 }

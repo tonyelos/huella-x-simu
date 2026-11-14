@@ -195,7 +195,7 @@ def main() -> int:
         "keys": KEYS,
         "fields": rows,
     }
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
     print(f"  写入 {args.out}（{os.path.getsize(args.out) / 1024:.0f} KB）")
