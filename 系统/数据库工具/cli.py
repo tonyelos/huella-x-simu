@@ -22,7 +22,7 @@ from pathlib import Path
 
 from db.blobs import BlobStore
 from db.catalog import Catalog
-from db.config import DEFAULT_BLOBS, DEFAULT_DB, DEFAULT_EXPORTS, FRAME_RADIUS_DEG, TOOL_ROOT
+from db.config import COVERAGE_RADIUS_DEG, DEFAULT_BLOBS, DEFAULT_DB, DEFAULT_EXPORTS, TOOL_ROOT
 from db.connection import connect, db_disk_bytes
 from db.export import EXPORTERS, export_all, export_one, write_json
 from db.ingest import Ingestor, init_db
@@ -124,10 +124,23 @@ def cmd_query(args) -> int:
         elif args.q == "coverage":
             out = cat.coverage(args.ra, args.dec, args.radius)
         elif args.q == "epochs":
-            if args.target:
+            radius = args.radius if args.radius is not None else (
+                COVERAGE_RADIUS_DEG if args.v1 else 0.2
+            )
+            if args.v1:
+                # 与 HTTP `/api/v1/epochs` 完全同一条代码路径（含去重、目标感知）。
+                out = cat.epochs_v1(
+                    target_id=args.target,
+                    ra=args.ra,
+                    dec=args.dec,
+                    fov=args.fov,
+                    radius=radius,
+                    limit=args.limit,
+                )
+            elif args.target:
                 out = {"target_id": args.target, "epochs": cat.epochs_for_target(args.target)}
             elif args.ra is not None and args.dec is not None:
-                out = {"epochs": cat.cone(args.ra, args.dec, args.radius, limit=args.limit, order="mjd")["frames"]}
+                out = {"epochs": cat.cone(args.ra, args.dec, radius, limit=args.limit, order="mjd")["frames"]}
             else:
                 raise SystemExit("query epochs 需要 --target 或 --ra/--dec")
         elif args.q == "target":
@@ -304,19 +317,21 @@ def build_parser() -> argparse.ArgumentParser:
     cone.add_argument("--size", type=float, default=0.2)
     cone.add_argument("--cutouts", action="store_true")
     cone.set_defaults(func=cmd_query)
-    cov = qsub.add_parser("coverage", help="覆盖 + 就绪度")
+    cov = qsub.add_parser("coverage", help="覆盖机会 C0–C3（readiness 已 deprecated）")
     _add_common(cov, suppress=True)
     cov.add_argument("--ra", type=float, required=True)
     cov.add_argument("--dec", type=float, required=True)
-    cov.add_argument("--radius", type=float, default=FRAME_RADIUS_DEG)
+    cov.add_argument("--radius", type=float, default=COVERAGE_RADIUS_DEG)
     cov.set_defaults(func=cmd_query)
-    ep = qsub.add_parser("epochs", help="历元")
+    ep = qsub.add_parser("epochs", help="历元；--v1 走契约（两入口同形）")
     _add_common(ep, suppress=True)
     ep.add_argument("--target", default=None)
     ep.add_argument("--ra", type=float, default=None)
     ep.add_argument("--dec", type=float, default=None)
-    ep.add_argument("--radius", type=float, default=0.2)
+    ep.add_argument("--radius", type=float, default=None, help="覆盖半径；--v1 默认 2.47，旧形状默认 0.2")
+    ep.add_argument("--fov", type=float, default=0.25, help="仅 --v1：slice_url 的 size")
     ep.add_argument("--limit", type=int, default=500)
+    ep.add_argument("--v1", action="store_true", help="输出契约 v1 响应（去重 + 目标感知）")
     ep.set_defaults(func=cmd_query)
     tg = qsub.add_parser("target", help="单目标")
     _add_common(tg, suppress=True)

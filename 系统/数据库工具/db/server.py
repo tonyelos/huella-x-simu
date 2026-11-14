@@ -120,9 +120,13 @@ class Handler(BaseHTTPRequestHandler):
         if v is None or v == "":
             return default
         try:
-            return float(v)
+            value = float(v)
         except ValueError as exc:
             raise ValueError(f"{name} 必须是数字") from exc
+        if not math.isfinite(value):
+            # nan/inf 会让 SQL/比较静默失效，甚至把坐标错配到别的目标；一律 400。
+            raise ValueError(f"{name} 必须是有限数字")
+        return value
 
     def _int(self, q: dict[str, list[str]], name: str, default: int = 0) -> int:
         v = self._param(q, name)

@@ -55,19 +55,33 @@ python3 cli.py serve --port 8797
 
 ### 规则
 
-- 每个 **obsid** 一条 `EpochRef`；同一曝光的 D1–D6 只保留 `sep_deg` 最小者。
-- 同一 `(obsid, detector)` 不重复；排序 `mjd` 升序、`detector` 升序。
-- `date_obs` 不得为 null；缺失时由 `mjd` 反推 UTC ISO。
+- 每个 **obsid**（一次曝光）一条 `EpochRef`：同一曝光的 D1–D6 合并成一条，
+  保留 `sep_deg` 最小者。也就是 `(obsid, detector)` 不重复，且同一 obsid 内
+  ±0.02 d 的重复行只留一条。
+- **不同 obsid 即使相隔 0.003 d 也各自保留**（WISE 0855 有两对这样的真实曝光）；
+  把“mjd ±0.02 d”当成跨 obsid 的去重键会把 10 条合并成 9 条，丢真实数据。
+- 排序：`mjd` 升序、`detector` 升序，结果稳定可复现。
+- `date_obs` 不得为 null；缺失时由 `mjd` 反推 UTC ISO（`datetime.fromtimestamp((mjd-40587)*86400, UTC)`）。
 - `slice_url` 的 `size == fov`；`key` 必须存在。
 - `ra/dec` 先匹配 0.05° 内目标；命中则用该目标的 curated `target_epochs`，
   保证“手动输入 Barnard 坐标”和“点 Barnard 预设”返回同一组历元。
+  WISE 0855 的 SIMBAD/赛道坐标差约 0.027°，仍在阈值内。
 - 没有 curated 或没有 frames 时，按 `radius` 锥搜索 `frames` 兜底。
+  `radius` 只影响兜底锥搜索与覆盖统计，不过滤 curated 历元。
+- `count` 是去重后的总条数；`returned` 是本页条数（`limit/offset` 分页）。
 
 ### 示例
 
 ```bash
 curl 'http://127.0.0.1:8797/api/v1/epochs?target_id=barnard'
 curl 'http://127.0.0.1:8797/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.25'
+```
+
+不开服务时的离线等价（同一条 `Catalog.epochs_v1` 代码路径）：
+
+```bash
+python3 cli.py query epochs --target barnard --v1
+python3 cli.py query epochs --ra 269.452077 --dec 4.693365 --v1 --fov 0.25
 ```
 
 ```json
@@ -117,6 +131,8 @@ curl 'http://127.0.0.1:8797/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.25'
 | r_dra | 3 | 3 | ✅ |
 
 Barnard 包含 2026W12 的 204 天历元（`sep≈1.851°`），说明默认半径 2.47° 生效。
+`tests/test_v1_contract.py` 对仓库自带生产库（`var/catalog.sqlite`）回归这张表；
+库不存在时整类跳过，空克隆不会误报。
 
 ---
 
@@ -148,9 +164,17 @@ curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365'
 
 - **不返回** `readiness` / L0–L3；覆盖机会与检测质量分开。
 - `C0` ≤1；`C1` 2；`C2` 3–5 或 ≥6 但基线 <180 d；`C3` ≥6 且 ≥180 d。
-- `n_frames` 是 detector 帧数；`n_epochs` 按 obsid 去重后的曝光数。
+- `n_frames` 是 detector 帧数；`n_epochs` 按曝光去重后的期数。
 - `header_available` 表示该天区是否已有 FITS 头；`n_local_cutouts` 按
   `(obs_id, detector)` 匹配本地 NPZ/FITS 切割。
+
+> **两处 `coverage` 的口径不同，引用时要说清：**
+> `/api/v1/epochs` 里的 `coverage` 统计**本次返回的历元集合**（目标命中时即
+> curated `target_epochs`，Barnard 4 期）；`/api/v1/coverage` 统计 `radius` 锥内的
+> **全部 frames**（按 0.02 d 曝光去重，Barnard 5 期）。
+> Barnard 两个口径的级别都是 C2、基线都约 203.6–203.8 天；前者说“候选历元覆盖”，
+> 后者说“这块天拍过几次”。RW Aur 是最极端的例子：curated 只有 1 条真实历元
+> （C0），而 2.47° 锥内有多期 frames（C2 以上）——两者都对，但回答的不是同一个问题。
 
 ---
 
@@ -248,6 +272,8 @@ T4 新增的帧不会改变旧文件，但可通过 `/api/cone` / `/api/v1/epoch
 
 - 分页：`limit` 默认 100（v1 epochs 默认 500），单页最大 2000；`offset` 从 0 开始。
 - 参数错误 400；目标/帧/blob/路径不存在 404；内部错误 500。
+- **非有限数值一律 400**：`ra=nan`、`fov=inf` 等不会静默返回 200；否则 NaN 参与
+  `min/max` 会让角距计算退化成 0°，把任意非法坐标错配到某个目标。
 - JSON 在 `Accept-Encoding: gzip` 且 ≥1 KB 时 gzip。
 - `ra` 自动对 360 取模；`dec` 必须在 [-90,90]。
 

@@ -32,9 +32,36 @@ IRSA_BASE = "https://irsa.ipac.caltech.edu/ibe/data/spherex/"
 
 
 def angsep_deg(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
-    a1, d1, a2, d2 = map(math.radians, (ra1, dec1, ra2, dec2))
+    """两点大圆距离（度）。任一分量为 NaN/Inf 时返回 NaN，绝不返回假 0。"""
+    try:
+        values = (float(ra1), float(dec1), float(ra2), float(dec2))
+    except (TypeError, ValueError):
+        return math.nan
+    if not all(math.isfinite(v) for v in values):
+        # 注意：NaN 参与 min/max 会被静默夹到 1.0，acos 后变成 0°，
+        # 看起来“完全重合”，足以把任意非法坐标错配到某个目标上。
+        return math.nan
+    a1, d1, a2, d2 = (math.radians(v) for v in values)
     c = math.sin(d1) * math.sin(d2) + math.cos(d1) * math.cos(d2) * math.cos(a1 - a2)
     return math.degrees(math.acos(max(-1.0, min(1.0, c))))
+
+
+def finite_scalar(value, name: str) -> float:
+    """把标量参数转成有限 float；NaN/Inf/非数字一律 ValueError。"""
+    try:
+        value = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是数字") from exc
+    if not math.isfinite(value):
+        raise ValueError(f"{name} 必须是有限数字")
+    return value
+
+
+def finite_radec(ra: float, dec: float) -> tuple[float, float]:
+    """校验并规范化查询坐标；非有限值直接 ValueError（HTTP 层转 400）。"""
+    ra = finite_scalar(ra, "ra")
+    dec = finite_scalar(dec, "dec")
+    return ra % 360.0, dec
 
 
 def zone_of(dec: float) -> int:
@@ -187,9 +214,8 @@ class Catalog:
         include_cutouts: bool = False,
     ) -> dict:
         """按天区锥搜索。先 zone/RA 粗筛，再精确大圆距离过滤。"""
-        ra = float(ra) % 360.0
-        dec = float(dec)
-        radius = float(radius_deg)
+        ra, dec = finite_radec(ra, dec)
+        radius = finite_scalar(radius_deg, "radius")
         if not (-90.0 <= dec <= 90.0):
             raise ValueError("dec 必须在 [-90, 90]")
         if not (0.0 < radius <= 180.0):
@@ -426,6 +452,13 @@ class Catalog:
 
     def resolve_target(self, ra: float, dec: float, *, tol: float = TARGET_MATCH_RADIUS_DEG) -> dict | None:
         """把任意坐标匹配到 0.05° 内的目标；用于 target_id / ra-dec 两入口同形。"""
+        try:
+            ra = float(ra)
+            dec = float(dec)
+        except (TypeError, ValueError):
+            return None
+        if not (math.isfinite(ra) and math.isfinite(dec)):
+            return None
         best: dict | None = None
         best_sep = float(tol)
         for t in self.targets():
@@ -585,6 +618,15 @@ class Catalog:
         offset: int = 0,
     ) -> dict:
         """契约 v1：target_id 与 ra/dec 两入口返回同一组 EpochRef。"""
+        fov = finite_scalar(fov, "fov")
+        radius = finite_scalar(radius, "radius")
+        if fov <= 0:
+            raise ValueError("fov 必须是正数")
+        if ra is not None or dec is not None:
+            if ra is None or dec is None:
+                raise ValueError("ra 与 dec 必须同时给")
+            ra, dec = finite_radec(ra, dec)
+
         matched: dict | None = None
         qra: float
         qdec: float
@@ -594,13 +636,15 @@ class Catalog:
                 raise KeyError(target_id)
             qra, qdec = float(matched["ra"]), float(matched["dec"])
             if ra is not None and dec is not None:
-                if angsep_deg(float(ra) % 360.0, float(dec), qra, qdec) > TARGET_MATCH_RADIUS_DEG:
+                sep = angsep_deg(ra, dec, qra, qdec)
+                if not math.isfinite(sep) or sep > TARGET_MATCH_RADIUS_DEG:
                     raise ValueError("ra/dec 与 target_id 不在 0.05° 内")
         elif ra is not None and dec is not None:
-            qra, qdec = float(ra) % 360.0, float(dec)
-            matched = self.resolve_target(qra, qdec)
+            matched = self.resolve_target(ra, dec)
             if matched:
                 qra, qdec = float(matched["ra"]), float(matched["dec"])
+            else:
+                qra, qdec = ra, dec
         else:
             raise ValueError("需要 target_id，或 ra 与 dec")
 

@@ -4,7 +4,7 @@
     python3 tools/check_compat.py --root .. --exports var/exports
 
 检查项：
-- fields.json：5,857 行数组逐行一致（顺序也一致）
+- fields.json：行数与源 `视图工具/data/fields.json` 逐行一致（顺序也一致）
 - epoch_catalog.json：每个目标、每条历元一致
 - targets.json：字段一致（包括 extra_json 保留的 coord_unc_arcsec）
 - week_index.json：release/week/version/first_key/obsid/日期/黄道坐标一致；
