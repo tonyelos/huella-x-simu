@@ -326,6 +326,7 @@ def build_dataset(
         "fetch_attempted": 0,
         "fetch_succeeded": 0,
         "coverage": coverage,
+        "catalog_baseline_days": real_days,
         "source": "local_json",
         "matched_target_id": None,
         "warnings": [],
@@ -348,7 +349,7 @@ def build_dataset(
             span = max(e.mjd for e in fetched) - min(e.mjd for e in fetched)
             if span >= 30:
                 note = (
-                    f"IRSA 静态切片实取 {success}/{len(eps)} 期，基线 {span:.0f} 天；参考星相对定标。"
+                    f"IRSA 静态切片取数 {success}/{len(eps)} 期；参考星相对定标。"
                 )
                 if success < len(eps):
                     note += f" 另有 {len(eps) - success} 期取数失败。"
@@ -357,7 +358,7 @@ def build_dataset(
 
             sim_epochs, truth = _simulate_with_complement(target, eps, fetched, n_sim, size_deg, tid)
             note = (
-                f"真实切片实取 {success}/{len(eps)} 期但基线仅 {span:.0f} 天（目录基线 {real_days:.0f} 天），"
+                f"真实切片取数 {success}/{len(eps)} 期，取数跨度仅 {span:.0f} 天（目录基线 {real_days:.0f} 天），"
                 f"不足以判定运动；以下为验证时序（HYBRID：{success} 期 REAL + {max(len(sim_epochs) - success, 0)} 期 SIM）。"
             )
             meta.update({"mode": "hybrid", "fallback_reason": "BASELINE_TOO_SHORT", "real_epochs": success, "note": note})
@@ -404,7 +405,7 @@ def build_dataset(
         meta.update({"mode": "hybrid", "fallback_reason": "INSUFFICIENT_EPOCHS", "note": note})
     else:
         note = (
-            f"真实历元 {len(eps)} 期但基线仅 {real_days:.0f} 天，不足以判定运动规律；"
+            f"真实历元 {len(eps)} 期，目录基线仅 {real_days:.0f} 天，不足以判定运动规律；"
             "以下为验证时序（HYBRID，真实 PSF/噪声 + 注入目标）。"
         )
         meta.update({"mode": "hybrid", "fallback_reason": "BASELINE_TOO_SHORT", "note": note})
@@ -526,6 +527,7 @@ def _build_custom_dataset(
         "fetch_attempted": 0,
         "fetch_succeeded": 0,
         "coverage": epoch_source.coverage_for_epochs([]),
+        "catalog_baseline_days": 0.0,
         "source": "none",
         "matched_target_id": None,
         "matched_name": None,
@@ -541,8 +543,11 @@ def _build_custom_dataset(
     resolution = epoch_source.resolve_epochs(ra, dec, size_deg)
     matched = epoch_source.get_known_target(resolution.matched_target_id) if resolution.matched_target_id else None
     target = _custom_target(ra, dec, matched)
+    cat_mjds = [float(e["mjd"]) for e in resolution.epochs if e.get("mjd") is not None]
+    cat_baseline = (max(cat_mjds) - min(cat_mjds)) if len(cat_mjds) >= 2 else 0.0
     meta.update(
         {
+            "catalog_baseline_days": cat_baseline,
             "fallback_reason": resolution.fallback_reason or "NO_LOCAL_COVERAGE",
             "coverage": resolution.coverage or epoch_source.coverage_for_epochs([]),
             "source": resolution.source,
@@ -581,7 +586,7 @@ def _build_custom_dataset(
             if span >= 30:
                 note = (
                     f"{match_prefix}数据库返回 {len(resolution.epochs)} 期真实历元（取 {len(eps)} 期），"
-                    f"IRSA 静态切片实取 {success}/{len(eps)} 期，基线 {span:.0f} 天；参考星相对定标。"
+                    f"IRSA 静态切片取数 {success}/{len(eps)} 期；参考星相对定标。"
                 )
                 if success < len(eps):
                     note += f" 另有 {len(eps) - success} 期取数失败。"
@@ -593,7 +598,7 @@ def _build_custom_dataset(
                 sim_target, eps, fetched, n_sim, size_deg, matched.get("id") if matched else seed_key
             )
             note = (
-                f"{match_prefix}真实历元 {success} 期但基线仅 {span:.0f} 天，不足以判定运动；"
+                f"{match_prefix}真实历元取数 {success} 期，取数跨度仅 {span:.0f} 天，不足以判定运动；"
                 f"以下为验证时序（HYBRID：{success} 期 REAL + {max(len(sim_epochs) - success, 0)} 期 SIM）。"
             )
             meta.update({"mode": "hybrid", "fallback_reason": "BASELINE_TOO_SHORT", "real_epochs": success, "note": note})

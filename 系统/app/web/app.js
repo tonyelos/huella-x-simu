@@ -230,9 +230,17 @@ function renderAll(d, dt) {
   rb.textContent = (r.readiness || "?") + " 就绪度";
 
   const fb = d.data.fallback_reason ? ` · ${d.data.fallback_reason}` : "";
-  const real = d.data.real_epochs != null ? ` · 真实 ${d.data.real_epochs}/${d.data.n_epochs} 期` : "";
+  // 三类数分开显示：取数期数 / 用于拟合的探测期数 / 探测基线（目录基线只在 data.note 里带限定词）
+  const det = Number(r.detected_epochs != null ? r.detected_epochs : 0);
+  const nEpoch = Number(d.data.n_epochs || 0);
+  const probe = Number(r.baseline_days || 0);
+  const fetchTxt = d.data.fetch_attempted
+    ? `取数 ${Number(d.data.fetch_succeeded || 0)}/${d.data.fetch_attempted} 期 · `
+    : "";
+  const fitTxt = isSample ? "仅解析/渲染核验" : `拟合 ${det}/${nEpoch} 期`;
+  const baseTxt = isSample ? "" : ` · 探测基线 ${Number.isFinite(probe) ? probe.toFixed(0) : "—"} 天`;
   note(
-    `<b>${(d.data.mode || "").toUpperCase()}</b> · ${d.data.n_epochs} 期 · ${(d.data.bands || []).join("/")} · ${(r.baseline_days || 0).toFixed(0)} 天基线${real}${fb} · ${dt}s<br>${d.data.note || ""}`
+    `<b>${(d.data.mode || "").toUpperCase()}</b> · ${nEpoch} 期 · ${(d.data.bands || []).join("/")} · ${fetchTxt}${fitTxt}${baseTxt}${fb} · ${dt}s<br>${d.data.note || ""}`
   );
 
   // 就绪度

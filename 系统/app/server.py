@@ -528,6 +528,37 @@ def unavailable_result(meta: dict) -> dict:
     }
 
 
+def compose_note(meta: dict, result: dict, data_block: dict) -> str:
+    """按“取数期数 / 探测期数 / 探测基线 / 目录基线”分别写清楚。
+
+    旧文案把目录基线（如 Barnard 204 天）直接写成“实取 4/4 期，基线 204 天”，
+    与管线实际用于拟合的 3 期 / 6.451 天冲突。real/hybrid 的 note 统一在这里
+    由探测结果生成，目录基线只作为带限定词的补充。
+    """
+    mode = data_block.get("mode") or meta.get("mode") or "synthetic"
+    base = (meta.get("note") or "").strip()
+    if mode not in ("real", "hybrid"):
+        return base
+    detected = int(result.get("detected_epochs") or 0)
+    probe = float(result.get("baseline_days") or 0.0)
+    attempts = int(meta.get("fetch_attempted") or 0)
+    succeeded = int(meta.get("fetch_succeeded") or 0)
+    cat = meta.get("catalog_baseline_days")
+    cat_txt = f"（目录基线 {float(cat):.0f} 天）" if cat else ""
+    if mode == "real":
+        return (
+            f"IRSA 静态切片取数 {succeeded}/{attempts} 期；其中 {detected} 期用于拟合，"
+            f"探测基线 {probe:.0f} 天{cat_txt}；参考星相对定标。"
+        )
+    n = int(data_block.get("n_epochs") or 0)
+    head = f"取数 {succeeded}/{attempts} 期；" if attempts else ""
+    note = (
+        f"{head}验证时序 {n} 期，其中 {detected} 期用于拟合，"
+        f"探测基线 {probe:.0f} 天{cat_txt}。"
+    )
+    return note + ((" " + base) if base else "")
+
+
 def run_analysis(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ApiError(400, "BAD_JSON", "请求体必须是 JSON 对象。")
@@ -626,7 +657,7 @@ def run_analysis(payload: dict) -> dict:
 
     data_block = {
         "mode": mode_out,
-        "note": meta.get("note", ""),
+        "note": "",
         "readiness": result.get("readiness"),
         "n_epochs": len(epochs),
         "real_epochs": real_epochs,
@@ -638,7 +669,11 @@ def run_analysis(payload: dict) -> dict:
         "matched_name": meta.get("matched_name"),
         "fetch_attempted": meta.get("fetch_attempted", 0),
         "fetch_succeeded": meta.get("fetch_succeeded", 0),
+        "detected_epochs": int(result.get("detected_epochs") or 0),
+        "detection_baseline_days": result.get("baseline_days"),
+        "catalog_baseline_days": meta.get("catalog_baseline_days"),
     }
+    data_block["note"] = compose_note(meta, result, data_block)
     if meta.get("coverage") is not None:
         data_block["coverage"] = meta["coverage"]
     if meta.get("catalog_epochs") is not None:
