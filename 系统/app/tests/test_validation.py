@@ -22,6 +22,25 @@ class FovValidationTest(unittest.TestCase):
             self.assertEqual(ctx.exception.status, 400)
             self.assertIn(ctx.exception.code, {"INVALID_FOV", "FOV_TOO_LARGE"})
 
+    def test_error_codes_are_specific(self):
+        # 低于下限 → INVALID_FOV；高于上限 → FOV_TOO_LARGE（API 契约）
+        for bad in (0.0, 0.019, -0.2):
+            with self.assertRaises(server.ApiError) as ctx:
+                server.validate_fov(bad)
+            self.assertEqual(ctx.exception.status, 400)
+            self.assertEqual(ctx.exception.code, "INVALID_FOV")
+        for bad in (3.0001, 3.1, 3.5, 99):
+            with self.assertRaises(server.ApiError) as ctx:
+                server.validate_fov(bad)
+            self.assertEqual(ctx.exception.status, 400)
+            self.assertEqual(ctx.exception.code, "FOV_TOO_LARGE")
+
+    def test_parse_and_nonfinite_codes(self):
+        for bad in ("abc", None, float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(server.ApiError) as ctx:
+                server.validate_fov(bad)
+            self.assertEqual(ctx.exception.code, "INVALID_FOV")
+
 
 class TargetValidationTest(unittest.TestCase):
     def test_conflict_between_target_and_coords(self):
@@ -46,6 +65,13 @@ class TargetValidationTest(unittest.TestCase):
     def test_missing_and_invalid_coords(self):
         with self.assertRaises(server.ApiError) as ctx:
             server.resolve_request({"target_id": "custom", "ra": 10})
+        self.assertEqual(ctx.exception.code, "MISSING_COORDINATE")
+        # 预设目标也只给一半坐标时不能静默忽略
+        with self.assertRaises(server.ApiError) as ctx:
+            server.resolve_request({"target_id": "barnard", "ra": 269.452077})
+        self.assertEqual(ctx.exception.code, "MISSING_COORDINATE")
+        with self.assertRaises(server.ApiError) as ctx:
+            server.resolve_request({"target_id": "barnard", "dec": 4.693365})
         self.assertEqual(ctx.exception.code, "MISSING_COORDINATE")
         for bad in ({"ra": 400, "dec": 0}, {"ra": 10, "dec": 91}, {"ra": math.nan, "dec": 0}):
             with self.assertRaises(server.ApiError):

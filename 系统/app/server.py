@@ -45,6 +45,7 @@ FOV_MAX = 3.0  # 与 UI/文档保持一致；3.0° 约 246 MB 峰值估算，低
 MAX_ALLOC_BYTES = 300 * 1024 * 1024
 MAX_RESULTS = 12
 MAX_RESULT_BYTES = 256 * 1024 * 1024
+MAX_PNG_PX = 2048  # 单帧 PNG 最大边长：0.25° 仍按 ×4 放大（≈584 px），大 FOV 不做无意义上采样
 VALID_MODES = {"auto", "real", "synthetic", "sample"}
 
 
@@ -128,11 +129,19 @@ def stretch_to_rgb(img: np.ndarray, cmap: np.ndarray, lo=None, hi=None, gamma: f
 
 
 def png_bytes(rgb: np.ndarray, scale: int = 4) -> bytes:
-    im = Image.fromarray(rgb, "RGB")
+    h, w = rgb.shape[:2]
     if scale > 1:
-        im = im.resize((im.width * scale, im.height * scale), Image.BILINEAR)
+        # 大 FOV 的输入本身已足够大：限制上采样后的最大边长，避免单请求生成
+        # 数千像素级的 PNG（3.0° 输入约 1756 px，×4 会变成 7024 px）。
+        scale = max(1, min(int(scale), MAX_PNG_PX // max(int(h), int(w))))
+        if scale > 1:
+            im = Image.fromarray(rgb, "RGB")
+            im = im.resize((im.width * scale, im.height * scale), Image.BILINEAR)
+    else:
+        im = Image.fromarray(rgb, "RGB")
     buf = io.BytesIO()
-    im.save(buf, format="PNG", optimize=True)
+    # 大图不必为了几 % 的体积做全量 optimize（3.0° 帧会慢到不可用）
+    im.save(buf, format="PNG", optimize=max(im.width, im.height) <= 1024)
     return buf.getvalue()
 
 
@@ -146,8 +155,14 @@ def validate_fov(raw) -> float:
         raise ApiError(400, "INVALID_FOV", "视场必须是数字（单位：度）。")
     if not math.isfinite(fov):
         raise ApiError(400, "INVALID_FOV", "视场必须是有限数字。")
-    if fov < FOV_MIN or fov > FOV_MAX:
-        raise ApiError(400, "INVALID_FOV", f"视场需在 {FOV_MIN}–{FOV_MAX} 度之间。")
+    if fov < FOV_MIN:
+        raise ApiError(400, "INVALID_FOV", f"视场不能小于 {FOV_MIN} 度（当前 {fov:g}°）。")
+    if fov > FOV_MAX:
+        raise ApiError(
+            400,
+            "FOV_TOO_LARGE",
+            f"视场不能大于 {FOV_MAX} 度（当前 {fov:g}°）；过大视场会在单请求中分配过多内存。",
+        )
     n = fov * 3600 / 6.15
     est = n * n * 8 * 10  # 保守估计：每像素 8 字节 × 约 10 份拷贝
     if est > MAX_ALLOC_BYTES:
@@ -174,6 +189,8 @@ def resolve_request(payload: dict):
     tid = payload.get("target_id")
     has_ra = payload.get("ra") is not None
     has_dec = payload.get("dec") is not None
+    if has_ra != has_dec:
+        raise ApiError(400, "MISSING_COORDINATE", "ra 与 dec 必须同时提供（度）。")
     ra = dec = None
     if has_ra:
         ra = _coord(payload.get("ra"), "赤经 RA", 0.0, 360.0)
@@ -378,6 +395,7 @@ def run_sample_analysis(target: dict, fov: float) -> dict:
         for i, ep in enumerate(epochs)
     ]
     result = _empty_result("U", "样本核验（不做目标测量）", "L0")
+    result["readiness_scope"] = "analysis"
     result["quality"] = ["SAMPLE_MODE_NO_TARGET_MEASUREMENT"]
     result["evidence"] = [
         "两份离线样本来自 M101 与场 A，是两个不同天区",
@@ -392,6 +410,7 @@ def run_sample_analysis(target: dict, fov: float) -> dict:
     result["caveats"] = ["样本模式不产生运动结论。"]
 
     return {
+        "schema_version": "1.0",
         "analysis_id": aid,
         "target": {k: target.get(k) for k in ("id", "name", "name_zh", "ra", "dec", "type", "expected", "note")},
         "data": {
@@ -476,6 +495,8 @@ def unavailable_result(meta: dict) -> dict:
 
 
 def run_analysis(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise ApiError(400, "BAD_JSON", "请求体必须是 JSON 对象。")
     mode = payload.get("mode", "auto")
     if mode not in VALID_MODES:
         raise ApiError(400, "INVALID_MODE", f"mode 必须是 {sorted(VALID_MODES)} 之一。")
@@ -524,6 +545,7 @@ def run_analysis(payload: dict) -> dict:
         result = unavailable_result(meta)
     else:
         result = pipeline.run_pipeline(tgt, epochs, truth=truth, mode=mode_out)
+    result["readiness_scope"] = "analysis"
     common = epochs[0].wcs
     imgs = pipeline.reproject_to_common(epochs, common)
     cube = np.stack(imgs, axis=0)
@@ -573,6 +595,7 @@ def run_analysis(payload: dict) -> dict:
         data_block["warnings"] = list(meta["warnings"])
 
     payload = {
+        "schema_version": "1.0",
         "analysis_id": aid,
         "target": {k: tgt.get(k) for k in ("id", "name", "name_zh", "ra", "dec", "type", "expected", "note")},
         "data": data_block,
