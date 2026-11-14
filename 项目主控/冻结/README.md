@@ -127,6 +127,9 @@ $PY 项目主控/冻结/run_offline.py --snapshot /tmp/demo-copy --targets all
   未覆盖天区明确 `no_coverage`，不会拿别处的图冒充。
 - 不冻结整幅 65 MB FITS / EPSF；只冻结 NPZ 切片与 110 KB 模拟支撑文件。
 - 快照与 app 指纹绑定：`manifest.app_fingerprint` 变了，结果可能漂移，演示前重新 freeze。
+  **例外（2026-11-15 迁移后）**：`app/…` → `系统/app/…` 的路径迁移也会改变聚合指纹，
+  但 12 个 app 关键文件的**内容 sha256 全部相同**；`run_offline` 的 `[DRIFT]` 是预期告警。
+  只有文件内容或离线结果变化时才需要重新 freeze（见 `STATUS.md`）。
 - `run_offline` 验证的是结果级一致（class/readiness/μ/PA），不是像素级 bit 对比。
 - 服务不在跑时 `results/*.json` 会 `skipped`；`run_offline` 退回 `BUILTIN_GOLDEN`（审计基线）。
 
