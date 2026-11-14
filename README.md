@@ -34,11 +34,15 @@
 ## 2. 快速开始
 
 ```bash
-# 用工作区自带的 Python（含 numpy / Pillow）
-PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
+# 推荐：一条命令启动 DB(8797) + app(8790) + view(8830)
 cd /Users/yiao/Documents/huellaX
-$PY 系统/app/server.py --port 8790
+项目主控/启动/start_all.sh
 # 打开 http://127.0.0.1:8790/
+
+# 或手动只起 app（预设目标可跑；任意坐标需要 DB 8797）
+PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
+$PY 系统/app/server.py --port 8790
+cd 系统/数据库工具 && $PY cli.py serve --port 8797
 ```
 
 首次分析某个真实目标时，会从 IRSA 静态切片接口取数（每期约 4 MB，带本地缓存）；
@@ -47,9 +51,11 @@ $PY 系统/app/server.py --port 8790
 **参数边界**：FOV 合法范围 **0.02–3.0°**；非法值返回 400 + 可读错误码
 （`INVALID_FOV` / `FOV_TOO_LARGE` / `INVALID_COORDINATE` / `TARGET_COORD_CONFLICT`），不再是 500。
 
-**当前数据通路**：5 个预设目标走本地真实历元目录；**自定义 RA/Dec 目前仍是 SIM 演示**
-（真实任意坐标的数据桥接是 T2 工作包，尚未接线）。「离线样本」模式只用于验证 FITS 解析与渲染，
-不会对任何目标做测量。
+**当前数据通路**：5 个预设目标走本地真实历元目录；**任意 RA/Dec 先查数据库 `/api/v1/epochs`**
+（本地覆盖 5,893 帧 / 5,562 曝光 / 151 周），有 ≥2 期真实历元就走真实切片；本地无覆盖时显式
+`NO_LOCAL_COVERAGE` + SIM 演示，DB 不可用时显式 `DB_UNAVAILABLE`，不会伪装成真实观测。
+坐标落在某个官方目标 0.05° 内时复用该目标的预设路径，保证“手动输入坐标”与“点预设”结果一致。
+「离线样本」模式只用于验证 FITS 解析与渲染，不会对任何目标做测量。
 
 ---
 
@@ -57,7 +63,7 @@ $PY 系统/app/server.py --port 8790
 
 1. **左栏**：选 5 个官方目标之一，或输入自定义 RA/Dec/FOV；
    数据模式可选「自动（真实优先）/ 仅真实 / 模拟 / 离线样本」。
-   自定义坐标目前出 SIM 演示；只有预设目标有真实历元通路（T2 完成后再扩展）。
+   自定义坐标会先查数据库；有本地真实覆盖则出 REAL，无覆盖则明确标 SIM，不会静默伪装。
 2. **中栏**：天区视图。四种显示：
    - **闪烁**：逐期播放，像小视频；
    - **叠加**：多期中值合成，提信噪比；
@@ -105,7 +111,7 @@ http://127.0.0.1:8790/?target=barnard&ra=269.452077&dec=4.693365&fov=0.2
 - **真实数据（饱和案例）**：Barnard's Star 4 期，目标饱和（峰值 755–1782 MJy/sr，核心 NaN），
   位移约 5.3″（真值 5.8″）但质心误差 0.4 px，工具诚实判为「未检测到显著位移」并标记 `SATURATED_SOURCE`。
 - **弱目标**：WISE 0855 在可用波段只探测到 1 期，判 U；这是坐标歧义/深度问题，已写入限制。
-- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（78+ 项，覆盖 sample、FOV、quality 合并、
+- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（104 项，覆盖 sample、FOV、quality 合并、
   缓存版本键/损坏恢复、LRU、target 冲突、越界像素、schema 契约）。
 
 报告：`系统/docs/validation_report.json`。
