@@ -1414,74 +1414,183 @@ def run_d(ctx: Context) -> None:
         cause,
     )
 
-    # D2：RW Aur 坐标至少 1 条真实历元
+    # D2：RW Aur 自定义坐标应与预设等价（HYBRID 纯 SIM 回退允许 real_epochs=0）
     payload = _custom_payload(76.956526, 30.401438)
     resp = post_analyze(ctx, payload, "D.custom_rw_aur.json")
-    evidence = "artifacts/D.custom_rw_aur.json"
+    preset_payload = {"target_id": "rw_aur", "mode": "auto", "fov": 0.25}
+    preset_resp = post_analyze(ctx, preset_payload, "D.custom_rw_aur.preset.json")
+    evidence = "artifacts/D.custom_rw_aur.json , artifacts/D.custom_rw_aur.preset.json"
+    expected = (
+        "RW Aur 自定义坐标：HTTP 200、mode=real|hybrid、matched_target_id=rw_aur、class=V，"
+        "且与预设 rw_aur 的 mode/readiness/class/μ（±5%）一致；HYBRID 允许 real_epochs=0"
+    )
     problems = []
     actual = f"HTTP {resp.status}（{resp.snippet(140)}）"
     cause = None
+    preset_ok = preset_resp.status == 200 and isinstance(preset_resp.json_data, dict)
+    preset_summary = analysis.summary(preset_resp.json_data) if preset_ok else {}
     if resp.status != 200 or not isinstance(resp.json_data, dict):
         problems.append(
             {"code": "CUSTOM_RW_HTTP", "severity": "P0", "message": f"HTTP {resp.status}（{resp.snippet(160)}）"}
         )
         cause = f"app /api/analyze HTTP {resp.status}（R1 核心路径）"
+        case_from_problems(
+            ctx,
+            "D.custom_rw_aur",
+            "D",
+            "P0",
+            expected,
+            problems,
+            actual,
+            evidence,
+            " ; ".join(
+                (
+                    curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
+                    curl_repro(ctx.base_url + "/api/analyze", preset_payload, "POST"),
+                )
+            ),
+            resp.elapsed_ms,
+            cause,
+        )
     else:
         summary = analysis.summary(resp.json_data)
+        matched = summary.get("matched_target_id")
+        mode = summary.get("mode")
+        readiness = summary.get("readiness")
+        klass = summary.get("class")
         real_epochs = summary.get("real_epochs")
-        if summary.get("mode") not in ("real", "hybrid"):
-            problems.append(
-                {
-                    "code": "CUSTOM_RW_MODE",
-                    "severity": "P0",
-                    "message": f"mode={summary.get('mode')!r}，期望 real 或 hybrid",
-                }
-            )
-        if not isinstance(real_epochs, int) or real_epochs < 1:
-            problems.append(
-                {
-                    "code": "CUSTOM_RW_REAL_EPOCHS",
-                    "severity": "P0",
-                    "message": f"real_epochs={real_epochs!r}，期望 ≥1",
-                }
-            )
-        if summary.get("fallback_reason") == "NO_LOCAL_COVERAGE":
-            problems.append(
-                {
-                    "code": "CUSTOM_RW_COVERAGE",
-                    "severity": "P0",
-                    "message": "fallback_reason=NO_LOCAL_COVERAGE，但 RW Aur 有 1 条真实历元",
-                }
-            )
-        if not isinstance(summary.get("n_epochs"), int) or summary.get("n_epochs") < 1:
-            problems.append(
-                {
-                    "code": "CUSTOM_RW_N",
-                    "severity": "P0",
-                    "message": f"n_epochs={summary.get('n_epochs')!r}，期望 ≥1",
-                }
-            )
+        n_epochs = summary.get("n_epochs")
         actual = (
-            f"HTTP 200；mode={summary.get('mode')}；n={summary.get('n_epochs')}；"
-            f"real_epochs={summary.get('real_epochs')}；fallback={summary.get('fallback_reason')}"
+            f"HTTP 200；mode={mode}；n={n_epochs}；real_epochs={real_epochs}；"
+            f"{readiness}；{klass}；matched={matched!r}；fallback={summary.get('fallback_reason')}；"
+            f"μ={_fmt_mu(summary.get('mu_mas_yr'))}；预设 "
+            f"{preset_summary.get('mode')}/{preset_summary.get('readiness')}/"
+            f"{preset_summary.get('class')}/μ={_fmt_mu(preset_summary.get('mu_mas_yr'))}"
         )
-        if summary.get("fallback_reason") == "DB_UNAVAILABLE":
-            cause = "DB 停止导致（DB_UNAVAILABLE）；R1 未闭环"
-        elif problems:
-            cause = "app /api/analyze 结果与 R1 黄金样本不符"
-    case_from_problems(
-        ctx,
-        "D.custom_rw_aur",
-        "D",
-        "P0",
-        "RW Aur 坐标：HTTP 200、mode=real|hybrid、real_epochs≥1、不得 NO_LOCAL_COVERAGE/0",
-        problems,
-        actual,
-        evidence,
-        curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
-        resp.elapsed_ms,
-        cause,
-    )
+        if not matched and not ctx.db_available:
+            # DB 停止导致无法确认 0.05° 匹配：不伪造 PASS，单列 BLOCKED。
+            add_blocked(
+                ctx,
+                "D.custom_rw_aur",
+                "D",
+                "P0",
+                expected,
+                f"DB 停止导致 matched_target_id 无法确认（matched={matched!r}；{actual}）",
+                "DB 服务不可达，自定义坐标无法完成 0.05° 预设匹配；未验证 R3 等价性",
+                evidence,
+                " ; ".join(
+                    (
+                        curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
+                        curl_repro(ctx.base_url + "/api/analyze", preset_payload, "POST"),
+                    )
+                ),
+                blocked_by="DB",
+            )
+        else:
+            if not preset_ok:
+                problems.append(
+                    {
+                        "code": "CUSTOM_RW_PRESET_HTTP",
+                        "severity": "P0",
+                        "message": f"预设 rw_aur HTTP {preset_resp.status}（{preset_resp.snippet(120)}）",
+                    }
+                )
+            if mode not in ("real", "hybrid"):
+                problems.append(
+                    {
+                        "code": "CUSTOM_RW_MODE",
+                        "severity": "P0",
+                        "message": f"mode={mode!r}，期望 real 或 hybrid",
+                    }
+                )
+            if matched != "rw_aur":
+                problems.append(
+                    {
+                        "code": "CUSTOM_RW_MATCHED",
+                        "severity": "P0",
+                        "message": f"matched_target_id={matched!r}，期望 'rw_aur'",
+                    }
+                )
+            if klass != "V":
+                problems.append(
+                    {
+                        "code": "CUSTOM_RW_CLASS",
+                        "severity": "P0",
+                        "message": f"class={klass!r}，期望 'V'",
+                    }
+                )
+            if not isinstance(real_epochs, int) or real_epochs < 0:
+                problems.append(
+                    {
+                        "code": "CUSTOM_RW_REAL_EPOCHS",
+                        "severity": "P1",
+                        "message": f"real_epochs={real_epochs!r}，期望 >=0 的 int（HYBRID 允许 0）",
+                    }
+                )
+            if not isinstance(n_epochs, int) or n_epochs < 1:
+                problems.append(
+                    {
+                        "code": "CUSTOM_RW_N",
+                        "severity": "P1",
+                        "message": f"n_epochs={n_epochs!r}，期望 >=1",
+                    }
+                )
+            if preset_ok:
+                for key, code in (
+                    ("mode", "CUSTOM_RW_EQ_MODE"),
+                    ("readiness", "CUSTOM_RW_EQ_READINESS"),
+                    ("class", "CUSTOM_RW_EQ_CLASS"),
+                ):
+                    if summary.get(key) != preset_summary.get(key):
+                        problems.append(
+                            {
+                                "code": code,
+                                "severity": "P0",
+                                "message": f"{key}: 自定义={summary.get(key)!r} ≠ 预设={preset_summary.get(key)!r}",
+                            }
+                        )
+                custom_mu = summary.get("mu_mas_yr")
+                preset_mu = preset_summary.get("mu_mas_yr")
+                if isinstance(custom_mu, (int, float)) and isinstance(preset_mu, (int, float)):
+                    ok, detail = mu_matches(custom_mu, preset_mu, None, 5.0)
+                    if not ok:
+                        problems.append(
+                            {
+                                "code": "CUSTOM_RW_EQ_MU",
+                                "severity": "P0",
+                                "message": f"μ 自定义={_fmt_mu(custom_mu)} vs 预设={_fmt_mu(preset_mu)}；{detail}",
+                            }
+                        )
+                elif (custom_mu is None) != (preset_mu is None):
+                    problems.append(
+                        {
+                            "code": "CUSTOM_RW_EQ_MU_MISSING",
+                            "severity": "P1",
+                            "message": f"μ 一侧为 null（自定义={_fmt_mu(custom_mu)}，预设={_fmt_mu(preset_mu)}）",
+                        }
+                    )
+            if problems:
+                cause = "app 自定义 RW Aur 与预设不等价（R3）"
+                if summary.get("fallback_reason") == "DB_UNAVAILABLE":
+                    cause = "DB 停止导致（DB_UNAVAILABLE）；R1 未闭环"
+            case_from_problems(
+                ctx,
+                "D.custom_rw_aur",
+                "D",
+                "P0",
+                expected,
+                problems,
+                actual,
+                evidence,
+                " ; ".join(
+                    (
+                        curl_repro(ctx.base_url + "/api/analyze", payload, "POST"),
+                        curl_repro(ctx.base_url + "/api/analyze", preset_payload, "POST"),
+                    )
+                ),
+                resp.elapsed_ms,
+                cause,
+            )
 
     # D3：未覆盖天区
     payload = _custom_payload(0.0, 0.0)

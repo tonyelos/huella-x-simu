@@ -167,6 +167,8 @@ def summary(doc) -> dict:
         "real_epochs": data.get("real_epochs"),
         "provenance": data.get("provenance"),
         "fallback_reason": data.get("fallback_reason"),
+        "matched_target_id": data.get("matched_target_id"),
+        "source": data.get("source"),
         "readiness": result.get("readiness"),
         "class": result.get("class"),
         "mu_mas_yr": result.get("mu_mas_yr"),

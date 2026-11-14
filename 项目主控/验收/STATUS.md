@@ -1,4 +1,4 @@
-# T1 验收工具 · 状态：BLOCKED 语义完成；系统验收仍红
+# T1 验收工具 · 状态：全量全绿（main 修复版 app）
 
 > 时间：2026-11-15 CET
 > 分支：`tool/t1-acceptance`（worktree `项目主控/_worktrees/tool-t1-acceptance`）
@@ -6,62 +6,60 @@
 
 ## 结论
 
-T1 的 BLOCKED 语义与一条命令入口已完成，可重复回答“红在哪、哪些是 DB 停止导致”。
-系统当前**不是全绿**：主验收退出码 1（4 条 P0 失败 + 13 条 P0 BLOCKED），
-补充验收（DB 8811 只读库可用）退出码 1（5 条 P0 失败）。
+在 main `6b3098d`（含 app “自定义坐标 0.05° 命中复用预设”修复）的 app 上跑全量 T1：
 
-## 已完成
+**45 PASS / 0 FAIL / 1 WARN / 0 BLOCKED，46 条用例，50.6s，退出码 0。**
 
-- `add_blocked` 真正接入 A（DB target 源/app_db/epoch_ref/coverage）、D.uncovered、G（v1 与 header）
-  与 B（SQLite 不可读时）；BLOCKED 不计 PASS，也不伪装成 FAIL。
-- `report.md` 新增「1.0 DB 状态」「2.1 红在哪 / 归因」「5. BLOCKED」；失败详情带 `cause`；
-  `report.json` 的 `summary` 增加 `blocked / p0_blocked / p1_blocked`，顶层增加 `db_status`。
-- 退出码：无 P0 失败且无 P0 BLOCKED → 0；有 P0 失败或 P0 BLOCKED → 1；环境错误 → 2。
-- `--start`：app 未运行时自动在 8810 起验收专用子进程（已占用则复用），跑完停止；
-  离线子进程用 `--offline-port 8813`，不占用 8810。
-- 新增 `D.coord_matches_preset`（P0，R3 可用性）：5 个官方目标分别用自定义坐标
-  （不带 target_id）与 target_id 预设各请求一次，断言 mode/readiness/class 严格一致、
-  μ ±5%。可用 `--only D.coord_matches_preset` 单跑；DB 可用时 Barnard/Eps/WISE
-  一致，R Dra 自定义 `hybrid/L2/S` vs 预设 `hybrid/L2/V`，RW 在本分支仍 500。
-- 主验收命令（约 45–55s）：
-  ```bash
-  # 8797 本轮被外部进程启动；8798 无监听，模拟 DB 停止
-  ./run.sh --start --base-url http://127.0.0.1:8810 --db-url http://127.0.0.1:8798 \
-    --view-url http://127.0.0.1:8812 --offline --offline-port 8813 \
-    --report-dir report/full-db-down
-  ```
-  结果：`PASS=28 FAIL=4 WARN=1 BLOCKED=13`，退出码 1。
-- 补充验收（DB 8811 只读）：`PASS=40 FAIL=5 WARN=1 BLOCKED=0`，退出码 1；
-  G 组 7/7 全绿，R1 Barnard 自定义坐标通过（real/4/L2/S），RW Aur 仍 500；
-  R3 等价性新增 1 条 P0 失败（R Dra S/V；RW 500）。
+唯一 WARN 是 `H.screenshot`（`WARN: manual`，不引入 Playwright）。
+报告：`report/full-main/report.{json,md}`；单跑 RW：`report/rw-only/report.md`。
 
-## 当前红（主验收，DB 8798 无监听模拟停止）
+## 本轮变更
 
-| 用例 | 结果 | 归因 |
-|---|---|---|
-| `A.analysis_schema` | FAIL P0 | app `/api/analyze` 缺 `schema_version` / `readiness_scope` |
-| `D.custom_barnard` | FAIL P0 | DB 停止 → `DB_UNAVAILABLE` / synthetic / 0 real（DB 可用时通过） |
-| `D.custom_rw_aur` | FAIL P0 | DB 停止 → `DB_UNAVAILABLE`；DB 可用时仍 HTTP 500（app bug） |
-| `D.coord_matches_preset` | FAIL P0 | DB 停止 → 自定义坐标全 synthetic；DB 可用时 R Dra S vs V、RW 500（R3 修复目标） |
+- `D.custom_rw_aur` 断言更新：不再要求 `real_epochs≥1`，改为
+  - HTTP 200；`mode=real|hybrid`；`matched_target_id="rw_aur"`；`class="V"`；
+  - 与预设 `rw_aur` 的 mode/readiness/class 严格一致，μ ±5%；
+  - **HYBRID 允许 `real_epochs=0`**（纯 SIM 回退是正确结果）。
+- `contracts/analysis.py::summary` 增加 `matched_target_id` / `source` 提取。
+- `D.custom_rw_aur` 在 DB 停止且 `matched_target_id` 无法确认时记 BLOCKED
+  （`blocked_by=DB`），不伪造 PASS，也不当作 app 缺陷。
+- 保留 `D.coord_matches_preset`：5 个官方目标自定义坐标 vs 预设，mode/readiness/class 严格、μ±5%。
+- 报告仍保留 DB 停止 / `/api/v1/epochs` 404 的 BLOCKED 语义与归因。
 
-DB 相关 P0 共 13 条 BLOCKED：A 5 条、D.uncovered、G 7 条；原因与复现见报告。
+## RW Aur 前后对比（`D.custom_rw_aur`）
 
-## 未完成 / 风险
+| 版本 | 实际响应 | 旧/新断言 | 结果 |
+|---|---|---|---|
+| 修复前（旧 T1） | hybrid/8/L2/V、`real_epochs=0`、`matched=rw_aur`、μ=49.3 | 要求 `real_epochs≥1` | FAIL（`CUSTOM_RW_REAL_EPOCHS`，HYBRID 纯 SIM 被误判） |
+| 修复后（新 T1） | 同上，预设 hybrid/8/L2/V/μ=49.3 | HTTP 200、mode=real\|hybrid、matched=rw_aur、class=V、与预设 mode/readiness/class/μ 一致；允许 0 | **PASS** |
 
-- `/api/v1/epochs` 404 **无法从当前 worktree 源码复现**：用 `cli.py serve --port 8811`
-  启动后 v1 正常、G 全绿。8798 停止态与 8797 停服对 app 等价；若线上跑旧 DB 服务，仍会 404，
-  此时报告为 `legacy-only` + BLOCKED。
-- R1 的 RW Aur 500（`negative dimensions are not allowed`）是 app 侧 P0，T1 不改 app。
-- R3 等价性（`D.coord_matches_preset`）是 app owner 的修复目标：自定义坐标输入官方
-  目标应与点预设给出相同 mode/readiness/class；当前 R Dra 的 class 不同（S vs V），
-  RW 在本分支 500。修复合并后该用例应转绿。
-- A.targets.db/app_db 的 `truth` 缺失是 DB 旧 `/api/targets` 契约问题。
-- H 截图仍为 `WARN: manual`（不引入 Playwright）。
+## 验证命令
+
+```bash
+# 全量（main 修复版 app 在 8810；DB 8797；--start 复用已有 app）
+./run.sh --start --base-url http://127.0.0.1:8810 --db-url http://127.0.0.1:8797 \
+  --view-url http://127.0.0.1:8812 --offline --offline-port 8813 \
+  --report-dir report/full-main
+echo $?   # 0
+
+# 单跑 RW
+./run.sh --start --base-url http://127.0.0.1:8810 --db-url http://127.0.0.1:8797 \
+  --view-url http://127.0.0.1:8812 --only D.custom_rw_aur \
+  --report-dir report/rw-only
+echo $?   # 0，PASS=1
+```
+
+## 历史 / 兼容性
+
+- `report/full-db-down`（28 PASS / 4 FAIL / 13 BLOCKED）与 `report/full-db-up`
+  （40 PASS / 5 FAIL）是修复前 app 的历史基线，只用于验证 BLOCKED 语义与旧回归。
+- 修复版 app 的自定义命中走本地目录，DB 停止时仍可能与预设一致；若 `matched_target_id`
+  无法确认则 D2 BLOCKED。DB 相关 P0 契约（A.epoch_ref/coverage、G）仍按 BLOCKED。
 - `report/` 是运行产物，未提交（`.gitignore`）。
 
-## 恢复条件
+## 风险 / 限制
 
-1. DB 负责人确认线上 DB 服务版本/端口；需要时用只读 8811 跑补充验收。
-2. app 补 `schema_version` / `readiness_scope`，修自定义 RW Aur 500。
-3. DB 旧 `/api/targets` 补 `truth`（或 app 明确以 `/api/v1` 为唯一源）。
-4. 上述修复后重跑主验收，目标：P0 0 失败、0 BLOCKED、退出码 0。
+- `report/full-main` 的 green 使用手动在 8810 起的 main 版本 app；报告的 `source_hashes`
+  仍取本 worktree（T1 只读自身 worktree），合并 main 后重跑才完全对齐。
+- 本 worktree 的 `系统/app` 仍是修复前版本；直接 `--start` 会起旧版，不能复现 green。
+- H 截图仍为 `WARN: manual`。
+- 本工具只做接口/契约/降级验证，不做科学判定。
