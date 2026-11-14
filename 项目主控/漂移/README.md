@@ -35,7 +35,7 @@ python3 -m unittest discover -s tests -v   # fixture 自测
 | `targets` | 三处目标字段 | app `data/targets.json`、DB `targets`、view `data/targets.json` 逐字段比较：`id/name/name_zh/official/ra/dec/type/expected/coord_unc_arcsec/truth/note`；`coord_unc_arcsec` 必须存在于三处，缺失按错误处理；view 的 `source_sha256` 必须等于 app 文件哈希。 |
 | `epochs` | 历元 74 条 | app `epoch_catalog.json` vs DB `target_epochs` vs `var/exports/epoch_catalog.json`；按 `(obsid, detector)` 逐条比较 `release/week/version/mjd/date_obs/sep_deg/key`；总数、每目标数、去重、排序、`date_obs` 非空、`date_obs` 与 MJD 一致性。DB 无 `version` 列，只比较共有字段。 |
 | `fields` | 星场 5,893 行 | view `fields.json`（10 列紧凑数组）vs DB `frames`（按 `frame_id`）vs `fields_snapshot` vs `var/exports/fields.json`；行数、键集合、顺序、10 列逐格比较；view 保留 5 位小数导致的浮点差异按容差接受并计数；同步 `count` / `exposures` / 本地观测周数。 |
-| `constants` | 覆盖半径 / 去重容差 / L3 阈值 / 端口 | 覆盖半径 **2.47°**、单片半宽 **1.745°**、去重容差 **0.02 d**、L3 条件 **n≥6 且 baseline≥0.6 yr**、L3 文案、app **8790** / DB **8797** / view **8830**。用 AST/正则定位源码常量，不靠行号。 |
+| `constants` | 覆盖半径 / 去重容差 / L3 阈值 / 端口 | 覆盖半径 **2.47°**、单片半宽 **1.745°**、去重容差 **0.02 d**、L3 条件 **n≥6 且 baseline≥0.6 yr**、L3 文案、app **8790** / DB **8797** / view **8830**。用 AST/正则定位源码常量，不靠行号；JS 半宽接受 `3.49 / 2` 这类简单算式，端口识别 `const MOVESCOPE_ORIGIN` 和 `window.MOVESCOPE_ORIGIN` 的默认值。 |
 | `readiness` | coverage_level vs analysis_readiness | app 覆盖函数只返回 `coverage_level`（C0–C3）；app 分析结果只返回 `readiness`（L0–L3）；DB v1 coverage 显式剥离 `readiness`；DB 旧 `coverage()` 的 `readiness` 必须标 `deprecated`；视图工具不得出现 `readiness`；扫描 C/L 值混用。另检查 C3 覆盖阈值 app/DB 一致，并对 DB 旧 readiness 的 180 天阈值与 app L3 0.6 年（219.15 天）不一致给出 WARN。 |
 | `docs` | 文档数字 | 扫描根 README、DB README/benchmarks README/INTEGRATION、view README、header cache README：帧数、fields 行数、曝光数、历元数、目标数、FITS 头数、cutout 数、DB/视图周数、schema 版本、app/DB 单测数。历史说明（“旧/从…扩展/审计基线/快照”等）按上下文跳过；合成规模基准（≥100,000 帧）跳过。 |
 | `schema` | DB schema/API 版本 | `db/config.py` 的 `SCHEMA_VERSION` / `API_SCHEMA_VERSION` 与 DB `meta.schema_version` 对账；必需表是否齐全；`PRAGMA quick_check`。 |
@@ -64,7 +64,7 @@ DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqli
   `151` DB 周 / `23` 本地视图周 / `74` FITS 头 / `101` cutout；
 - 常量：`2.47` / `1.745` / `0.02` / L3 `6` 期 + `0.6` 年 / 端口 `8790,8797,8830`；
 - schema：`6`（SQLite）/ `1.0`（API）；
-- 单测数：app `52`、DB `54`；
+- 单测数：app `78`、DB `76`（`expect.json` 仅作计数缺失时的兜底；文档检查优先用实际 `def test_` 数）；
 - 文档清单 `docs`。
 
 数据增长或常量有意变更时，先更新 `expect.json`，再让检查重新全绿；**不要为了让检查通过而改检查逻辑**。
@@ -75,9 +75,9 @@ DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqli
 
 | 文件:行 | 现值 | 实测 |
 |---|---|---|
+| `README.md:108` | app 单测 52 项 | 78 |
+| `系统/数据库工具/README.md:322` | DB 单测 69 个 | 76 |
 | `系统/数据库工具/benchmarks/README.md:5` | 生产库 5,857 帧 | 5,893 |
-| `系统/视图工具/README.md:79` | 本地 15 个观测周 | 23 |
-| `系统/视图工具/README.md:136` | fields.json 5,857 帧 | 5,893 |
 
 另有 1 项 WARN：DB 旧 `coverage()` 的 `readiness` L3 阈值是 180 天，而 app 的 L3 阈值是
 0.6 年（219.15 天）；该字段已标 `deprecated`，不得当作 `analysis_readiness` 使用。
@@ -85,6 +85,8 @@ DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqli
 数据/常量其余全绿：targets 5 官方 + 2 样本逐字段一致（含 `coord_unc_arcsec`）；
 74 条历元三处逐条一致；5,893 行 fields 与 DB `frames` 仅差 view 的 5 位小数舍入（0 处超容差）；
 覆盖半径 2.47°、去重 0.02 d、L3 0.6 yr、端口 8790/8797/8830 均一致。
+视图 `skymap.js` 的 `const half = 3.49 / 2` 按 footprint 半宽折算为 1.745，已纳入常量检查；
+`main.js` 的 `String(window.MOVESCOPE_ORIGIN || 'http://127.0.0.1:8790')` 也能提取默认端口。
 
 ## 只读与边界
 
@@ -97,14 +99,15 @@ DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqli
 
 ## 自测
 
-`tests/test_drift.py` 在临时目录生成一套最小 app/DB/view 数据、源码片段和 README，
+`tests/test_drift.py`（10 个用例）在临时目录生成一套最小 app/DB/view 数据、源码片段和 README，
 覆盖：
 
 - 全绿 → 0；
 - targets / epochs / fields / constants / readiness / docs 漂移 → 1；
 - 缺 DB → DB 类检查 SKIP，仍可全绿；
 - 缺核心 JSON → 2；
-- 历史标记行被跳过。
+- 历史标记行被跳过；
+- JS footprint `3.49 / 2` 与 `window.MOVESCOPE_ORIGIN` 多行默认值两种形态。
 
 ```bash
 cd 项目主控/漂移

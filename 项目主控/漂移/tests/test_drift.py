@@ -431,12 +431,14 @@ class DriftFixture:
         )
         self.write(
             "系统/视图工具/js/main.js",
-            "const MOVESCOPE_ORIGIN = 'http://127.0.0.1:8790';\n"
+            "const MOVESCOPE_ORIGIN = String(\n"
+            "  window.MOVESCOPE_ORIGIN || 'http://127.0.0.1:8790'\n"
+            ");\n"
             "const HIT_RADIUS_DEG = 2.47;\n",
         )
         self.write(
             "系统/视图工具/js/skymap.js",
-            "const lim = 2.47;\nconst half = 1.745;\n",
+            "const lim = 2.47;\nconst half = 3.49 / 2; // 足迹半宽\n",
         )
         self.write(
             "系统/视图工具/index.html",
@@ -507,6 +509,22 @@ class DriftTests(unittest.TestCase):
         self.assertEqual(statuses["epochs"], "PASS")
         self.assertEqual(statuses["fields"], "PASS")
         self.assertEqual(statuses["docs"], "PASS")
+
+    def test_constants_accept_js_expression_and_window_origin(self) -> None:
+        proc = self.fixture.run(out_name="js-shape")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        report = self.fixture.report("js-shape")
+        constants = next(check for check in report["checks"] if check["id"] == "constants")
+        self.assertEqual(constants["status"], "PASS")
+        groups = {row["label"]: row for row in constants["stats"]["constants"]}
+        half_values = [item["actual"] for item in groups["单片半宽"]["values"]]
+        self.assertIn(1.745, half_values)
+        origin_values = [
+            item["actual"]
+            for item in groups["MoveScope 端口"]["values"]
+            if "MOVESCOPE_ORIGIN" in item["label"]
+        ]
+        self.assertEqual(origin_values, [8790])
 
     def test_missing_db_marks_db_checks_skip(self) -> None:
         proc = self.fixture.run(extra_args=["--db", str(self.fixture.root / "no-such.sqlite")], out_name="nodb")

@@ -432,25 +432,91 @@ def literal_number_in_func(path: Path, func_name: str, value: float) -> float:
     return float(value)
 
 
-def js_number(path: Path, name: str) -> float:
+def _js_declaration_rhs(path: Path, name: str) -> str:
+    """取 ``const/let/var NAME =`` 或 ``window.NAME =`` 到第一个分号之间的表达式。
+
+    允许跨行；MOVESCOPE_ORIGIN 这类 ``String(window.X || 'http://...')`` 也能取到默认 URL。
+    """
     text = path.read_text(encoding="utf-8")
-    pattern = r"(?:const|let|var)\s+" + re.escape(name) + r"\s*=\s*([0-9]+(?:\.[0-9]+)?)"
-    match = re.search(pattern, text)
+    match = re.search(
+        r"(?:const|let|var)\s+" + re.escape(name) + r"\s*=",
+        text,
+    )
     if not match:
-        raise LookupError(f"未找到 JS 常量 {name}")
-    return float(match.group(1))
+        match = re.search(r"window\." + re.escape(name) + r"\s*=", text)
+    if not match:
+        raise LookupError(f"未找到 JS 声明 {name}")
+    tail = text[match.end() :]
+    end = tail.find(";")
+    block = tail if end < 0 else tail[:end]
+    return block.strip()
+
+
+def _safe_js_arith(expr: str) -> float:
+    """只允许数字、括号和 + - * / 的 JS 简单算式（如 ``3.49 / 2``）。"""
+    expr = expr.strip()
+    if not re.fullmatch(r"[0-9.+\-*/() \t\n\r]+", expr):
+        raise LookupError(f"JS 数值表达式不受支持: {expr!r}")
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        raise LookupError(f"JS 数值表达式无法解析: {expr!r}") from exc
+    allowed = (
+        ast.Expression,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Constant,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.USub,
+        ast.UAdd,
+    )
+    for node in ast.walk(tree):
+        if not isinstance(node, allowed):
+            raise LookupError(f"JS 数值表达式含不允许的节点: {type(node).__name__}")
+
+    def evaluate(node: ast.AST) -> float:
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.UnaryOp):
+            value = evaluate(node.operand)
+            if isinstance(node.op, ast.USub):
+                return -value
+            if isinstance(node.op, ast.UAdd):
+                return value
+        if isinstance(node, ast.BinOp):
+            left, right = evaluate(node.left), evaluate(node.right)
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            if isinstance(node.op, ast.Div):
+                return left / right
+        raise LookupError(f"JS 数值表达式节点不支持: {type(node).__name__}")
+
+    return evaluate(tree)
+
+
+def js_number(path: Path, name: str) -> float:
+    block = _js_declaration_rhs(path, name)
+    block = re.sub(r"/\*.*?\*/", "", block, flags=re.S)
+    block = re.sub(r"//[^\n]*", "", block).strip()
+    if re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", block):
+        return float(block)
+    return _safe_js_arith(block)
 
 
 def js_port(path: Path, name: str) -> int:
-    text = path.read_text(encoding="utf-8")
-    pattern = (
-        r"(?:const|let|var)\s+"
-        + re.escape(name)
-        + r"\s*=\s*['\"]http://127\.0\.0\.1:(\d+)"
-    )
-    match = re.search(pattern, text)
+    block = _js_declaration_rhs(path, name)
+    match = re.search(r"(?:https?://)?127\.0\.0\.1:(\d+)", block)
     if not match:
-        raise LookupError(f"未找到 JS 地址常量 {name}")
+        raise LookupError(f"未找到 JS 地址常量 {name} 中的 127.0.0.1 端口")
     return int(match.group(1))
 
 
