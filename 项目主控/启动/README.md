@@ -42,9 +42,9 @@ view http://127.0.0.1:8830/             ok
 
 | 服务 | 生产默认 | 启动命令（脚本内部） | 健康检查 |
 |---|---:|---|---|
-| DB API | **8797** | `数据库工具/start.sh 8797` | `GET /api/health` → 200 且 `ok=true`、`service=spherex-db` |
+| DB API | **8797** | `系统/数据库工具/start.sh 8797` | `GET /api/health` → 200 且 `ok=true`、`service=spherex-db` |
 | MoveScope | **8790** | `系统/app/server.py --port 8790 --host 127.0.0.1` | `GET /api/health` → 200 且 `ok=true`、`service=MoveScope` |
-| 视图工具 | **8830** | `视图工具/start.sh 8830` | `GET /` → 200 |
+| 视图工具 | **8830** | `系统/视图工具/start.sh 8830` | `GET /` → 200 |
 
 ### 测试用的 sandbox 端口（显式覆盖）
 
@@ -109,7 +109,7 @@ LAUNCH_APP_PORT=8890 LAUNCH_DB_PORT=8897 LAUNCH_VIEW_PORT=8930 ./stop_all.sh
    - 部分运行/不健康 → 明确报错并提示先 `stop_all.sh`；
    - 进程已死 → 清理陈旧 PID 文件；
    - PID 存活但命令行不匹配 → 拒绝启动，不杀、不删，等人工确认。
-3. 数据库初始化检查：缺 `数据库工具/var/catalog.sqlite` 时提示先 `tools/import_all.sh` 或 `cli.py init`，不会静默启动。
+3. 数据库初始化检查：缺 `系统/数据库工具/var/catalog.sqlite` 时提示先 `tools/import_all.sh` 或 `cli.py init`，不会静默启动。
 4. 端口预检 8790/8797/8830（sandbox 时为对应端口）：被占则打印 **PID + 完整命令行**，拒绝启动，**不自动换端口、不杀进程**。
 5. 按 DB → app → view 顺序启动；每步最多轮询 15 s（200 ms 间隔）：
    - DB/app 要求 200 + `ok=true`，并校验 `service` 字段；
@@ -164,14 +164,14 @@ LAUNCH_APP_PORT=8890 LAUNCH_DB_PORT=8897 LAUNCH_VIEW_PORT=8930 ./stop_all.sh
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `端口 ... 已被占用` | 旧服务/其他进程占用 8790/8797/8830 | 按输出 PID 确认后 `kill <PID>`；或改用一组显式 sandbox 端口。启动器不会自动换端口 |
-| `数据库未初始化（缺少 数据库工具/var/catalog.sqlite）` | 从未导入/初始化 | `cd 数据库工具 && PYTHON=<python> ./tools/import_all.sh`（或 `PYTHON=<python> ./cli.py init`） |
+| `数据库未初始化（缺少 系统/数据库工具/var/catalog.sqlite）` | 从未导入/初始化 | `cd 系统/数据库工具 && PYTHON=<python> ./tools/import_all.sh`（或 `PYTHON=<python> ./cli.py init`） |
 | `PYTHON=... 不可执行或缺少 numpy/Pillow` | Python 路径不对 | `PYTHON=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3 ./start_all.sh` |
 | view 健康失败、日志里有 `端口 8930 已被占用` | 视图工具 `start.sh` 自己的 bind 预检在 TIME_WAIT 期间可能误报 | 等 ~60 s 让 TIME_WAIT 清掉，或换一组 sandbox 端口；生产 8830 正常时不受影响 |
 | view 健康失败、日志里有 `Address already in use` | 端口在预检后被抢 | 启动器会打印最后 50 行日志并回滚已启动的 DB/app；释放端口后重试 |
 | app 健康失败，日志 `ModuleNotFoundError: numpy` | 启动用了系统 python3 | 用 `PYTHON=...` 指定工作区自带解释器（脚本会自动优先尝试它） |
 | `PID 文件存在，但命令行不匹配` | PID 复用或人工替换了进程 | 人工确认该 PID 后删除对应 `run/**/*.pid`；启动器不会杀它 |
 | `另一个 start_all.sh 正在运行` | 同时启动了两次 | 等前一个结束；若确认是崩溃残留，删除 `run/.../.lock`（start 会自动清理 PID 已死的陈旧锁） |
-| 视图页面 404 | 视图工具静态根不对/文件缺失 | 直接 `curl -i http://127.0.0.1:8830/`；检查 `视图工具/index.html`。启动器只负责端口与 200 |
+| 视图页面 404 | 视图工具静态根不对/文件缺失 | 直接 `curl -i http://127.0.0.1:8830/`；检查 `系统/视图工具/index.html`。启动器只负责端口与 200 |
 | `status.sh` 报 DB FAIL 但 DB 文件在 | DB 服务没起/端口不对 | 先 `./start_all.sh` 或核对是否用了同一组 sandbox 端口 |
 
 ---
