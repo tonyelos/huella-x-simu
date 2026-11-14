@@ -26,8 +26,10 @@ python3 cli.py serve --port 8797
 | GET | `/api/v1/coverage` | 覆盖机会 C0–C3、`header_available`、`n_local_cutouts` |
 | GET | `/api/health` | 兼容健康检查（字段同 v1） |
 | GET | `/api/stats` | 完整统计：数量/时间/release/存储/最近导入 |
-| GET | `/api/targets` | 目标列表；默认不含 acceptance truth |
-| GET | `/api/targets/{id}` | 单个目标 |
+| GET | `/api/v1/targets` | 契约 v1 目标列表（含 `truth` / `coord_unc_arcsec`） |
+| GET | `/api/v1/targets/{id}` | 契约 v1 单目标（含 `truth`） |
+| GET | `/api/targets` | 兼容目标列表；默认含 truth，`?include_truth=0` 隐藏 |
+| GET | `/api/targets/{id}` | 兼容单目标；默认含 truth |
 | GET | `/api/epochs` | **deprecated**；委托 v1，保留旧形状 |
 | GET | `/api/coverage` | **deprecated**；含 `readiness`（已标 deprecated） |
 | GET | `/api/cone` | 锥搜索（精确大圆距离） |
@@ -226,13 +228,22 @@ curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365'
 }
 ```
 
-### `/api/targets`
+### `/api/v1/targets` 与 `/api/targets`
 
-默认隐藏 acceptance `truth`；需要时传 `?include_truth=1`：
+两个入口返回同一份目标表（7 条：5 官方 + 2 演示），**默认包含 `truth` 与
+`coord_unc_arcsec`**；8 个契约字段（`id/name/ra/dec/official/expected/
+coord_unc_arcsec/truth`）与 `app/data/targets.json` 逐字段一致——T1 的
+`A.targets.db` / `A.targets.app_db` 直接对账这一点。
 
 ```bash
-curl 'http://127.0.0.1:8797/api/targets?include_truth=0'
+curl 'http://127.0.0.1:8797/api/v1/targets'               # v1：另带 count/schema_version
+curl 'http://127.0.0.1:8797/api/targets'                  # 兼容：同样含 truth
+curl 'http://127.0.0.1:8797/api/targets/barnard'          # 单目标（lead 复现路径）
+curl 'http://127.0.0.1:8797/api/targets?include_truth=0'  # 显式隐藏（公网部署用）
 ```
+
+`truth` 是验收对照数据（`mu_mas_yr/pa_deg/parallax_mas/...`），只在默认绑定
+`127.0.0.1` 的本地 API 暴露；对外部署请加 `?include_truth=0` 或反向代理鉴权。
 
 ### `/api/cone`
 

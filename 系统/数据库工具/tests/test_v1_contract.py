@@ -8,10 +8,25 @@
 """
 from __future__ import annotations
 
+import json
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
 
 from db.catalog import Catalog
-from db.config import COVERAGE_RADIUS_DEG, DEFAULT_DB, FRAME_HALF_WIDTH_DEG, TARGET_MATCH_RADIUS_DEG
+from db.config import (
+    COVERAGE_RADIUS_DEG,
+    DEFAULT_BLOBS,
+    DEFAULT_DB,
+    FRAME_HALF_WIDTH_DEG,
+    TARGET_MATCH_RADIUS_DEG,
+    TOOL_ROOT,
+)
+from db.server import Handler
+
+APP_TARGETS = TOOL_ROOT.parent / "app" / "data" / "targets.json"
+# T1 A.targets 的 8 个契约字段（含 truth / coord_unc_arcsec）。
+TARGET_FIELDS = ("id", "name", "ra", "dec", "official", "expected", "coord_unc_arcsec", "truth")
 
 # T2 硬验收：去重后的历元数（见 项目主控/02_架构设计与集成契约.md §5.2）。
 EXPECTED_COUNTS = {
@@ -44,6 +59,13 @@ def _epoch_keys(out: dict) -> list[tuple]:
         (e["obsid"], e["detector"], e["key"], e["date_obs"], e["sep_deg"], e["week"], e["mjd"])
         for e in out["epochs"]
     ]
+
+
+def _app_targets() -> dict[str, dict]:
+    return {
+        t["id"]: t
+        for t in json.loads(APP_TARGETS.read_text(encoding="utf-8"))["targets"]
+    }
 
 
 @unittest.skipUnless(DEFAULT_DB.exists(), f"需要仓库自带的生产库: {DEFAULT_DB}")
@@ -147,6 +169,22 @@ class V1ContractTest(unittest.TestCase):
             self.assertIn("size=0.5", e["slice_url"])
             self.assertTrue(e["date_obs"])
 
+    @unittest.skipUnless(APP_TARGETS.exists(), f"需要 app targets: {APP_TARGETS}")
+    def test_target_truth_matches_app_json(self):
+        """T1 A.targets.app_db：7 个目标 8 字段（含 truth）与 app 逐字段一致。"""
+        app = _app_targets()
+        db = {t["id"]: t for t in self.cat.targets()}
+        self.assertEqual(set(db), set(app))
+        for tid, a in app.items():
+            t = db[tid]
+            self.assertIsInstance(t.get("truth"), dict, tid)
+            for field in TARGET_FIELDS:
+                self.assertEqual(t.get(field), a.get(field), (tid, field))
+            if a.get("official"):
+                # 5 官方目标的 truth 不能是“全是 null 的空壳”。
+                self.assertTrue(any(v is not None for v in t["truth"].values()), tid)
+                self.assertGreater(float(t["coord_unc_arcsec"]), 0.0, tid)
+
     def test_health_reports_real_header_frames(self):
         health = self.cat.health()
         self.assertTrue(health["ok"])
@@ -166,6 +204,72 @@ class V1ContractTest(unittest.TestCase):
         self.assertEqual(with_headers, total_epochs)
         self.assertGreaterEqual(total_epochs, 74)
         self.assertEqual(health["counts"]["epochs"], total_epochs)
+
+
+@unittest.skipUnless(
+    DEFAULT_DB.exists() and APP_TARGETS.exists(), "需要生产库与 app/data/targets.json"
+)
+class V1TargetsHttpTest(unittest.TestCase):
+    """HTTP 层回归：T1 的 A.targets.db 会先取 /api/v1/targets，404 才回退 /api/targets。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        cls.httpd.db_path = str(DEFAULT_DB)
+        cls.httpd.blob_root = str(DEFAULT_BLOBS)
+        cls.httpd.docs_path = str(TOOL_ROOT / "README.md")
+        cls.port = cls.httpd.server_address[1]
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.app = _app_targets()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        cls.thread.join(timeout=5)
+
+    def get_json(self, path: str) -> tuple[int, dict]:
+        import urllib.error
+        import urllib.request
+
+        url = f"http://127.0.0.1:{self.port}{path}"
+        try:
+            with urllib.request.urlopen(url, timeout=15) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read() or b"{}")
+
+    def test_v1_targets_truth_parity_with_app(self):
+        code, data = self.get_json("/api/v1/targets")
+        self.assertEqual(code, 200)
+        self.assertTrue(data["include_truth"])
+        by_id = {t["id"]: t for t in data["targets"]}
+        self.assertEqual(set(by_id), set(self.app))
+        for tid, a in self.app.items():
+            t = by_id[tid]
+            self.assertIsInstance(t.get("truth"), dict, tid)
+            for field in TARGET_FIELDS:
+                self.assertEqual(t.get(field), a.get(field), (tid, field))
+        # v1 404 时 T1 会回退到 legacy；legacy 也必须带 truth。
+        code, legacy = self.get_json("/api/targets")
+        self.assertEqual(code, 200)
+        self.assertEqual(
+            {t["id"]: t["truth"] for t in legacy["targets"]},
+            {tid: a["truth"] for tid, a in self.app.items()},
+        )
+        # 单目标入口（lead 复现用 /api/targets/barnard）。
+        for path in ("/api/v1/targets/barnard", "/api/targets/barnard"):
+            code, one = self.get_json(path)
+            self.assertEqual(code, 200, path)
+            self.assertEqual(one["truth"], self.app["barnard"]["truth"], path)
+            self.assertEqual(one["coord_unc_arcsec"], self.app["barnard"]["coord_unc_arcsec"], path)
+
+    def test_include_truth_opt_out(self):
+        code, data = self.get_json("/api/targets?include_truth=0")
+        self.assertEqual(code, 200)
+        self.assertFalse(data["include_truth"])
+        self.assertTrue(all("truth" not in t for t in data["targets"]))
 
 
 if __name__ == "__main__":

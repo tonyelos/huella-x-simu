@@ -36,9 +36,12 @@ ENDPOINTS = [
     ("GET", "/api/v1/health", "契约 v1 健康检查"),
     ("GET", "/api/v1/epochs", "规范 EpochRef（target_id 或 ra/dec，两入口同形）"),
     ("GET", "/api/v1/coverage", "覆盖机会 C0–C3（无 L0–L3）"),
+    ("GET", "/api/v1/targets", "契约 v1 目标列表（含 truth / coord_unc_arcsec）"),
+    ("GET", "/api/v1/targets/<id>", "契约 v1 单目标（含 truth）"),
     ("GET", "/api/health", "服务状态与计数（兼容）"),
     ("GET", "/api/stats", "完整统计：数量、时间范围、release、存储"),
-    ("GET", "/api/targets", "目标列表（含 truth）"),
+    ("GET", "/api/targets", "目标列表（默认含 truth；?include_truth=0 隐藏）"),
+    ("GET", "/api/targets/<id>", "单目标（默认含 truth）"),
     ("GET", "/api/targets/<id>/epochs", "某目标的候选历元"),
     ("GET", "/api/epochs?target_id=|ra=&dec=&fov=", "旧历元接口（deprecated）"),
     ("GET", "/api/cone?ra=&dec=&radius=", "锥搜索（精确大圆距离）"),
@@ -159,26 +162,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._api_v1_coverage(q)
             if path == "/api/stats":
                 return self._json(self._catalog().stats())
-            if path == "/api/targets":
-                include_truth = self._param(q, "include_truth", "0") in ("1", "true", "yes")
-                targets = self._catalog().targets()
-                if not include_truth:
-                    for t in targets:
-                        t.pop("truth", None)
-                return self._json({"targets": targets, "include_truth": include_truth})
-            if path.startswith("/api/targets/"):
-                parts = path.strip("/").split("/")
-                tid = parts[2]
-                if len(parts) >= 4 and parts[3] == "epochs":
-                    limit = min(self._int(q, "limit", 500), 2000)
-                    epochs = self._catalog().epochs_for_target(tid, limit=limit)
-                    return self._json({"target_id": tid, "count": len(epochs), "epochs": epochs})
-                t = self._catalog().target(tid)
-                if not t:
-                    return self._error(404, f"目标不存在: {tid}")
-                if self._param(q, "include_truth", "0") not in ("1", "true", "yes"):
-                    t.pop("truth", None)
-                return self._json(t)
+            if path in ("/api/targets", "/api/v1/targets"):
+                return self._api_targets(q)
+            if path.startswith("/api/targets/") or path.startswith("/api/v1/targets/"):
+                return self._api_target(path, q)
             if path == "/api/epochs":
                 return self._api_epochs(q)
             if path == "/api/cone":
@@ -262,6 +249,51 @@ class Handler(BaseHTTPRequestHandler):
             include_cutouts=include_cutouts,
         )
         self._json(out)
+
+    # ------------------------------------------------------------------ 目标
+    def _include_truth(self, q: dict[str, list[str]]) -> bool:
+        """truth 默认返回：T1 验收要按 app/data/targets.json 逐字段对账。
+
+        显式 `?include_truth=0` 才隐藏（本机演示默认开；公网部署请置 0）。
+        """
+        return self._param(q, "include_truth", "1") not in ("0", "false", "no")
+
+    def _api_targets(self, q: dict[str, list[str]]) -> None:
+        include_truth = self._include_truth(q)
+        targets = self._catalog().targets()
+        if not include_truth:
+            for t in targets:
+                t.pop("truth", None)
+        self._json(
+            {
+                "schema_version": API_SCHEMA_VERSION,
+                "targets": targets,
+                "count": len(targets),
+                "include_truth": include_truth,
+            }
+        )
+
+    def _api_target(self, path: str, q: dict[str, list[str]]) -> None:
+        """/api/targets/<id>、/api/v1/targets/<id>，以及旧 /api/targets/<id>/epochs。"""
+        parts = [p for p in path.strip("/").split("/") if p]
+        try:
+            idx = parts.index("targets")
+        except ValueError:
+            raise ValueError("路径应为 /api/targets/<id>")
+        rest = parts[idx + 1 :]
+        if not rest:
+            return self._error(404, "目标不存在")
+        tid = rest[0]
+        if len(rest) >= 2 and rest[1] == "epochs":
+            limit = min(self._int(q, "limit", 500), 2000)
+            epochs = self._catalog().epochs_for_target(tid, limit=limit)
+            return self._json({"target_id": tid, "count": len(epochs), "epochs": epochs})
+        t = self._catalog().target(tid)
+        if not t:
+            return self._error(404, f"目标不存在: {tid}")
+        if not self._include_truth(q):
+            t.pop("truth", None)
+        self._json(t)
 
     def _epoch_args(self, q: dict[str, list[str]]) -> dict:
         target_id = self._param(q, "target_id")

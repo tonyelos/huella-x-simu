@@ -110,6 +110,31 @@ class ServerTest(unittest.TestCase):
         ):
             self.assertEqual(self.get(path)[0], 400, path)
 
+    def test_targets_include_truth(self):
+        # T1 A.targets：v1/legacy 列表与单目标都必须带 truth 与 coord_unc_arcsec。
+        for path in ("/api/v1/targets", "/api/targets"):
+            code, body, _ = self.get(path)
+            self.assertEqual(code, 200, path)
+            data = json.loads(body)
+            self.assertEqual(data["count"], 1, path)
+            t = data["targets"][0]
+            self.assertEqual(t["id"], "test_target", path)
+            self.assertEqual(t["truth"], {"mu_mas_yr": 1000.0}, path)
+            self.assertEqual(t["coord_unc_arcsec"], 3.0, path)
+        for path in ("/api/v1/targets/test_target", "/api/targets/test_target"):
+            code, body, _ = self.get(path)
+            self.assertEqual(code, 200, path)
+            t = json.loads(body)
+            self.assertEqual(t["truth"], {"mu_mas_yr": 1000.0}, path)
+            self.assertEqual(t["coord_unc_arcsec"], 3.0, path)
+        # 显式 include_truth=0 才隐藏（公网部署开关；验收默认要真值）
+        code, body, _ = self.get("/api/targets?include_truth=0")
+        self.assertNotIn("truth", json.loads(body)["targets"][0])
+        code, body, _ = self.get("/api/targets/test_target?include_truth=0")
+        self.assertNotIn("truth", json.loads(body))
+        self.assertEqual(self.get("/api/v1/targets/nope")[0], 404)
+        self.assertEqual(self.get("/api/v1/targets/test_target/epochs")[0], 200)
+
     def test_export(self):
         code, body, _ = self.get("/api/export/fields.json")
         self.assertEqual(code, 200)
