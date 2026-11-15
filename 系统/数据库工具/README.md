@@ -91,8 +91,8 @@ $PY catalog_server.py --port 8799             # 只绑 127.0.0.1
   不得当作演示星表、全天星表或全量 Gaia；不得据此声称 OSI/全量。
   元数据见同名 `.meta.json`，说明见 [`docs/CATALOG.md`](docs/CATALOG.md)。
 - **2MASS/WISE 测光**：`jmag/hmag/kmag/w1/w2` 来自 IRSA Gator 的 2MASS PSC
-  与 AllWISE，按 Gaia 交叉证认 ID 对回；真实 7 场缓存覆盖 2MASS 8,419/17,679、
-  WISE 8,052/17,679 行，未覆盖/无质量值为 null（不是 0）。2MASS/WISE 为公共领域数据；
+  与 AllWISE，按 Gaia 交叉证认 ID 对回；真实 7 场缓存覆盖 2MASS 8,419 条（47.6%）、
+  WISE 8,052 条（45.5%），未覆盖/无质量值为 null（不是 0）。2MASS/WISE 为公共领域数据；
   Gator 失败时整列保持 null，并标 `photometry.status=partial`。
 - **不提交**：`var/star_catalog.sqlite`（约 7 MB 真实缓存）已被 `.gitignore` 忽略，
   本地保留供测试；`.tmp_hp/`（HEALPix 临时依赖）已删除。

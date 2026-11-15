@@ -11,9 +11,9 @@
 | 任务 | 分支 | 工作树 | 负责人 | 交付物 |
 |---|---|---|---|---|
 | A 点选检测源 | `tool/star-pick` | `_worktrees/star-pick` | `star-pick-owner` | ✅ 源列表 API + canvas 点选 + 测试（`10ac26c`，已合并） |
-| B 星表服务 | `tool/catalog` | `_worktrees/catalog` | `catalog-owner` | ✅ 独立 `star_catalog.sqlite` + 锥搜索/匹配 API + 测试（`4c694f2`，已合并） |
+| B 星表服务 | `tool/catalog` | `_worktrees/catalog` | `catalog-owner` | ✅ 星表服务 + RUWE/2MASS-WISE + persist（`e68b029`，DB 110 tests；已合并） |
 | C 任意天区设计 | `tool/anyfield` | `_worktrees/anyfield` | `anyfield-owner` | ✅ 设计 + C-P0 8798（74 条 WCS 足迹、200/422/503、metadata ingest；`4add757`，29 tests） |
-| D 数据比对设计 | `tool/identify` | `_worktrees/identify` | `identify-owner` | ✅ 设计 + D-MVP（`64935d5`）+ D-C P0 覆盖握手（`7d0f3b7`）；app 185 tests |
+| D 数据比对设计 | `tool/identify` | `_worktrees/identify` | `identify-owner` | ✅ 设计 + D-MVP + D-C P0 + B v2 RUWE/2MASS-WISE/persist（`ada9de6`）；app 196 tests |
 
 **合并顺序**：A → B → D 设计 → C 设计 → D 实现 → C 实现。  
 A/B 可并行；C/D 设计可并行；D 的实现必须等 A/B 接口稳定。
