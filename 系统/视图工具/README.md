@@ -43,6 +43,21 @@ http://127.0.0.1:8830/?ra=269.452077&dec=4.693365&fov=0.5&target=barnard&t=61000
 - 页面状态会以 `history.replaceState` **写回 search**（含 `target`、`t`、`t0/t1`），所以"复制链接"一定可复现。
 - `t0/t1` 是**分析层过滤范围**，不是 `t` 这个“数据时相/当前时刻”；见 §3.5。
 
+## 2.5 时间选择与播放（观测序列）
+
+所有时间入口共用 **`commitTime(mjd, {animate, source})`**，同步 `state.mjd`、时钟/MJD、滑杆、UTC 输入、分析窗口 `t0/t1`、URL 和地球角度：
+
+- **UTC 输入**：`YYYY-MM-DD HH:MM` + “定位”；非法输入 toast，不静默；输入/按钮后窗口按当前 `windowDays` 重算。
+- **快捷按钮**：`−1d / −1h / +1h / +1d`。
+- **滑杆**：保留；拖动实时更新，URL 仍用 300ms 节流（松手后落定）。
+- **时间轴**：5 个 UTC 日期刻度（`t-start / t-25 / t-mid / t-75 / t-end`），左侧标 `UTC 时间轴`；当前时刻由时钟和滑杆位置表示。
+- **播放**：按 `fields.json` 去重排序的**真实观测序列**逐步前进，不是连续时间；每步跳到下一个真实 mjd，目标 RA/Dec 不变。
+  - 每步停留：`0.5× = 2.4s`、`1× = 1.2s`、`2× = 0.6s`。
+  - 到最后一个观测停止，不循环回开头；当前时间不在观测序列时，先跳到下一个观测。
+  - 页面标注“**播放 = 观测序列，不是连续时间**”。
+- **地球 tween**：每步 ~0.7s，最短路径、ease-out，结束精确等于该时刻 GMST；boot 初始不动画；停止后角度严格对应 `state.mjd`。
+- 截图：[输入时间](docs/time-input.png) · [播放中](docs/time-playing.png) · [末尾停止](docs/time-end.png) · [时间轴](docs/time-axis.png)。
+
 ## 3. 在 MoveScope 打开（T2）
 
 **唯一分析入口**是“在 MoveScope 打开”，一次 handoff 打开：
@@ -144,10 +159,11 @@ python3 tools/smoke.py
 
 一条命令检查：DOM id、fields 行数/来源与数据库一致、targets/epoch_index 与单一源一致、交接契约
 （`MOVESCOPE_ORIGIN` 默认 8790 + GET + 全精度 `ra/dec/fov` + `t0/t1` + `from=view`，不传 `mode/target`）、
-分析时间窗口（30/90/180/365/730 + `t0/t1` + 以 `t` 为中心）、只有 MoveScope 一个分析入口、
-“进入 MoveScope 后切换普通/级联/轨迹”文案、2.47° 覆盖表与 README 一致（RW Aurigae 非 0）、
-`fields` 可由 DB/export 重建、文案不含旧项目名/旧端口/过时提示、`node --check`、`start.sh` 端口。
-全部通过退出码 0。
+分析时间窗口（30/90/180/365/730 + `t0/t1` + 以 `t` 为中心）、UTC 输入/±快捷/5 个 UTC 刻度、
+统一 `commitTime`（无连续播放路径）、观测序列播放（2.4/1.2/0.6s 每步、末尾停止）、地球 0.7s tween、
+只有 MoveScope 一个分析入口、“进入 MoveScope 后切换普通/级联/轨迹”文案、2.47° 覆盖表与 README 一致
+（RW Aurigae 非 0）、`fields` 可由 DB/export 重建、文案不含旧项目名/旧端口/过时提示、
+`node --check`、`start.sh` 端口。全部通过退出码 0。
 
 ## 7. 边界
 
@@ -159,6 +175,8 @@ python3 tools/smoke.py
 6. **分析窗口的消费方是 MoveScope 模式栏**：View 只计算并传递 `t0/t1/from=view`；进入 MoveScope 后切换普通/级联/轨迹，由 MoveScope 决定窗口如何过滤。
 7. **分析页 FOV 上限 3.0°**：View 允许更大的浏览视场；超过 3° 时提示会要求调小，否则 MoveScope 会拒绝。
 8. **View 不提供独立级联/轨迹入口**：旧诊断页只保留在 MoveScope 侧，不从 View 直达，也没有隐藏按钮。
+9. **播放是观测序列**：步长不等（真实 mjd），不是匀速时间；每次跳变的地球旋转用最短路径，长间隔最多转半圈。
+10. **地球 tween 有 ~0.7s 收敛期**：播放/跳时后时钟与标签先到目标，地球在 0.7s 内追平；静止后角度与 `state.mjd` 严格一致。
 
 ## 8. 文件结构
 
