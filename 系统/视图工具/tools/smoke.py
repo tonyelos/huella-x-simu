@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""Static smoke checks for the viewer — 一条命令回答“这版还能不能交”。
+"""Static smoke checks for the viewer — one command answers "is this shippable?".
 
     python3 tools/smoke.py
 
-检查项：
-  1. index.html 里存在 main.js 引用的所有 DOM id；品牌标题正确；默认不是 M101
-  2. 深链：search 优先 + hash 兜底 + 写回 search（含 t）
-  2b. 分析时间窗口 30/90/180/365/730 + t0/t1 + 单 MoveScope handoff
-  2c. 统一时间入口：commitTime、UTC 输入/±快捷、5 刻度 UTC 轴、连续播放/回绕、地球 tween
-  3. data/fields.json 行数/列数/NaN/来源/生成元数据（不得再指向 header_cache）
-  4. data/targets.json 字段齐全、生成物、与 app/data/targets.json 一致；rw_aur.truth 修正
-  5. data/epoch_index.json 有策展历元（barnard 4 / rw_aur 1）
-  6. 覆盖口径：2.47°；帧/曝光/夜拆分；RW Aurigae 非 0；README 表与 fields 一致
-  7. 交接契约：MOVESCOPE_ORIGIN 8790、GET 探活、全精度坐标 + target；禁止旧路径/HEAD/五位小数
-  8. 文案契约：无旧项目名/旧端口/过时提示
-  9. 可重建：build_field_index --check（DB）与 --source export --out（相对路径）；sync_targets --check
- 10. node --check 全部 js（node 存在时）
- 11. start.sh 默认端口 8830
+Checks:
+  1. Every DOM id referenced by main.js exists; English-default brand; default region is not M101
+  2. Deep links: search first + hash fallback + write-back to search (including t)
+  2b. Analysis time window 30/90/180/365/730 + t0/t1 + a single MoveScope handoff
+  2c. Single time entry point: commitTime, UTC input/steps, 5 UTC ticks, continuous playback, Earth tween
+  2d. i18n: English default, header EN/ES selector, ?lang=en|es + localStorage, complete EN/ES dictionaries,
+      no Chinese UI strings, caveat semantics in both languages, lang excluded from the handoff
+  3. data/fields.json rows/columns/NaN/source/generator metadata (must not point at header_cache)
+  4. data/targets.json fields/generator/single-source consistency; rw_aur.truth fix
+  5. data/epoch_index.json curated epochs (barnard 4 / rw_aur 1)
+  6. Coverage definition: 2.47°; frames/exposures/nights split; RW Aurigae non-zero; README table matches fields
+  7. Handoff contract: MOVESCOPE_ORIGIN 8790, GET health check, full-precision coordinates + t0/t1/from=view;
+     no old path/HEAD/five-decimal rounding, no mode/target/lang
+  8. Copy contract: no old project name/port/stale copy; no novelty/first-detection claims in UI/README/docs
+  9. Rebuildable: build_field_index --check (DB) and --source export --out (relative path); sync_targets --check
+ 10. node --check all js (also imports js/i18n.js and compares dictionaries when node exists)
+ 11. start.sh default port 8830
 
-退出码 0 表示全过。
+Exit code 0 means everything passed.
 """
 from __future__ import annotations
 
@@ -47,9 +50,11 @@ DISALLOWED_JS = (
     "toFixed(" + "5)",
 )
 OLD_HALF = "1." + "745"
-OLD_README = "5," + "857 次曝光"
+OLD_README = "5," + "857 exposures"
 FORBIDDEN_ENTRY = ("analysis" + "Url", "btn-" + "cascade", "btn-" + "tracks")
 FORBIDDEN_PATHS = ("cascade: '" + "/cascade'", "tracks: '" + "/tracks'")
+LANG_KEY = "spherex.view.lang"
+NOVELTY_RE = re.compile(r"\bdis" + r"cover", re.I)
 
 
 def ok(msg: str) -> None:
@@ -85,7 +90,10 @@ def night_of(mjd: float) -> str:
 # ---------------------------------------------------------------- 1. DOM ids
 html = read(os.path.join(TOOL, "index.html"))
 main_js = read(os.path.join(TOOL, "js", "main.js"))
+i18n_js = read(os.path.join(TOOL, "js", "i18n.js"))
 readme = read(os.path.join(TOOL, "README.md"))
+i18n_doc_path = os.path.join(TOOL, "docs", "i18n-en-es.md")
+i18n_doc = read(i18n_doc_path) if os.path.exists(i18n_doc_path) else ""
 ids_used = set(re.findall(r"\$\('([A-Za-z0-9_-]+)'\)", main_js))
 ids_used |= set(re.findall(r"getElementById\('([A-Za-z0-9_-]+)'\)", main_js))
 ids_have = set(re.findall(r'id="([A-Za-z0-9_-]+)"', html))
@@ -95,11 +103,13 @@ if missing:
 else:
     ok(f"DOM id 全部存在（{len(ids_used)} 个）")
 
-# ---------------------------------------------------------------- 1b. 品牌 / 深链
-if "<title>SPHEREx 天区视图 · MoveScope</title>" not in html:
-    fail("index.html 品牌标题不是 'SPHEREx 天区视图 · MoveScope'")
+# ---------------------------------------------------------------- 1b. Brand / deep links
+if '<html lang="en">' not in html:
+    fail("index.html 不是英文默认（缺 <html lang=\"en\">）")
+elif '<title data-i18n="doc.title">SPHEREx Sky View · MoveScope</title>' not in html:
+    fail("index.html 英文默认标题不是 'SPHEREx Sky View · MoveScope'")
 else:
-    ok("品牌：SPHEREx 天区视图 · MoveScope")
+    ok("English default: <html lang=\"en\"> + 'SPHEREx Sky View · MoveScope'")
 
 if 'value="210.80"' in html or 'value="54.35"' in html:
     fail("index.html 仍把 M101 坐标写成输入框默认值")
@@ -126,7 +136,7 @@ else:
     if opts != ["30", "90", "180", "365", "730"]:
         fail(f"时间窗口选项不是 30/90/180/365/730：{opts}")
     elif 'value="365" selected' not in win_block.group(0):
-        fail("时间窗口默认值不是 365 天")
+        fail("时间窗口默认值不是 365 days")
     else:
         ok("时间窗口选项 30/90/180/365/730，默认 365 天")
 
@@ -144,10 +154,12 @@ if "p.set('t0'" not in main_js or "p.set('t1'" not in main_js:
 if "p.set('t0'" in main_js and "p.set('t1'" in main_js:
     ok("时间窗口：默认 365、以 state.mjd 为中心、URL 读写 t0/t1")
 
-if "分析层过滤范围" not in html or "数据时相" not in html:
-    fail("页面没有明确“时间窗口 = 分析层过滤范围”且区别于数据时相")
+if "analysis-layer filter range" not in i18n_js or "not the data epoch" not in i18n_js:
+    fail("EN 文案没有明确“时间窗口 = analysis-layer filter range”且区别于 data epoch")
+elif "rango de filtrado de la capa de análisis" not in i18n_js or "época de datos" not in i18n_js:
+    fail("ES 文案没有明确“时间窗口 = rango de filtrado de la capa de análisis”且区别于 época de datos")
 else:
-    ok("页面明确：时间窗口 = 分析层过滤范围（≠ 数据时相）")
+    ok("EN/ES: 时间窗口 = analysis-layer filter range（≠ data epoch）")
 
 for key in FORBIDDEN_PATHS:
     if key in main_js:
@@ -160,17 +172,19 @@ if "btn-movescope" not in html or "$('btn-movescope')" not in main_js:
 else:
     ok("只有 MoveScope 一个分析入口")
 
-if "进入 MoveScope 后切换" not in html or "普通" not in html or "级联" not in html or "轨迹" not in html:
-    fail("页面没有明确“进入 MoveScope 后切换普通/级联/轨迹”")
+if "Normal / Cascade-residual / Track" not in i18n_js:
+    fail("EN 文案没有明确进入 MoveScope 后切换 Normal / Cascade-residual / Track")
+elif "Normal / Cascada-residual / Trayectoria" not in i18n_js:
+    fail("ES 文案没有明确进入 MoveScope 后切换 Normal / Cascada-residual / Trayectoria")
 else:
-    ok("页面文案：进入 MoveScope 后切换普通/级联/轨迹")
+    ok("EN/ES: 进入 MoveScope 后切换 Normal/Cascade-residual/Track")
 
-if "不是数据时相" not in main_js:
-    fail("分析提示没有区分“分析窗口”和“数据时相”")
+if "not the data epoch" not in i18n_js or "no la época de datos" not in i18n_js:
+    fail("EN/ES 分析提示没有区分分析窗口与 data epoch")
 else:
-    ok("分析提示区分分析窗口与数据时相")
+    ok("EN/ES 分析提示区分分析窗口与 data epoch")
 
-readme_needs = ("分析时间窗口", "t0", "t1", "from=view", "分析层过滤范围", "进入 MoveScope 后切换")
+readme_needs = ("Analysis time window", "t0", "t1", "from=view", "analysis-layer filter range", "Normal / Cascade-residual / Track")
 missing_readme = [s for s in readme_needs if s not in readme]
 if missing_readme:
     fail(f"README 缺分析窗口/交接说明：{missing_readme}")
@@ -181,10 +195,10 @@ else:
 for tid in ("in-utc", "btn-utc-go", "t-start", "t-25", "t-mid", "t-75", "t-end"):
     if f'id="{tid}"' not in html:
         fail(f"index.html 缺时间控件/刻度 #{tid}")
-if "UTC 时间轴" not in html:
-    fail("时间轴没有标注 UTC 时间轴")
-if "播放 = 连续时间" not in html:
-    fail("页面没有标注“播放 = 连续时间”")
+if "UTC timeline" not in html or "Línea de tiempo UTC" not in i18n_js:
+    fail("时间轴没有标注 UTC timeline (EN/ES)")
+if "Playback = continuous time" not in html or "Reproducción = tiempo continuo" not in i18n_js:
+    fail("页面没有标注 Playback = continuous time (EN/ES)")
 hours = re.findall(r'data-hours="(-?\d+)"', html)
 speeds = re.findall(r'data-speed="([\d.]+)"', html)
 if hours != ["-24", "-1", "1", "24"]:
@@ -238,13 +252,225 @@ else:
 
 missing_readme_time = [
     key
-    for key in ("UTC 时间轴", "播放 = 连续时间", "0.15×", "回绕", "animate:false")
+    for key in ("UTC timeline", "Playback = continuous time", "0.15×", "wrap", "animate:false")
     if key not in readme
 ]
 if missing_readme_time:
     fail(f"README 缺时间交互说明：{missing_readme_time}")
 else:
     ok("README 同步 UTC 时间轴与连续播放")
+
+# ---------------------------------------------------------------- 1e. i18n / EN-ES
+lang_block = re.search(r'<div class="lang-switch"[\s\S]*?</div>', html)
+if not lang_block:
+    fail("index.html 缺 header EN/ES 选择器 #lang-switch")
+else:
+    lang_order = re.findall(r'data-lang="([a-z]{2})"', lang_block.group(0))
+    if lang_order != ["en", "es"]:
+        fail(f"header 语言按钮不是 EN/ES：{lang_order}")
+    elif 'aria-pressed="true"' not in lang_block.group(0) or 'aria-pressed="false"' not in lang_block.group(0):
+        fail("header 语言按钮缺 aria-pressed 状态")
+    else:
+        ok("header EN/ES selector (data-lang=en|es + aria-pressed)")
+
+i18n_needles = {
+    "default English": "export const DEFAULT_LANG = 'en'",
+    "supported languages": "export const LANGS = ['en', 'es']",
+    "storage key": "export const LANG_KEY = 'spherex.view.lang'",
+    "URL precedence": "search.get('lang') ?? hash.get('lang')",
+    "localStorage read": "localStorage.getItem(LANG_KEY)",
+    "localStorage write": "localStorage.setItem(LANG_KEY, value)",
+    "html lang": "document.documentElement.lang = lang",
+}
+missing_i18n = [name for name, needle in i18n_needles.items() if needle not in i18n_js]
+if missing_i18n:
+    fail(f"i18n.js 缺默认语言/URL/localStorage 逻辑：{missing_i18n}")
+else:
+    ok("i18n: default en + ?lang search→hash + localStorage spherex.view.lang")
+
+if "p.set('lang', getLang())" not in main_js:
+    fail("View URL 没有写回当前 lang")
+else:
+    ok("View URL writes lang (per-link language)")
+
+if "document.querySelectorAll('.lang-btn[data-lang]')" not in main_js:
+    fail("main.js 没有绑定 header EN/ES 按钮")
+else:
+    ok("main.js 绑定 header EN/ES 按钮")
+
+switch_block = re.search(r"function switchLang\([\s\S]*?\n\}", main_js)
+if not switch_block:
+    fail("找不到 switchLang()")
+else:
+    switch_body = switch_block.group(0)
+    forbidden = [x for x in ("commitTime(", "setRegion(", "state.mjd =", "state.playing =") if x in switch_body]
+    if forbidden:
+        fail(f"switchLang 修改了区域/时间/播放状态：{forbidden}")
+    elif "writeUrl()" not in switch_body:
+        fail("switchLang 没有写回 URL lang")
+    else:
+        ok("语言切换不改变区域/时相/播放，只重渲染并写回 lang")
+
+# Compare EN/ES dictionaries through Node (pure module import; no network).
+node_bin = subprocess.run(["bash", "-lc", "command -v node"], capture_output=True, text=True).stdout.strip()
+if not node_bin:
+    warn("node 不可用，跳过 EN/ES 字典完整性检查")
+else:
+    i18n_path = os.path.join(TOOL, "js", "i18n.js")
+    from pathlib import Path as _Path
+
+    node_script = """
+import { DICTS, TARGET_NAMES, LANGS, DEFAULT_LANG } from %r;
+process.stdout.write(JSON.stringify({ dicts: DICTS, targets: TARGET_NAMES, langs: LANGS, default: DEFAULT_LANG }));
+""" % _Path(i18n_path).as_uri()
+    with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False, encoding="utf-8") as fh:
+        fh.write(node_script)
+        node_script_path = fh.name
+    try:
+        nr = subprocess.run([node_bin, node_script_path], capture_output=True, text=True, encoding="utf-8")
+    finally:
+        os.unlink(node_script_path)
+    if nr.returncode != 0:
+        fail(f"js/i18n.js 无法由 Node 导入：{nr.stderr.strip().splitlines()[-1] if nr.stderr else ''}")
+    else:
+        try:
+            i18n_data = json.loads(nr.stdout)
+        except json.JSONDecodeError:
+            fail("js/i18n.js Node 输出不是 JSON")
+        else:
+            langs = i18n_data.get("langs")
+            if langs != ["en", "es"] or i18n_data.get("default") != "en":
+                fail(f"i18n 语言不是默认 EN + ES：langs={langs} default={i18n_data.get('default')}")
+            else:
+                ok("i18n languages: EN default + ES")
+
+            en = i18n_data["dicts"]["en"]
+            es = i18n_data["dicts"]["es"]
+            en_keys, es_keys = set(en), set(es)
+            if en_keys != es_keys:
+                fail(f"EN/ES 字典键不一致：EN 缺 {sorted(es_keys - en_keys)}，ES 缺 {sorted(en_keys - es_keys)}")
+            elif len(en_keys) < 70:
+                fail(f"EN/ES 字典只有 {len(en_keys)} 个键，覆盖不足")
+            else:
+                ok(f"EN/ES dictionary key parity ({len(en_keys)} keys)")
+
+            empty_keys = sorted(k for k, v in list(en.items()) + list(es.items()) if not isinstance(v, str) or not v.strip())
+            if empty_keys:
+                fail(f"EN/ES 字典有空值：{empty_keys[:8]}")
+            else:
+                ok("EN/ES dictionary values non-empty")
+
+            cjk = re.compile(r"[\u4e00-\u9fff]")
+            cjk_keys = sorted(k for k, v in list(en.items()) + list(es.items()) if cjk.search(v))
+            if cjk_keys:
+                fail(f"EN/ES UI 字符串仍含中文：{cjk_keys[:8]}")
+            else:
+                ok("no Chinese characters in EN/ES UI strings")
+
+            ph = re.compile(r"\{(\w+)\}")
+            ph_bad = sorted(k for k in en_keys if set(ph.findall(en[k])) != set(ph.findall(es[k])))
+            if ph_bad:
+                fail(f"EN/ES 占位符不一致：{ph_bad[:8]}")
+            else:
+                ok("EN/ES interpolation placeholders match")
+
+            html_keys = set(re.findall(r'data-i18n(?:-[a-z-]+)?="([^"]+)"', html))
+            js_keys = set(re.findall(r"\btr\('([^']+)'", main_js))
+            used_keys = html_keys | js_keys
+            missing_keys = sorted(used_keys - en_keys)
+            if missing_keys:
+                fail(f"页面/JS 使用了字典中不存在的键：{missing_keys[:8]}")
+            else:
+                ok(f"all {len(used_keys)} data-i18n/tr keys exist in EN+ES")
+
+            required_keys = {
+                "field.ra", "field.dec", "field.fov", "unit.deg",
+                "window.title", "window.days", "window.note", "time.axis", "time.utc.aria", "time.go",
+                "time.playnote", "speed", "play.aria", "pause.aria", "tracknote.default",
+                "panel.left.title", "panel.right.title", "kv.fov", "kv.site", "kv.lst",
+                "hits.head", "hits.count", "hits.empty", "curated",
+                "open.movescope", "copy.json", "copy.link", "movescope.target", "movescope.custom",
+                "movescope.unreachable", "utc.invalid", "utc.clamped", "fatal.load", "fatal.webgl",
+                "data.note", "loader",
+            }
+            missing_required = sorted(required_keys - en_keys)
+            if missing_required:
+                fail(f"覆盖不完整，缺关键 UI 文案：{missing_required}")
+            else:
+                ok("UI coverage: RA/Dec/FOV, window, UTC, playback, timeline, region, coverage, handoff/copy/errors, notes")
+
+            exact = (
+                en.get("panel.right.title") == "Selected region"
+                and es.get("panel.right.title") == "Región seleccionada"
+                and en.get("window.title") == "Analysis time window"
+                and es.get("window.title") == "Ventana de tiempo de análisis"
+                and en.get("time.axis") == "UTC timeline"
+                and es.get("time.axis") == "Línea de tiempo UTC"
+                and en.get("open.movescope") == "Open in MoveScope"
+                and es.get("open.movescope") == "Abrir en MoveScope"
+                and en.get("copy.link") == "Copy link"
+                and es.get("copy.link") == "Copiar enlace"
+                and en.get("utc.invalid") == "UTC time must use YYYY-MM-DD HH:MM (UTC)."
+                and es.get("utc.invalid") == "La hora UTC debe usar el formato YYYY-MM-DD HH:MM (UTC)."
+            )
+            if not exact:
+                fail("EN/ES 核心文案不完整或回退到英文")
+            else:
+                ok("EN/ES core labels exact (window, timeline, region, handoff, copy, UTC error)")
+
+            targets_en = i18n_data["targets"]["en"]
+            targets_es = i18n_data["targets"]["es"]
+            target_ids = {"barnard", "epsind_b", "wise0855", "rw_aur", "r_dra", "m101", "campo_a"}
+            if set(targets_en) != target_ids or set(targets_es) != target_ids:
+                fail("target display-name dictionaries 不是 7 个目标")
+            elif targets_en.get("campo_a") != "Field A (DR1)" or targets_es.get("campo_a") != "Campo A (DR1)":
+                fail("target display name 没有本地化（campo_a / M101）")
+            elif "视场" in " ".join(targets_en.values()) or "视场" in " ".join(targets_es.values()):
+                fail("target display names 仍含中文")
+            else:
+                ok("7 target display names localized (Field A / Campo A)")
+
+            caveat_en = "This does not mean it was never observed"
+            caveat_es = "Esto no significa que nunca se haya observado"
+            if caveat_en not in en.get("hits.empty", "") or caveat_es not in es.get("hits.empty", ""):
+                fail("英文/西语没有保留“无命中≠从未观测”的 caveat")
+            elif "observing weeks" not in en.get("hits.empty", "") or "semanas de observación" not in es.get("hits.empty", ""):
+                fail("caveat 没有说明本地索引只是观测周子集")
+            else:
+                ok("caveat semantics preserved EN/ES (subset of 23 weeks; not never observed)")
+
+            all_ui = "\n".join(en.values()) + "\n" + "\n".join(es.values())
+            if NOVELTY_RE.search(all_ui) or NOVELTY_RE.search(readme):
+                fail("EN/ES UI 或 README 出现 novelty/first-detection 语言")
+            else:
+                ok("no novelty/first-detection language in EN/ES UI or README")
+
+lang_doc_needs = ("Language / Idioma", "?lang=en|es", LANG_KEY, "English by default", "Spanish")
+missing_lang_doc = [x for x in lang_doc_needs if x not in readme]
+if missing_lang_doc:
+    fail(f"README 缺 EN/ES 语言说明：{missing_lang_doc}")
+else:
+    ok("README documents English default + ?lang=en|es + localStorage")
+
+if not i18n_doc:
+    fail("缺 docs/i18n-en-es.md 本地化报告")
+else:
+    doc_needs = (
+        "English is the default and the primary language",
+        "?lang=en|es",
+        LANG_KEY,
+        "This does not mean it was never observed",
+        "Esto no significa que nunca se haya observado",
+        "Normal / Cascade-residual / Track",
+        "Normal / Cascada-residual / Trayectoria",
+        "Field A (DR1)",
+        "Campo A (DR1)",
+    )
+    missing_doc = [x for x in doc_needs if x not in i18n_doc]
+    if missing_doc:
+        fail(f"docs/i18n-en-es.md 缺 EN/ES 断言/证据：{missing_doc}")
+    else:
+        ok("docs/i18n-en-es.md covers EN/ES strings, modes and caveat semantics")
 
 # ---------------------------------------------------------------- 2. fields.json
 fields_doc = json.loads(read(os.path.join(TOOL, "data", "fields.json")))
@@ -359,7 +585,7 @@ COVERAGE_LABELS = {
     "rw_aur": "RW Aurigae",
     "r_dra": "R Draconis",
     "m101": "M101",
-    "campo_a": "场 A",
+    "campo_a": "Field A",
 }
 coverage = {}
 for t in targets:
@@ -410,13 +636,13 @@ if doc_drift:
 else:
     ok("README 覆盖表与 fields/2.47° 一致（7 个目标）")
 
-for s in ("5,893 帧 / 5,562", "23 个观测周", "5,893 帧"):
+for s in ("5,893 frames / 5,562 exposures", "23 observing weeks", "5,893 frames"):
     if s not in readme:
         fail(f"README 缺当前快照口径：{s!r}")
-if OLD_README in readme or "15 个观测周" in readme:
-    fail("README 仍含旧快照口径（旧曝光数 / 15 个观测周）")
+if OLD_README in readme or "15 observing weeks" in readme:
+    fail("README 仍含旧快照口径（旧曝光数 / 15 observing weeks）")
 else:
-    ok("README 快照口径 5,893 帧 / 5,562 曝光 / 23 周")
+    ok("README snapshot 5,893 frames / 5,562 exposures / 23 observing weeks")
 
 # ---------------------------------------------------------------- 4. epoch index
 ei = json.loads(read(os.path.join(TOOL, "data", "epoch_index.json"))).get("targets") or {}
@@ -465,11 +691,13 @@ else:
         fail("moveScopeUrl 不应传 mode")
     elif "p.set('target'" in body:
         fail("moveScopeUrl 不应再传 target")
+    elif "lang" in body:
+        fail("moveScopeUrl 不应传 lang（语言只属于 View）")
     else:
-        ok("MoveScope URL：全精度 ra/dec/fov + t0/t1 + from=view，无 mode/target")
+        ok("MoveScope URL：全精度 ra/dec/fov + t0/t1 + from=view，无 mode/target/lang")
 
 # ---------------------------------------------------------------- 6. 文案
-all_text = html + main_js + readme
+all_text = html + main_js + i18n_js + readme + i18n_doc
 report = os.path.join(TOOL, "docs", "交接修复报告.md")
 if os.path.exists(report):
     all_text += read(report)
@@ -514,12 +742,12 @@ else:
 # ---------------------------------------------------------------- 8. node --check
 node = subprocess.run(["bash", "-lc", "command -v node"], capture_output=True, text=True).stdout.strip()
 if node:
-    for f in ("main.js", "globe.js", "skymap.js", "astro.js"):
+    for f in ("main.js", "globe.js", "skymap.js", "astro.js", "i18n.js"):
         r = subprocess.run([node, "--check", os.path.join(TOOL, "js", f)], capture_output=True, text=True)
         if r.returncode != 0:
             fail(f"node --check {f} 失败：{r.stderr.strip().splitlines()[-1] if r.stderr else ''}")
     if not any("node --check" in f for f in fails):
-        ok("node --check 4/4")
+        ok("node --check 5/5")
 else:
     warn("node 不可用，跳过语法检查")
 

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SPHEREx 天区视图 · MoveScope</title>
-<meta name="description" content="用真实 SPHEREx 曝光头数据驱动的三维地球 + 天区选择器" />
+<title data-i18n="doc.title">SPHEREx Sky View · MoveScope</title>
+<meta name="description" content="Interactive 3D globe and sky-region selector driven by real SPHEREx exposure-header data." data-i18n-content="doc.description" />
 <link rel="stylesheet" href="./css/style.css" />
 <script>
   window.__errs = [];
@@ -18,13 +18,13 @@
 <body>
 
 <div id="stage">
-  <canvas id="globe" aria-label="三维地球"></canvas>
+  <canvas id="globe" aria-label="3D globe" data-i18n-aria-label="globe.aria"></canvas>
   <div id="labels">
     <div class="globe-label" id="lb-site" hidden>
-      <span class="k">天顶站点</span><span class="v" id="lb-site-val">—</span>
+      <span class="k" data-i18n="label.site">Zenith site</span><span class="v" id="lb-site-val">—</span>
     </div>
     <div class="globe-label" id="lb-sky" hidden>
-      <span class="k">天区中心</span><span class="v" id="lb-sky-val">—</span>
+      <span class="k" data-i18n="label.sky">Region center</span><span class="v" id="lb-sky-val">—</span>
     </div>
   </div>
   <div class="vignette"></div>
@@ -39,74 +39,81 @@
       <path d="M20 2v8M20 30v8M2 20h8M30 20h8" stroke="currentColor" stroke-width="1.2"/>
     </svg>
     <div>
-      <h1>SPHEREx <em>天区视图</em> <span class="brand-ms">· MoveScope</span></h1>
-      <p>SKY REGION VIEWER</p>
+      <h1>SPHEREx <em data-i18n="brand.skyView">Sky View</em> <span class="brand-ms">· MoveScope</span></h1>
+      <p data-i18n="brand.kicker">SKY REGION VIEWER</p>
     </div>
   </div>
 
   <div class="dataset">
-    <div class="chip" id="chip-count">— 帧 / — 曝光</div>
+    <div class="chip" id="chip-count">— frames / — exposures</div>
     <div class="chip dim" id="chip-range">—</div>
     <div class="chip dim">ICRS · J2000</div>
   </div>
 
-  <div class="clockbox">
-    <div class="clock" id="clock-date">—</div>
-    <div class="clock-sub"><span class="mono" id="clock-mjd">—</span><span class="dot"></span><span id="clock-mode">数据时相</span></div>
-    <button class="btn ghost tiny" id="btn-now" title="回到当前真实时刻">现在</button>
+  <div class="topbar-right">
+    <div class="lang-switch" id="lang-switch" role="group" aria-label="Language / Idioma">
+      <button class="lang-btn active" type="button" data-lang="en" lang="en" aria-pressed="true">EN</button>
+      <button class="lang-btn" type="button" data-lang="es" lang="es" aria-pressed="false">ES</button>
+    </div>
+    <div class="clockbox">
+      <div class="clock" id="clock-date">—</div>
+      <div class="clock-sub"><span class="mono" id="clock-mjd">—</span><span class="dot"></span><span id="clock-mode" data-i18n="clock.mode.data">Data epoch</span></div>
+      <button class="btn ghost tiny" id="btn-now" title="Return to the actual current time" data-i18n="now" data-i18n-title="now.title">Now</button>
+    </div>
   </div>
 </header>
 
 <aside class="panel" id="panel-left">
   <div class="panel-head">
-    <span class="ttl">天区选择器</span>
-    <span class="sub">SKY REGION</span>
+    <span class="ttl" data-i18n="panel.left.title">Sky region selector</span>
+    <span class="sub" data-i18n="panel.left.sub">SKY REGION</span>
     <span class="hud-corner"></span>
   </div>
 
   <div class="skymap-wrap">
-    <canvas id="skymap"></canvas>
-    <canvas id="minimap" title="全天小地图：点击跳转"></canvas>
-    <div class="skymap-tag">全天 · 拖拽=平移 · 滚轮=缩放</div>
+    <canvas id="skymap" aria-label="All-sky region map" data-i18n-aria-label="skymap.aria"></canvas>
+    <canvas id="minimap" title="All-sky minimap: click to jump" data-i18n-title="skymap.minimap.title"></canvas>
+    <div class="skymap-tag" data-i18n="skymap.tag">All-sky · drag = pan · wheel = zoom</div>
   </div>
 
   <div class="fields">
     <label class="field">
-      <span>RA</span>
+      <span data-i18n="field.ra">RA</span>
       <input id="in-ra" type="number" min="0" max="360" step="0.01" value="269.45" />
       <em id="ra-hms">—</em>
     </label>
     <label class="field">
-      <span>DEC</span>
+      <span data-i18n="field.dec">DEC</span>
       <input id="in-dec" type="number" min="-90" max="90" step="0.01" value="4.69" />
       <em id="dec-dms">—</em>
     </label>
     <label class="field">
-      <span>FOV</span>
+      <span data-i18n="field.fov">FOV</span>
       <input id="in-fov" type="number" min="0.05" max="180" step="0.05" value="3.50" />
-      <em>度</em>
+      <em data-i18n="unit.deg">deg</em>
     </label>
   </div>
 
   <div class="preset-row" id="presets"></div>
 
   <div class="toggles">
-    <label class="sw"><input type="checkbox" id="tg-track" checked /><i></i><span>地面轨迹</span></label>
-    <label class="sw"><input type="checkbox" id="tg-cov" checked /><i></i><span>曝光地面点</span></label>
-    <label class="sw"><input type="checkbox" id="tg-mapcov" checked /><i></i><span>天区覆盖</span></label>
+    <label class="sw"><input type="checkbox" id="tg-track" checked /><i></i><span data-i18n="toggle.track">Ground track</span></label>
+    <label class="sw"><input type="checkbox" id="tg-cov" checked /><i></i><span data-i18n="toggle.cov">Exposure ground points</span></label>
+    <label class="sw"><input type="checkbox" id="tg-mapcov" checked /><i></i><span data-i18n="toggle.mapcov">Sky coverage</span></label>
   </div>
 
-  <p class="hint">
-    在地球上单击 = 取该地此刻的<b>天顶天区</b>；拖拽天空图方块移动天区，滚轮缩放窗口，双击复位。<br/>
-    空格 播放/暂停 · ←/→ 调时相 · N 回到现在<br/>
-    深链：<span class="mono">?ra=269.452077&amp;dec=4.693365&amp;fov=0.5&amp;target=barnard</span>
+  <p class="hint" data-i18n-html="hint.main">
+    Click the globe to pick the <b>sky region at the zenith</b> at that moment; drag the sky box to move the region,
+    scroll to zoom, double-click to reset.<br/>
+    Space play/pause · ←/→ step time · N back to now<br/>
+    Deep link: <span class="mono">?ra=269.452077&amp;dec=4.693365&amp;fov=0.5&amp;target=barnard</span>
   </p>
 </aside>
 
 <aside class="panel" id="panel-right">
   <div class="panel-head">
-    <span class="ttl">选中天区</span>
-    <span class="sub">SELECTION</span>
+    <span class="ttl" data-i18n="panel.right.title">Selected region</span>
+    <span class="sub" data-i18n="panel.right.sub">SELECTION</span>
     <span class="hud-corner"></span>
   </div>
 
@@ -116,54 +123,51 @@
   </div>
 
   <div class="kv">
-    <div><span>视场</span><b id="ro-fov">—</b></div>
-    <div><span>银道</span><b id="ro-gal">—</b></div>
-    <div><span>天顶站点</span><b id="ro-site">—</b></div>
-    <div><span>地方恒星时</span><b id="ro-lst">—</b></div>
+    <div><span data-i18n="kv.fov">Field of view</span><b id="ro-fov">—</b></div>
+    <div><span data-i18n="kv.galactic">Galactic</span><b id="ro-gal">—</b></div>
+    <div><span data-i18n="kv.site">Zenith site</span><b id="ro-site">—</b></div>
+    <div><span data-i18n="kv.lst">Local sidereal time</span><b id="ro-lst">—</b></div>
   </div>
 
-  <div class="hits-head">
-    <span>本地命中 <em>2.47°</em></span>
-    <span class="count" id="hits-count">—</span>
-  </div>
+  <div class="hits-head"><span data-i18n-html="hits.head">Local hits <em>2.47°</em></span><span class="count" id="hits-count">—</span></div>
   <div class="curated" id="curated" hidden></div>
   <div class="hits" id="hits"></div>
 
   <div class="actions">
-    <button class="btn" id="btn-json">复制 JSON</button>
-    <button class="btn" id="btn-link">复制链接</button>
-    <button class="btn ghost wide" id="btn-movescope">在 MoveScope 打开</button>
+    <button class="btn" id="btn-json" data-i18n="copy.json">Copy JSON</button>
+    <button class="btn" id="btn-link" data-i18n="copy.link">Copy link</button>
+    <button class="btn ghost wide" id="btn-movescope" data-i18n="open.movescope">Open in MoveScope</button>
   </div>
-  <div class="ms-hint" id="analysis-hint">进入 MoveScope 后切换 普通 / 级联-残差 / 轨迹；窗口 = 分析层过滤范围，不是数据时相。</div>
+  <div class="ms-hint" id="analysis-hint">One handoff: in MoveScope, switch between <b>Normal / Cascade-residual / Track</b>; t0–t1 is the analysis-layer filter range, not the data epoch.</div>
   <div class="ms-hint" id="ms-hint">—</div>
 
   <p class="note" id="data-note">
-    数据：<span class="mono">data/fields.json</span>（由 <span class="mono">tools/build_field_index.py</span>
-    从数据库 <span class="mono">frames</span> 表导出）。
+    Data: <span class="mono">data/fields.json</span> (exported from the database
+    <span class="mono">frames</span> table by <span class="mono">tools/build_field_index.py</span>).
   </p>
 </aside>
 
 <footer class="timebar">
-  <button class="play" id="btn-play" aria-label="播放">
+  <button class="play" id="btn-play" aria-label="Play" data-i18n-aria-label="play.aria">
     <svg viewBox="0 0 16 16" class="ico-play"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>
     <svg viewBox="0 0 16 16" class="ico-pause" hidden><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
   </button>
   <div class="time-main">
     <div class="timepick">
-      <span class="tp-axis">UTC 时间轴</span>
-      <input id="in-utc" type="text" placeholder="YYYY-MM-DD HH:MM" aria-label="UTC 时间（YYYY-MM-DD HH:MM）" />
-      <button class="sbtn" id="btn-utc-go">定位</button>
+      <span class="tp-axis" data-i18n="time.axis">UTC timeline</span>
+      <input id="in-utc" type="text" placeholder="YYYY-MM-DD HH:MM" data-i18n-placeholder="time.utc.placeholder" aria-label="UTC time (YYYY-MM-DD HH:MM)" data-i18n-aria-label="time.utc.aria" />
+      <button class="sbtn" id="btn-utc-go" data-i18n="time.go">Go</button>
       <span class="tp-steps">
         <button class="sbtn" data-hours="-24">−1d</button>
         <button class="sbtn" data-hours="-1">−1h</button>
         <button class="sbtn" data-hours="1">+1h</button>
         <button class="sbtn" data-hours="24">+1d</button>
       </span>
-      <span class="tp-playnote">播放 = 连续时间</span>
+      <span class="tp-playnote" data-i18n="time.playnote">Playback = continuous time</span>
     </div>
     <div class="time-track">
-      <canvas id="density" height="26"></canvas>
-      <input id="time" type="range" min="0" max="1000" value="1000" step="0.1" />
+      <canvas id="density" height="26" aria-hidden="true"></canvas>
+      <input id="time" type="range" min="0" max="1000" value="1000" step="0.1" aria-label="Time position" data-i18n-aria-label="time.slider.aria" />
     </div>
     <div class="time-ticks">
       <span id="t-start">—</span><span id="t-25">—</span><span id="t-mid">—</span><span id="t-75">—</span><span id="t-end">—</span>
@@ -171,33 +175,33 @@
   </div>
   <div class="windowbox">
     <div class="window-head">
-      <span class="ttl">分析时间窗口</span>
-      <label class="window-days">±<select id="win-days" aria-label="分析时间窗口天数">
+      <span class="ttl" data-i18n="window.title">Analysis time window</span>
+      <label class="window-days">±<select id="win-days" aria-label="Analysis time window in days" data-i18n-aria-label="window.days.aria">
         <option value="30">30</option>
         <option value="90">90</option>
         <option value="180">180</option>
         <option value="365" selected>365</option>
         <option value="730">730</option>
-      </select>天</label>
+      </select><span data-i18n="window.days">days</span></label>
     </div>
     <div class="window-range" id="win-range">MJD —</div>
     <div class="window-range dim" id="win-utc">UTC —</div>
-    <div class="window-note">窗口 = <b>分析层过滤范围</b>；不是“数据时相/当前时刻”。</div>
+    <div class="window-note" data-i18n-html="window.note">Window = <b>analysis-layer filter range</b>; not the data epoch / current time.</div>
   </div>
   <div class="time-side">
     <div class="speed">
-      <span>速度</span>
+      <span data-i18n="speed">Speed</span>
       <button data-speed="0.15" class="sbtn">0.15×</button>
       <button data-speed="0.6" class="sbtn active">1×</button>
       <button data-speed="2.4" class="sbtn">4×</button>
     </div>
-    <div class="tracknote" id="tracknote">轨迹窗口 ±12 h</div>
+    <div class="tracknote" id="tracknote" data-i18n="tracknote.default">Track window ±12 h</div>
   </div>
 </footer>
 
 <div id="loader">
   <div class="ld-ring"></div>
-  <p>正在装载地球与曝光索引…</p>
+  <p data-i18n="loader">Loading globe and exposure index…</p>
 </div>
 
 <div id="cursor"></div>

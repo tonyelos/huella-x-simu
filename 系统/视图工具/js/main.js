@@ -2,8 +2,12 @@
 import { createGlobe } from './globe.js';
 import { createSkyMap } from './skymap.js';
 import * as A from './astro.js';
+import { initI18n, tr, getLang, setLang, targetLabel } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
+
+// English is the primary language; ?lang=es / localStorage can switch to Spanish.
+initI18n();
 
 // MoveScope 前端地址（app/server.py 提供，默认 8790）。
 // 可在页面加载前用 window.MOVESCOPE_ORIGIN 覆盖（部署/联调时不必改源码）。
@@ -72,12 +76,84 @@ async function copy(text, label, { silent = false } = {}) {
     ta.remove();
   }
   if (!silent) {
-    toast(ok ? `${label} 已复制` : `${label} 复制失败，请手动复制`, ok ? 2400 : 3600);
+    toast(ok ? tr('copy.ok', { label }) : tr('copy.fail', { label }), ok ? 2400 : 3600);
   }
   return ok;
 }
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+// ---------------------------------------------------------------- 语言 / i18n
+const fmtInt = (n) => Number(n).toLocaleString('en-US');
+
+/** Refresh the clock/MJD/mode and UTC input from state (no time mutation). */
+function syncClockUI() {
+  $('clock-date').textContent = `${A.fmtUtc(state.mjd)} UTC`;
+  $('clock-mjd').textContent = `MJD ${state.mjd.toFixed(4)}`;
+  $('clock-mode').textContent = state.mode === 'now' ? tr('clock.mode.now') : tr('clock.mode.data');
+  const utcInput = $('in-utc');
+  if (utcInput) utcInput.value = A.fmtUtc(state.mjd).slice(0, 16);
+}
+
+function syncTrackNote() {
+  const el = $('tracknote');
+  if (!el) return;
+  if (!fields.length) {
+    el.textContent = tr('tracknote.default');
+    return;
+  }
+  const near = fields.some((f) => Math.abs(f.mjd - state.mjd) < 0.5);
+  el.textContent = near ? tr('tracknote.default') : tr('tracknote.none');
+}
+
+function syncPlayButton() {
+  const el = $('btn-play');
+  if (!el) return;
+  const label = state.playing ? tr('pause.aria') : tr('play.aria');
+  el.setAttribute('aria-label', label);
+  el.title = label;
+}
+
+function syncDatasetChips() {
+  if (!fields.length) return;
+  $('chip-count').textContent = tr('chip.count', {
+    frames: fmtInt(fields.length),
+    exposures: fmtInt(nExposures),
+  });
+  $('chip-range').textContent = `${A.fmtUtc(mjdMin).slice(0, 10)} → ${A.fmtUtc(mjdMax).slice(0, 10)}`;
+}
+
+function syncDataNote() {
+  if (!fields.length) return;
+  const el = $('data-note');
+  if (!el) return;
+  el.innerHTML = tr('data.note', { frames: fmtInt(fields.length), exposures: fmtInt(nExposures) });
+}
+
+/** Sky-map target captions live in canvas state; refresh their `short` labels. */
+function syncTargetShortLabels() {
+  for (const target of targets) target.short = targetLabel(target);
+  sky?.redraw();
+}
+
+/** Switch EN/ES without changing region, time, playback or handoff parameters. */
+function switchLang(next) {
+  if (!setLang(next)) return;
+  // Do not leave a transient toast from the previous language on screen.
+  clearTimeout(toastTimer);
+  $('toast').classList.remove('show');
+  syncClockUI();
+  syncTrackNote();
+  syncPlayButton();
+  syncDatasetChips();
+  syncDataNote();
+  syncTargetShortLabels();
+  syncRegionUI();
+  syncWindowUI();
+  updateLabels();
+  clearTimeout(urlTimer);
+  writeUrl();
+}
 
 /** 与预设目标的角距（角秒），无匹配返回 Infinity */
 function targetSepArcsec(t) {
@@ -136,7 +212,8 @@ function syncRegionUI() {
 function updateSite() {
   const site = A.zenithOf(state.ra, state.dec, state.mjd);
   const lst = A.lst(site.lon, state.mjd);
-  $('ro-site').textContent = `${A.fmtDec(site.lat)}  ${site.lon >= 0 ? 'E' : 'W'}${Math.abs(site.lon).toFixed(1)}°`;
+  const hemi = site.lon >= 0 ? tr('hemi.e') : tr('hemi.w');
+  $('ro-site').textContent = `${A.fmtDec(site.lat)}  ${hemi}${Math.abs(site.lon).toFixed(1)}°`;
   $('ro-lst').textContent = A.fmtRa(lst);
   return site;
 }
@@ -170,7 +247,11 @@ function computeHits() {
 function updateHits() {
   hitStats = computeHits();
   const { frames, exposures, nights } = hitStats;
-  $('hits-count').textContent = `${frames} 帧 · ${exposures} 曝光 · ${nights} 夜`;
+  $('hits-count').textContent = tr('hits.count', {
+    frames,
+    exposures,
+    nights,
+  });
 
   const box = $('hits');
   box.innerHTML = '';
@@ -181,7 +262,7 @@ function updateHits() {
   if (curated.length) {
     cEl.hidden = false;
     const near = curated.reduce((b, e) => (Math.abs(e.mjd - state.mjd) < Math.abs(b.mjd - state.mjd) ? e : b), curated[0]);
-    cEl.innerHTML = `<b>策展历元 ${curated.length}</b> · 数据库 epoch_catalog · 跳到 ${A.fmtUtc(near.mjd).slice(0, 10)}`;
+    cEl.innerHTML = tr('curated', { n: curated.length, date: A.fmtUtc(near.mjd).slice(0, 10) });
     cEl.onclick = () => {
       setRegion({ ra: target.ra, dec: target.dec }, { focus: true, recenter: true });
       commitTime(near.mjd, 'data', { animate: true, source: 'curated' });
@@ -194,9 +275,12 @@ function updateHits() {
   if (!hitStats.groups.length) {
     const d = document.createElement('div');
     d.className = 'empty';
-    d.innerHTML = `本地索引在 ${HIT_RADIUS_DEG}° 内无命中。<br>
-      这不等于“没被拍过”：本地只是 ${nWeeks} 个观测周的子集（${fields.length.toLocaleString('en-US')} 帧 /
-      ${nExposures.toLocaleString('en-US')} 次曝光），换一条覆盖带或点“现在”看别的时相。`;
+    d.innerHTML = tr('hits.empty', {
+      radius: HIT_RADIUS_DEG,
+      weeks: nWeeks,
+      frames: fmtInt(fields.length),
+      exposures: fmtInt(nExposures),
+    });
     box.appendChild(d);
     return;
   }
@@ -204,12 +288,12 @@ function updateHits() {
   for (const g of hitStats.groups.slice(0, 40)) {
     const row = document.createElement('div');
     row.className = 'hit';
-    row.innerHTML = `<span class="id">${g.obsid} <i>· ${g.n} 帧</i></span><span class="sep"><b>${(g.sep * 60).toFixed(1)}′</b></span>`;
-    row.title = `${A.fmtUtc(g.mjd)} · ${g.n} 帧`;
+    row.innerHTML = `<span class="id">${g.obsid} <i>· ${tr('hit.frames', { n: g.n })}</i></span><span class="sep"><b>${(g.sep * 60).toFixed(1)}′</b></span>`;
+    row.title = tr('hit.title', { utc: A.fmtUtc(g.mjd), n: g.n });
     row.addEventListener('click', () => {
       setRegion({ ra: g.ra, dec: g.dec }, { focus: true, recenter: true });
       commitTime(g.mjd, 'data', { animate: true, source: 'hit' });
-      toast(`定位到 ${g.obsid}`);
+      toast(tr('hit.toast', { obsid: g.obsid }));
     });
     box.appendChild(row);
   }
@@ -218,6 +302,8 @@ function updateHits() {
 function updatePresetState() {
   const t = matchedTarget();
   document.querySelectorAll('.preset[data-id]').forEach((el) => {
+    const target = targets.find((x) => x.id === el.dataset.id);
+    if (target) el.textContent = targetLabel(target);
     el.classList.toggle('on', !!t && el.dataset.id === t.id);
   });
 }
@@ -244,16 +330,16 @@ async function openMoveScope(url) {
       win.location.replace(url);
       return;
     }
-    const copied = await copy(url, 'MoveScope 链接', { silent: true });
-    toast(copied ? '浏览器拦截了新标签页，MoveScope 链接已复制' : '浏览器拦截了新标签页；请手动打开 MoveScope', 4200);
+    const copied = await copy(url, tr('copy.label.movescope'), { silent: true });
+    toast(copied ? tr('movescope.blocked.copied') : tr('movescope.blocked.manual'), 4200);
     return;
   }
   if (win) win.close();
-  const copied = await copy(url, 'MoveScope 链接', { silent: true });
+  const copied = await copy(url, tr('copy.label.movescope'), { silent: true });
   toast(
     copied
-      ? `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），链接已复制`
-      : `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py）`,
+      ? tr('movescope.unreachable.copied', { origin: MOVESCOPE_ORIGIN })
+      : tr('movescope.unreachable', { origin: MOVESCOPE_ORIGIN }),
     5200,
   );
 }
@@ -264,9 +350,9 @@ function updateMoveScopeHint() {
   if (!el) return;
   el.classList.remove('warn');
   if (t) {
-    el.innerHTML = `将打开 <b>${t.name}</b> 天区；MoveScope 按坐标分析，进入后可切换模式。`;
+    el.innerHTML = tr('movescope.target', { name: targetLabel(t) });
   } else {
-    el.innerHTML = '自定义天区；MoveScope 按坐标分析（有真实历元则 REAL，否则 SIM），进入后可切换模式。';
+    el.innerHTML = tr('movescope.custom');
   }
 }
 
@@ -326,7 +412,7 @@ function syncWindowUI() {
         sel.appendChild(opt);
       }
       opt.value = value;
-      opt.textContent = `自定义 ${state.windowDays.toFixed(1)} 天`;
+      opt.textContent = tr('window.custom', { days: state.windowDays.toFixed(1) });
     }
     sel.value = value;
   }
@@ -336,10 +422,9 @@ function syncWindowUI() {
 function updateAnalysisHint() {
   const el = $('analysis-hint');
   if (!el) return;
-  const fovWarn = state.fov > 3.0
-    ? `<br><span style="color:var(--amber)">当前 FOV ${state.fov.toFixed(2)}° 超出 MoveScope 分析页 3.0° 上限，请先调小 FOV。</span>`
-    : '';
-  el.innerHTML = `一次 handoff：进入 MoveScope 后切换 <b>普通 / 级联-残差 / 轨迹</b>；t0–t1 是分析层过滤范围，不是数据时相。${fovWarn}`;
+  let html = tr('analysis.hint');
+  if (state.fov > 3.0) html += tr('analysis.fovWarn', { fov: state.fov.toFixed(2) });
+  el.innerHTML = html;
 }
 
 // ---------------------------------------------------------------- 时间（唯一入口）
@@ -357,18 +442,13 @@ function commitTime(mjd, mode = 'data', { animate = false, source = 'set', silen
   state.t1 = next + state.windowDays;
 
   globe?.setClock(next, { animate });
-  $('clock-date').textContent = `${A.fmtUtc(next)} UTC`;
-  $('clock-mjd').textContent = `MJD ${next.toFixed(4)}`;
-  $('clock-mode').textContent = state.mode === 'now' ? '实时' : '数据时相';
+  syncClockUI();
   const frac = (next - mjdMin) / (mjdMax - mjdMin);
   $('time').value = String(clamp(frac * 1000, 0, 1000));
-  const utcInput = $('in-utc');
-  if (utcInput) utcInput.value = A.fmtUtc(next).slice(0, 16);
 
   const site = updateSite();
   updateLabels(site);
-  const near = fields.some((f) => Math.abs(f.mjd - next) < 0.5);
-  $('tracknote').textContent = near ? '轨迹窗口 ±12 h' : '该时相 ±12 h 无曝光';
+  syncTrackNote();
   syncWindowUI();
   if (!silent) scheduleUrl();
   return { mjd: next, clamped: !allowOutside && Math.abs(next - mjd) > 1e-9 };
@@ -399,18 +479,19 @@ function parseUtcInput(text) {
 function locateUtc() {
   const mjd = parseUtcInput($('in-utc').value);
   if (mjd === null) {
-    toast('UTC 时间格式应为 YYYY-MM-DD HH:MM（UTC）', 3600);
+    toast(tr('utc.invalid'), 3600);
     return;
   }
   const r = commitTime(mjd, 'data', { animate: true, source: 'utc' });
   if (r.clamped) {
-    toast(`UTC 时间超出本地索引，已定位到 ${A.fmtUtc(r.mjd).slice(0, 16)} UTC`, 3600);
+    toast(tr('utc.clamped', { utc: A.fmtUtc(r.mjd).slice(0, 16) }), 3600);
   }
 }
 
 function setPlaying(on) {
   state.playing = on;
   $('btn-play').classList.toggle('playing', on);
+  syncPlayButton();
   if (!on) {
     syncWindowUI();
     scheduleUrl();
@@ -434,7 +515,7 @@ function goNow() {
   setPlaying(false);
   commitTime(now, 'now', { animate: true, source: 'now', allowOutside: true });
   if (Math.abs(now - mjdMax) > 40) {
-    toast(`本地索引止于 ${A.fmtUtc(mjdMax).slice(0, 10)}，实时时刻无地面轨迹`, 3200);
+    toast(tr('now.noTrack', { date: A.fmtUtc(mjdMax).slice(0, 10) }), 3200);
   }
 }
 
@@ -459,13 +540,17 @@ function updateLabels(site = updateSite()) {
   elSky.style.transform = `translate(-50%, ${-m.halfPx - 26}px)`;
   const t = matchedTarget();
   $('lb-sky-val').textContent = t
-    ? `${t.name} · ${state.fov.toFixed(2)}°`
+    ? `${targetLabel(t)} · ${state.fov.toFixed(2)}°`
     : `${A.fmtRa(state.ra)} ${A.fmtDec(state.dec)} · ${state.fov.toFixed(2)}°`;
 
   elSite.style.left = `${leftPct.toFixed(2)}%`;
   elSite.style.top = `${topPct.toFixed(2)}%`;
   elSite.style.transform = `translate(-50%, ${m.halfPx + 12}px)`;
-  $('lb-site-val').textContent = `天顶 ${A.fmtDec(site.lat)} ${site.lon >= 0 ? 'E' : 'W'}${Math.abs(site.lon).toFixed(1)}°`;
+  $('lb-site-val').textContent = tr('globe.site.value', {
+    dec: A.fmtDec(site.lat),
+    hemi: site.lon >= 0 ? tr('hemi.e') : tr('hemi.w'),
+    lon: Math.abs(site.lon).toFixed(1),
+  });
 }
 
 // ---------------------------------------------------------------- URL 状态
@@ -485,6 +570,7 @@ function writeUrl() {
   p.set('t', state.mjd.toFixed(4));
   p.set('t0', state.t0.toFixed(4));
   p.set('t1', state.t1.toFixed(4));
+  p.set('lang', getLang());
   const url = `${location.pathname}?${p.toString()}`;
   history.replaceState(null, '', url);
 }
@@ -547,28 +633,27 @@ function drawDensity() {
 
 // ---------------------------------------------------------------- 启动
 async function boot() {
-  const [fr, tr, ei] = await Promise.all([
+  const [fieldsDoc, targetsDoc, epochDoc] = await Promise.all([
     fetch('./data/fields.json').then((r) => r.json()),
     fetch('./data/targets.json').then((r) => r.json()),
     fetch('./data/epoch_index.json').then((r) => r.json()).catch(() => ({ targets: {} })),
   ]);
 
-  fields = fr.fields
+  fields = fieldsDoc.fields
     .map(([obsid, det, ra, dec, mjd, lat, lon, elon, elat, xposure]) => ({
       obsid, det, ra, dec, mjd, lat, lon, elon, elat, xposure,
     }))
     .sort((a, b) => a.mjd - b.mjd);
 
-  targets = (tr.targets || []).map((t) => ({ ...t, short: t.name }));
-  epochIndex = ei.targets || {};
+  targets = (targetsDoc.targets || []).map((target) => ({ ...target, short: targetLabel(target) }));
+  epochIndex = epochDoc.targets || {};
   mjdMin = fields[0].mjd;
   mjdMax = fields[fields.length - 1].mjd;
 
   const nExp = new Set(fields.map((f) => f.obsid)).size;
   nExposures = nExp;
   nWeeks = new Set(fields.map((f) => f.obsid.split('_').slice(0, 2).join('_'))).size;
-  $('chip-count').textContent = `${fields.length.toLocaleString('en-US')} 帧 / ${nExp.toLocaleString('en-US')} 曝光`;
-  $('chip-range').textContent = `${A.fmtUtc(mjdMin).slice(0, 10)} → ${A.fmtUtc(mjdMax).slice(0, 10)}`;
+  syncDatasetChips();
   const axisSpan = mjdMax - mjdMin;
   const axisTicks = [
     ['t-start', 0],
@@ -580,24 +665,19 @@ async function boot() {
   for (const [id, frac] of axisTicks) {
     $(id).textContent = A.fmtUtc(mjdMin + axisSpan * frac).slice(0, 10);
   }
-  $('tracknote').textContent = `轨迹窗口 ±12 h · ${A.mjdToDate(mjdMax).getUTCFullYear()}`;
-  const noteEl = $('data-note');
-  if (noteEl) {
-    noteEl.innerHTML = `数据：<span class="mono">data/fields.json</span>（由 <span class="mono">tools/build_field_index.py</span>
-      从数据库 <span class="mono">frames</span> 表导出）· ${fields.length.toLocaleString('en-US')} 帧 /
-      ${nExp.toLocaleString('en-US')} 次曝光。`;
-  }
+  syncTrackNote();
+  syncDataNote();
 
   const presetRow = $('presets');
-  for (const t of targets) {
+  for (const target of targets) {
     const b = document.createElement('button');
     b.className = 'preset';
-    b.dataset.id = t.id;
-    b.textContent = t.name.replace(/（.*?）/g, '').replace(' 视场', '');
-    b.title = `RA ${t.ra}  DEC ${t.dec}`;
+    b.dataset.id = target.id;
+    b.textContent = targetLabel(target);
+    b.title = `RA ${target.ra}  DEC ${target.dec}`;
     b.addEventListener('click', () => {
-      setRegion({ ra: t.ra, dec: t.dec, fov: PRESET_FOV[t.id] ?? 0.5 }, { focus: true, recenter: true, rezoom: true });
-      const curated = epochIndex[t.id] || [];
+      setRegion({ ra: target.ra, dec: target.dec, fov: PRESET_FOV[target.id] ?? 0.5 }, { focus: true, recenter: true, rezoom: true });
+      const curated = epochIndex[target.id] || [];
       if (curated.length) {
         const near = curated.reduce((b2, e) => (Math.abs(e.mjd - state.mjd) < Math.abs(b2.mjd - state.mjd) ? e : b2), curated[0]);
         commitTime(near.mjd, 'data', { animate: true, source: 'preset' });
@@ -619,12 +699,12 @@ async function boot() {
       if (!ll) { el.classList.remove('on'); return; }
       const s = A.skyOverhead(ll.lat, ll.lon, state.mjd);
       el.classList.add('on');
-      el.innerHTML = `<span>光标</span> RA ${A.fmtRa(s.ra)} <i>·</i> DEC ${A.fmtDec(s.dec)}`;
+      el.innerHTML = `<span>${tr('cursor.label')}</span> RA ${A.fmtRa(s.ra)} <i>·</i> DEC ${A.fmtDec(s.dec)}`;
     },
     onPick: (lat, lon) => {
       const s = A.skyOverhead(lat, lon, state.mjd);
       setRegion({ ra: s.ra, dec: s.dec }, { recenter: true });
-      toast(`天顶天区 → RA ${A.fmtRa(s.ra)}  DEC ${A.fmtDec(s.dec)}`);
+      toast(tr('globe.pick', { ra: A.fmtRa(s.ra), dec: A.fmtDec(s.dec) }));
     },
   });
   globe.setFields(fields);
@@ -679,6 +759,10 @@ async function boot() {
   writeUrl();
 
   // 交互
+  document.querySelectorAll('.lang-btn[data-lang]').forEach((b) => {
+    b.addEventListener('click', () => switchLang(b.dataset.lang));
+  });
+
   let inputTimer = 0;
   function afterInput() {
     clearTimeout(inputTimer);
@@ -723,7 +807,7 @@ async function boot() {
       const hours = parseFloat(b.dataset.hours);
       if (!Number.isFinite(hours)) return;
       const r = commitTime(state.mjd + hours / 24, 'data', { animate: true, source: 'step' });
-      if (r.clamped) toast('已到时间轴边界', 2400);
+      if (r.clamped) toast(tr('step.edge'), 2400);
     });
   });
 
@@ -761,10 +845,10 @@ async function boot() {
       },
       coverage: { frames: hitStats.frames, exposures: hitStats.exposures, nights: hitStats.nights, radius_deg: HIT_RADIUS_DEG },
     };
-    copy(JSON.stringify(payload, null, 2), '天区 JSON');
+    copy(JSON.stringify(payload, null, 2), tr('copy.label.json'));
   });
 
-  $('btn-link').addEventListener('click', () => copy(location.href, '链接'));
+  $('btn-link').addEventListener('click', () => copy(location.href, tr('copy.label.link')));
 
   $('btn-movescope').addEventListener('click', () => openMoveScope(moveScopeUrl()));
 
@@ -813,18 +897,14 @@ function fatal(err) {
   const isWebgl = /webgl|context/i.test(msg);
   const l = document.getElementById('loader');
   if (!l) return;
-  l.innerHTML = isWebgl
-    ? `<div style="max-width:440px;text-align:center;font-family:ui-monospace,monospace;font-size:11px;line-height:1.9;color:#ffb454">
-        浏览器不支持 <b>WebGL2</b>（或已被禁用），三维地球无法初始化。<br><br>
-        <span style="color:#7d90a6">这是显卡/浏览器设置问题，不是网络问题。请在 Chrome / Safari 新版中打开，或检查
-        chrome://gpu 的 WebGL2 状态。</span>
-      </div>`
-    : `<div style="max-width:440px;text-align:center;font-family:ui-monospace,monospace;font-size:11px;line-height:1.9;color:#ffb454">
-        装载失败：${msg}<br><br>
-        本页面依赖 <span style="color:#d7e8f8">fetch</span> 与 ES module，需通过本地 HTTP 服务打开：<br>
-        <span style="color:#d7e8f8">cd 系统/视图工具 &amp;&amp; ./start.sh</span>（默认 8830）<br>
-        然后访问 <span style="color:#d7e8f8">http://127.0.0.1:8830/</span>
-      </div>`;
+  const body = isWebgl
+    ? tr('fatal.webgl')
+    : tr('fatal.load', {
+      msg,
+      cmd: './start.sh',
+      url: 'http://127.0.0.1:8830/',
+    });
+  l.innerHTML = `<div style="max-width:440px;text-align:center;font-family:ui-monospace,monospace;font-size:11px;line-height:1.9;color:#ffb454">${body}</div>`;
 }
 
 boot().catch(fatal);

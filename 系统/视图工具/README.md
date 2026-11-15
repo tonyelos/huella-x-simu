@@ -1,115 +1,137 @@
-# SPHEREx 天区视图 · MoveScope（视图工具）
+# SPHEREx Sky View · MoveScope (View tool)
 
-把数据库里的 **5,893 帧 / 5,562 次 SPHEREx 曝光**变成一颗可转动的三维地球和一个天区选择器：
-在地球上点一下，就知道此刻那块天在谁的头顶；反过来，在天图上圈一块天区，地球会标出"该天区正上方"的站点，
-并用真实曝光索引回答"**本地**拍过没有、拍了几帧几夜"。
+Turns the database's **5,893 frames / 5,562 SPHEREx exposures** into a rotating 3D globe and a sky-region
+selector: click the globe to see which site has that sky region at its zenith, or frame a region on the
+sky map and let the globe mark the sites where it is overhead. A local exposure index answers
+"**did the local data cover this region, and how many frames/nights?**".
 
-![预览](docs/preview.png)
+The UI is **English-primary with a complete Spanish translation**. The header **EN / ES** switch and
+`?lang=en|es` select the language; the choice is remembered in `localStorage`. See §2.6.
+
+![Preview](docs/preview.png)
 
 ---
 
-## 1. 运行
+## 1. Run
 
 ```bash
 cd 系统/视图工具
-./start.sh            # 默认 http://127.0.0.1:8830/
-./start.sh 8831       # 换端口
+./start.sh            # default: http://127.0.0.1:8830/
+./start.sh 8831       # another port
 ```
 
-- 端口固定 **8830**（MoveScope 8790、数据库 8797），**不自动扫端口**；被占用时直接报错退出。
-- 页面用 ES module + `fetch`，必须走 HTTP；直接双击 `index.html` 会被浏览器拦掉。
-- 无构建、无网络依赖：three.js 与地球纹理都在 `vendor/`、`assets/`。
-- 需要 WebGL2；不支持时页面会明确提示"浏览器不支持 WebGL2"，而不是让你去启动服务。
+- Fixed port **8830** (MoveScope 8790, database 8797); the script **does not scan ports** and exits with an error if the port is taken.
+- The page uses ES modules and `fetch`, so it must be served over HTTP; opening `index.html` directly is blocked by the browser.
+- No build step and no network dependency: three.js and the Earth textures are vendored in `vendor/` and `assets/`.
+- WebGL2 is required. If it is unavailable the loader states that the browser does not support WebGL2 instead of asking you to start a server.
 
-## 2. 深链契约（T1）
+## 2. Deep-link contract (T1)
 
 ```text
 http://127.0.0.1:8830/?ra=269.452077&dec=4.693365&fov=0.5&target=barnard
-http://127.0.0.1:8830/?target=epsind_b          # 只给目标，用预设坐标
+http://127.0.0.1:8830/?target=epsind_b          # target only, preset coordinates
 http://127.0.0.1:8830/?ra=120.5&dec=12.25&fov=0.4&t=61300.2
 http://127.0.0.1:8830/?ra=269.452077&dec=4.693365&fov=0.5&target=barnard&t=61000&t0=60970&t1=61030
+http://127.0.0.1:8830/?ra=269.452077&dec=4.693365&fov=0.5&t=61000&lang=es
 ```
 
-| 参数 | 含义 | 缺省 |
+| Parameter | Meaning | Default |
 |---|---|---|
-| `ra` / `dec` | 天区中心（度，ICRS） | 巴纳德星 |
-| `fov` | 视场（度，0.05–180） | 3.5（默认）/ 目标预设 |
-| `target` | 目标 id（`barnard`、`epsind_b`、`wise0855`、`rw_aur`、`r_dra`、`m101`、`campo_a`） | — |
-| `t` | 数据时相 / 当前时刻（MJD） | 本地索引最后一次曝光 |
-| `t0` / `t1` | 分析时间窗口起止（MJD，由当前时相 ±N 天得到） | `t ± 365` |
+| `ra` / `dec` | Region center (degrees, ICRS) | Barnard's Star |
+| `fov` | Field of view (degrees, 0.05–180) | 3.5 (default) / target preset |
+| `target` | Target id (`barnard`, `epsind_b`, `wise0855`, `rw_aur`, `r_dra`, `m101`, `campo_a`) | — |
+| `t` | Data epoch / current instant (MJD) | last exposure in the local index |
+| `t0` / `t1` | Analysis time-window bounds (MJD, current epoch ±N days) | `t ± 365` |
+| `lang` | UI language: `en` or `es` | `en` (or the stored choice) |
 
-- **解析顺序**：`location.search` 优先，`location.hash` 兜底（旧的 `#ra=…` 链接仍可用）。
-- 任何参数非法/缺失都回退默认，不抛错。
-- 页面状态会以 `history.replaceState` **写回 search**（含 `target`、`t`、`t0/t1`），所以"复制链接"一定可复现。
-- `t0/t1` 是**分析层过滤范围**，不是 `t` 这个“数据时相/当前时刻”；见 §3.5。
+- **Resolution order:** `location.search` first, `location.hash` as a fallback (old `#ra=…` links still work). The same order applies to `lang`.
+- Invalid or missing values fall back to defaults; nothing throws.
+- Page state is written back to **search** with `history.replaceState` (including `target`, `t`, `t0/t1` and `lang`), so "Copy link" reproduces the view.
+- `t0/t1` are the **analysis-layer filter range**, not the data epoch `t`; see §3.5.
 
-## 2.5 时间选择与播放（连续时间）
+## 2.5 Time selection and continuous playback
 
-所有时间入口共用 **`commitTime(mjd, mode, {animate, source})`**，同步 `state.mjd`、时钟/MJD、滑杆、UTC 输入、分析窗口 `t0/t1`、URL 和地球角度：
+Every time entry point uses **`commitTime(mjd, mode, {animate, source})`**, which synchronizes `state.mjd`,
+the clock/MJD, the slider, the UTC input, the analysis window `t0/t1`, the URL and the Earth rotation:
 
-- **UTC 输入**：`YYYY-MM-DD HH:MM` + “定位”；非法输入 toast，不静默；输入/按钮后窗口按当前 `windowDays` 重算。
-- **快捷按钮**：`−1d / −1h / +1h / +1d`。
-- **滑杆**：保留；拖动实时更新，URL 仍用 300ms 节流（松手后落定）。
-- **时间轴**：5 个 UTC 日期刻度（`t-start / t-25 / t-mid / t-75 / t-end`），左侧标 `UTC 时间轴`；当前时刻由时钟和滑杆位置表示。
-- **播放**：连续时间 `mjd += dt × speed`，播放循环只调用 `commitTime(..., {silent:true, animate:false, source:'play'})`。
-  - 速度：`0.15× = 0.15 天/秒`、`1× = 0.6 天/秒`、`4× = 2.4 天/秒`；切换立即生效。
-  - 到 `mjdMax` 回绕到 `mjdMin`；从末尾/now 起播时先回到 `mjdMin`（旧行为）。
-  - 播放期间不做地球 tween，角度实时对应时间；暂停后角度严格对应 `state.mjd`。
-  - 页面标注“**播放 = 连续时间**”。
-- **地球 tween**：仅手动改时间（UTC/滑杆/±/键盘/命中行等）时 700ms、最短路径、ease-out；boot 初始不动画。
-- 截图：[输入时间](docs/time-input.png) · [播放中](docs/time-playing.png) · [播放/时间轴](docs/time-axis.png)。
+- **UTC input:** `YYYY-MM-DD HH:MM` plus **Go**; invalid input shows a toast instead of failing silently. The window is recomputed with the current `windowDays`.
+- **Step buttons:** `−1d / −1h / +1h / +1d`.
+- **Slider:** kept; dragging updates live and the URL is still throttled at 300 ms.
+- **Timeline:** 5 UTC date ticks (`t-start / t-25 / t-mid / t-75 / t-end`) labelled **UTC timeline**; the current instant is shown by the clock and the slider position.
+- **Playback:** continuous time, `mjd += dt × speed`. The playback loop only calls `commitTime(..., {silent:true, animate:false, source:'play'})`.
+  - Speeds: `0.15× = 0.15 days/s`, `1× = 0.6 days/s`, `4× = 2.4 days/s`; switching takes effect immediately.
+  - At `mjdMax` playback wraps around to `mjdMin`; starting from the end/now first returns to `mjdMin` (legacy behaviour).
+  - No Earth tween while playing; the Earth angle follows time continuously, and after pause it matches `state.mjd` exactly.
+  - The UI states **Playback = continuous time**.
+- **Earth tween:** only when time is changed manually (UTC/go, slider, ±, keyboard, hit row, curated epoch): 700 ms, shortest path, ease-out; no animation at boot.
+- Screenshots: [UTC input](docs/time-input.png) · [playing](docs/time-playing.png) · [timeline](docs/time-axis.png).
 
-## 3. 在 MoveScope 打开（T2）
+## 2.6 Language / Idioma
 
-**唯一分析入口**是“在 MoveScope 打开”，一次 handoff 打开：
+The View UI is **English by default** and **fully translated into Spanish**. The header has an **EN / ES**
+selector next to the clock.
+
+- Resolution order for the initial language: `?lang=en|es` (search first, hash fallback) → `localStorage` → **English**.
+- Persistence key: **`spherex.view.lang`**. A choice made with the header switch survives reloads; `?lang=` overrides the stored value for that visit.
+- On switch, `<html lang>`, `document.title`, `meta description`, static labels, aria labels, titles, placeholders, toasts, errors and all dynamic readouts (clock, coverage, hits, hints, notes) update without reloading and **without changing the selected region, data epoch, playback state, analysis window or handoff parameters**.
+- All UI strings, including both target display names such as **Field A (DR1) / Campo A (DR1)**, live in `js/i18n.js`. Both dictionaries carry the same keys; `tools/smoke.py` verifies key parity, non-empty values, no Chinese characters, and that every `data-i18n*` / `tr('…')` key used by the page exists in both languages.
+- `lang` is a **View-only** URL parameter. The MoveScope handoff never includes it: the handoff stays `ra/dec/fov/t0/t1/from=view`.
+- Caveat semantics are preserved in both languages: the local index is a subset of **23 observing weeks**, and "no local hits" **does not mean it was never observed**. See §4.
+- Screenshots: [English UI](docs/i18n-en.png) · [Spanish UI](docs/i18n-es.png); full string inventory and browser evidence in [docs/i18n-en-es.md](docs/i18n-en-es.md).
+
+## 3. Open in MoveScope (T2)
+
+The **only analysis entry point** is "Open in MoveScope": one handoff opens
 
 ```text
-http://127.0.0.1:8790/?ra=<当前 RA>&dec=<当前 Dec>&fov=<当前 FOV>&t0=<MJD>&t1=<MJD>&from=view
+http://127.0.0.1:8790/?ra=<current RA>&dec=<current Dec>&fov=<current FOV>&t0=<MJD>&t1=<MJD>&from=view
 ```
 
-- 使用当前 **全精度** `ra/dec/fov`；不传 `target`，不传 `mode`。MoveScope 默认进入普通模式。
-- `t0/t1` 是分析层过滤窗口（见 §3.5），不是当前数据时相。
-- 进入 MoveScope 后，用户在同一画布切换 **普通 / 级联-残差 / 轨迹**；View 不再提供独立级联/轨迹页面入口。
-- **探活**：`GET /api/health`（`mode:'no-cors'`）；不启动 MoveScope 就复制链接并提示"先 `app/server.py`"，不会假装打开。
-- **地址**：`MOVESCOPE_ORIGIN` 默认 `http://127.0.0.1:8790`；可在页面加载前用 `window.MOVESCOPE_ORIGIN` 覆盖（联调/换端口时不必改源码）。
-- **未命中预设**：MoveScope 仍按当前坐标分析；有真实历元则 REAL，否则 SIM。View 不伪造数据模式。
+- Uses the current **full-precision** `ra/dec/fov`; no `target`, no `mode`, and no `lang`. MoveScope starts in its normal mode.
+- `t0/t1` is the analysis-layer filter window (§3.5), not the current data epoch.
+- After entering MoveScope the user switches **Normal / Cascade-residual / Track** on the same canvas; View exposes no separate cascade/track page buttons.
+- **Health check:** `GET /api/health` (`mode:'no-cors'`). If MoveScope is not running, View copies the link and says to start `app/server.py`; it never pretends the page opened.
+- **Origin:** `MOVESCOPE_ORIGIN` defaults to `http://127.0.0.1:8790`; it can be overridden with `window.MOVESCOPE_ORIGIN` before page load (no source edit needed for integration or port changes).
+- **No preset match:** MoveScope still analyzes the current coordinates; it uses REAL when real epochs exist, otherwise SIM. View never fabricates a data mode.
 
-实测（2026-11-15 06:20，MoveScope :8790，本次单 handoff URL `ra=269.452077&dec=4.693365&fov=0.5&t0=60970&t1=61030&from=view`）：MoveScope 徽章 **REAL 真实**、**L2 就绪度**、**4 期**；MoveScope 自身会把 `target=custom` 追加到它的地址栏，但 View 发出的必需参数不变。
+Measured (2026-11-15 06:20, MoveScope :8790, handoff URL `ra=269.452077&dec=4.693365&fov=0.5&t0=60970&t1=61030&from=view`):
+MoveScope badge **REAL**, **L2 readiness**, **4 epochs**. MoveScope appends `target=custom` to its own
+address bar; the parameters emitted by View remain unchanged.
 
-## 3.5 分析时间窗口与一次 handoff
+## 3.5 Analysis time window and one handoff
 
-底部时间条新增 **分析时间窗口 ±N 天**：
+The bottom time bar has an **Analysis time window ±N days** control:
 
-- 选项 **30 / 90 / 180 / 365 / 730**，默认 **365**。
-- 始终以当前 `state.mjd` 为中心：`t0 = t − N`、`t1 = t + N`；拖时间轴、播放、点“现在”都会重算。
-- 显示 **MJD t0–t1** 与 **UTC 起止**；页面状态写回 `t0/t1`，刷新可复现。
-- 文案明确：**时间窗口 = 分析层过滤范围，不是“数据时相/当前时刻”**。`t` 决定播放/区域位置，`t0/t1` 随一次 handoff 发送。
-- View 只有一个分析入口；进入 MoveScope 后再切换 **普通 / 级联-残差 / 轨迹**。旧的独立分析页保留为诊断页，但不再从 View 直达，也不存在隐藏按钮。
+- Options **30 / 90 / 180 / 365 / 730**, default **365**.
+- Always centered on the current `state.mjd`: `t0 = t − N`, `t1 = t + N`; dragging the timeline, playback and "Now" all recompute it.
+- Shows **MJD t0–t1** and the **UTC** start/end; page state writes `t0/t1` back to the URL so refresh is reproducible.
+- The UI states: **the window is the analysis-layer filter range, not the data epoch / current time**. `t` controls the region/playback position; `t0/t1` are delivered with the single handoff.
+- View has exactly one analysis entry point; after entering MoveScope, switch **Normal / Cascade-residual / Track**. The old standalone analysis pages remain diagnostic pages on the MoveScope side but are not linked from View and have no hidden button here.
 
-一次 handoff 示例（Barnard，±30 天，t=61000）：
+Example handoff (Barnard, ±30 days, t=61000):
 
 ```text
 http://127.0.0.1:8790/?ra=269.452077&dec=4.693365&fov=0.5&t0=60970.0000&t1=61030.0000&from=view
 ```
 
-- 点击前先 GET `/api/health` 探活；连不上时 toast 明确提示、复制链接，不静默失败。
-- 分析页的 FOV 上限是 **3.0°**；当前 FOV 超过 3° 时，提示要求先调小（链接仍按当前 FOV 发送，避免伪装参数）。
-- View 负责把 `ra/dec/fov/t0/t1/from=view` 送达；进入 MoveScope 后的模式切换与窗口消费由 MoveScope 负责，本工具不改 app。
+- Before opening, View GETs `/api/health`; when unreachable it shows a clear toast and copies the link instead of failing silently.
+- The MoveScope analysis page caps FOV at **3.0°**; when the current FOV is above 3°, View asks you to reduce it (the link still carries the current FOV, never a fake value).
+- View delivers `ra/dec/fov/t0/t1/from=view`; MoveScope owns mode switching and window consumption. This tool does not modify the app.
 
-## 4. "本地命中"口径（T5）
+## 4. "Local hits" definition (T5)
 
-**2.47°** = 单片 3.49° 方视场的半对角线。中心落在 2.47° 内，才算"这帧拍到了该天区"。
-统计拆三层：
+**2.47°** is the half-diagonal of a single 3.49° square field of view. A frame counts as covering the region
+only when its center lies within 2.47° of the region center. Counts are split into three layers:
 
-| 指标 | 含义 |
+| Metric | Meaning |
 |---|---|
-| **帧** | 满足条件的探测器帧数（一行 = 一个探测器） |
-| **曝光** | 不同 `obsid` 数（一个 obsid = 一次曝光，最多 6 帧） |
-| **夜** | 不同 UTC 日期数 |
+| **Frames** | Matching detector frames (one row = one detector) |
+| **Exposures** | Distinct `obsid` values (one obsid = one exposure, at most 6 frames) |
+| **Nights** | Distinct UTC dates |
 
-按这个口径（本地索引内）：
+With this definition (within the local index):
 
-| 目标 | 帧 | 曝光 | 夜 | 最近中心距 |
+| Target | Frames | Exposures | Nights | Nearest center distance |
 |---|---|---|---|---|
 | Barnard's Star | 10 | 5 | 3 | 13.7′ |
 | Epsilon Indi B | 27 | 14 | 7 | 28.1′ |
@@ -117,117 +139,119 @@ http://127.0.0.1:8790/?ra=269.452077&dec=4.693365&fov=0.5&t0=60970.0000&t1=61030
 | RW Aurigae | 8 | 7 | 3 | 110.6′ |
 | R Draconis | 11 | 8 | 6 | 49.3′ |
 | M101 | 10 | 5 | 2 | 68.7′ |
-| 场 A | 9 | 5 | 4 | 0.1′ |
+| Field A | 9 | 5 | 4 | 0.1′ |
 
-> 快照：2026-11-15 00:10 CET，数据库 `frames` 5,893 行 / 5,562 次曝光 / 23 个观测周；本表由 `tools/smoke.py` 按 `fields.json` 与 2.47° 口径复核。
+> Snapshot: 2026-11-15 00:10 CET, database `frames` 5,893 rows / 5,562 exposures / 23 observing weeks;
+> `tools/smoke.py` re-checks this table against `fields.json` and the 2.47° definition.
 
-- 0 命中时显示"本地索引在 2.47° 内无命中"，并说明**本地只是 23 个观测周的子集**，不写成"没被拍过"。
-- 命中目标时额外显示 **策展历元**（数据库 `target_epochs` 去重后的曝光数：Barnard 4、Eps Ind 10、RW Aur 1），点一下直接跳到该历元的时刻。
+- With zero hits the UI says "No local hits within 2.47°" and explains that **the local index is only a subset of 23 observing weeks** — **this does not mean it was never observed**.
+- For a matched target, the panel also shows **curated epochs** (deduplicated exposures from `target_epochs`: Barnard 4, Eps Ind 10, RW Aur 1); clicking one jumps to that epoch.
 
-## 5. 数据来源与重建（T3/T4）
+## 5. Data sources and rebuild (T3/T4)
 
-```
+```text
 系统/数据库工具/var/catalog.sqlite : frames        ──build_field_index.py──▶  系统/视图工具/data/fields.json
 系统/app/data/targets.json                          ──sync_targets.py──────▶  系统/视图工具/data/targets.json
 系统/数据库工具/var/exports/epoch_catalog.json      ──sync_targets.py──────▶  系统/视图工具/data/epoch_index.json
 ```
 
 ```bash
-# 重建曝光索引（默认读数据库；已存在则拒绝，加 --force 覆盖）
-python3 tools/build_field_index.py --check     # 只比对
+# Rebuild the exposure index (reads the database by default; refuses to overwrite without --force)
+python3 tools/build_field_index.py --check     # compare only
 python3 tools/build_field_index.py --force
 
-# 从 DB 导出物重建到临时文件（验证不依赖 header_cache / 已删除目录）
+# Rebuild from the DB export into a temp file (proves no header_cache / removed-directory dependency)
 python3 tools/build_field_index.py --source export --out /tmp/fields.json --force
 
-# 重建目标表 + 策展历元（单一源：app/data/targets.json）
+# Rebuild targets + curated epochs (single source: app/data/targets.json)
 python3 tools/sync_targets.py --check
 python3 tools/sync_targets.py
 ```
 
-- `fields.json` 不再依赖已删除的 `app/data/header_cache`；`--source export|db|headers` 可选，默认 `db`。
-- `--out` 支持绝对路径或相对路径（相对当前工作目录）；默认 `data/fields.json`，已存在时拒绝覆盖，需加 `--force`。
-- 数据快照随数据库变化：重建后行数会跟着 `frames` 表走（当前 5,893 帧 / 5,562 曝光），`--check` 一旦失败说明源变了，重跑即可。
-- 输出带 `generated_by / source / source_sha256 / generated_at / count / exposures`。
-- `data/targets.json` 是脚本生成的副本（含 `coord_unc_arcsec`，`rw_aur.truth` = 12.0 d / 0.85 mag），**不再手工维护第二份**。
-- 重建结果与数据库逐行一致（`--check` 退出码 0）；`--source export` 与 `db` 当前逐行相同。
+- `fields.json` no longer depends on the removed `app/data/header_cache`; `--source export|db|headers` is selectable and defaults to `db`.
+- `--out` accepts absolute or relative paths (relative to the current working directory); the default is `data/fields.json`, and an existing file is not overwritten without `--force`.
+- The snapshot follows the database: rebuilding tracks the `frames` table (currently 5,893 frames / 5,562 exposures). A failing `--check` means the source changed; rerun it.
+- Output includes `generated_by / source / source_sha256 / generated_at / count / exposures`.
+- `data/targets.json` is a generated copy (including `coord_unc_arcsec`; `rw_aur.truth` = 12.0 d / 0.85 mag); do not maintain a second manual copy.
+- Rebuild results match the database row for row (`--check` exit code 0); `--source export` and `db` currently produce identical rows.
 
-## 6. 自检
+## 6. Self-check
 
 ```bash
 python3 tools/smoke.py
 ```
 
-一条命令检查：DOM id、fields 行数/来源与数据库一致、targets/epoch_index 与单一源一致、交接契约
-（`MOVESCOPE_ORIGIN` 默认 8790 + GET + 全精度 `ra/dec/fov` + `t0/t1` + `from=view`，不传 `mode/target`）、
-分析时间窗口（30/90/180/365/730 + `t0/t1` + 以 `t` 为中心）、UTC 输入/±快捷/5 个 UTC 刻度、
-统一 `commitTime`（时间与 `globe.setClock` 单入口）、连续播放（0.15×/1×/4×、末尾回绕）、
-播放期间 `animate:false`、手动改时间 0.7s tween、只有 MoveScope 一个分析入口、
-“进入 MoveScope 后切换普通/级联/轨迹”文案、2.47° 覆盖表与 README 一致（RW Aurigae 非 0）、
-`fields` 可由 DB/export 重建、文案不含旧项目名/旧端口/过时提示、`node --check`、`start.sh` 端口。
-全部通过退出码 0。
+One command checks: DOM ids; fields row count/source/database parity; targets/epoch_index single-source parity;
+handoff contract (`MOVESCOPE_ORIGIN` default 8790 + GET + full-precision `ra/dec/fov` + `t0/t1` + `from=view`, no
+`mode/target/lang`); analysis time window (30/90/180/365/730 + `t0/t1` centered on `t`); UTC input/step
+buttons/5 UTC ticks; single `commitTime` (time and `globe.setClock` entry point); continuous playback
+(0.15×/1×/4×, end wrap); `animate:false` during playback; 0.7 s tween for manual time changes; exactly one
+analysis entry point; the "switch Normal/Cascade-residual/Track in MoveScope" copy; 2.47° coverage table
+matching README (RW Aurigae non-zero); **EN/ES localization** (default English, header selector, `?lang=`,
+localStorage key, key parity between both dictionaries, no Chinese characters in UI strings, caveat copy in
+both languages, and `lang` absent from the handoff); `fields` rebuild from DB/export; no old project
+name/port/stale copy; `node --check`; `start.sh` port. Exit code 0 means everything passed.
 
-## 7. 边界
+## 7. Boundaries
 
-1. **不做 FITS 渲染**：多期图像/闪烁/相减是 MoveScope 的职责，这里只选天区。
-2. **本地索引是子集**：5,893 帧只覆盖 23 个观测周（2025-04-24 → 2026-10-03），空缺不代表没有观测。
-3. **自定义天区交给 MoveScope 判断**：按坐标分析，有真实历元则 REAL，否则 SIM；View 不伪造。
-4. 命中判据是"中心距 ≤ 2.47°"，不是逐像素求交；对大倾角扫描带是保守估计。
-5. 地球纹理 2048 px，2 倍屏近看会软。
-6. **分析窗口的消费方是 MoveScope 模式栏**：View 只计算并传递 `t0/t1/from=view`；进入 MoveScope 后切换普通/级联/轨迹，由 MoveScope 决定窗口如何过滤。
-7. **分析页 FOV 上限 3.0°**：View 允许更大的浏览视场；超过 3° 时提示会要求调小，否则 MoveScope 会拒绝。
-8. **View 不提供独立级联/轨迹入口**：旧诊断页只保留在 MoveScope 侧，不从 View 直达，也没有隐藏按钮。
-9. **播放是连续时间**：`mjd += dt × speed`，速度 0.15×/1×/4×；到末尾回绕 `mjdMin`，从末尾/now 起播先回 `mjdMin`。
-10. **地球 tween 仅手动改时间**：播放期间 `animate:false`，角度实时对应；手动跳时 0.7s 收敛，静止后严格对应 `state.mjd`。
+1. **No FITS rendering:** multi-epoch images/blinking/differencing belong to MoveScope; this tool only selects a region.
+2. **The local index is a subset:** 5,893 frames cover only 23 observing weeks (2025-04-24 → 2026-10-03); gaps do not mean no observations.
+3. **Custom regions are judged by MoveScope:** coordinates are analyzed with REAL when real epochs exist, otherwise SIM; View does not fabricate.
+4. The hit criterion is "center distance ≤ 2.47°", not a per-pixel intersection; for steep scan strips this is a conservative estimate.
+5. Earth textures are 2048 px; they look soft at 2× near zoom.
+6. **The analysis window is consumed by MoveScope's mode bar:** View only computes and sends `t0/t1/from=view`; MoveScope decides how the window filters.
+7. **MoveScope analysis FOV cap is 3.0°:** View allows a larger browsing FOV and warns to reduce it above 3°; the link still carries the real value.
+8. **View exposes no separate cascade/track entry:** those diagnostic pages stay on the MoveScope side, with no link or hidden button here.
+9. **Playback is continuous time:** `mjd += dt × speed`, speeds 0.15×/1×/4×; at the end it wraps to `mjdMin`; starting from the end/now first returns to `mjdMin`.
+10. **Earth tween only on manual time changes:** playback uses `animate:false`; manual jumps settle in 0.7 s, then exactly match `state.mjd`.
+11. **Language is presentation only:** switching EN/ES changes strings, `<html lang>`, title and aria labels, never `ra/dec/fov/t0/t1`, the data epoch, playback or the MoveScope handoff.
 
-## 8. 文件结构
+## 8. File structure
 
-```
+```text
 系统/视图工具/
-├── index.html              单页
-├── css/style.css           HUD 样式
+├── index.html              single page, English-default data-i18n markup
+├── css/style.css           HUD styles + EN/ES switch
 ├── js/
-│   ├── main.js             状态、深链、交接、覆盖口径
-│   ├── globe.js            three.js 地球
-│   ├── skymap.js           天图选择器
-│   └── astro.js            时间 / 坐标 / 太阳
+│   ├── main.js             state, deep links, handoff, coverage, language switching
+│   ├── globe.js            three.js globe
+│   ├── skymap.js           sky-map selector
+│   ├── astro.js            time / coordinates / Sun
+│   └── i18n.js             EN/ES dictionaries, persistence, target display names
 ├── data/
-│   ├── fields.json         5,893 帧 / 5,562 曝光（生成物）
-│   ├── targets.json        7 目标（生成物）
-│   └── epoch_index.json    37 个策展历元（生成物）
+│   ├── fields.json         5,893 frames / 5,562 exposures (generated)
+│   ├── targets.json        7 targets (generated)
+│   └── epoch_index.json    37 curated epochs (generated)
 ├── tools/
 │   ├── build_field_index.py
 │   ├── sync_targets.py
 │   └── smoke.py
-├── docs/                   预览截图与交接修复报告
+├── docs/                   screenshots, historical reports, i18n evidence
 ├── vendor/three.module.js
-├── vendor/three.LICENSE     three.js MIT 全文
+├── vendor/three.LICENSE    full three.js MIT text
 ├── assets/earth_*.{jpg,png}
 └── start.sh
 ```
 
-## 9. 参考与许可
+## 9. References and licensing
 
-> 本工具原创代码/文档按 **Apache-2.0**；第三方材料逐项列在根目录
-> `THIRD_PARTY_NOTICES.md`。以下只列本工具直接使用的部分。
+> Original code/documentation in this tool is **Apache-2.0**; third-party material is itemized in the root
+> `THIRD_PARTY_NOTICES.md`. Only direct dependencies are listed here.
 
-- **three.js r160**（MIT）：`vendor/three.module.js` 是 r160 的 minified ESM build
-  （sha256 `3e690ac7…`），文件头保留 `SPDX-License-Identifier: MIT`；
-  完整 MIT 文本见 `vendor/three.LICENSE`。来源：
-  <https://threejs.org/>、<https://github.com/mrdoob/three.js>。
-- **地球纹理**：`assets/earth_atmos_2048.jpg`、`earth_specular_2048.jpg` 与 three.js r160
-  `examples/textures/planets/` 原文件 sha256 相同；`earth_clouds_1024.png`、
-  `earth_lights_2048.png` 像素与 r160 一致、仅 PNG 重新编码。
-  它们经 three.js 仓库（MIT）分发；原始影像来源标注为
-  **NASA Visible Earth / Blue Marble**（NASA 媒体条款）：
-  <https://visibleearth.nasa.gov/collection/1484/blue-marble>、
-  <https://www.nasa.gov/nasa-brand-center/images-and-media/>。
-  NASA 不背书本项目。
-- **SPHEREx 数据**：NASA/IPAC IRSA（QR3/DR1），
-  <https://irsa.ipac.caltech.edu/Missions/spherex.html>；仅作本地索引/缓存/可视化。
-- **视觉与交互参考**：[bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view)
-  （Cesium + HUD）；**未复用其代码或数据**，本工具用 three.js 自绘、离线可用。
-  交互范式还参考 WiseView（Backyard Worlds: Planet 9）<http://byw.tools/wiseview>。
-- 字体使用系统字体栈，不下载/分发第三方字体；图标为 CSS/Unicode/自绘 SVG。
-- NASA Space Apps 官方 Legal/FAQ：
-  <https://www.spaceappschallenge.org/legal/>、<https://www.spaceappschallenge.org/faq/>。
+- **three.js r160** (MIT): `vendor/three.module.js` is the minified r160 ESM build (sha256 `3e690ac7…`), with the
+  `SPDX-License-Identifier: MIT` header preserved; the full MIT text is in `vendor/three.LICENSE`. Source:
+  <https://threejs.org/>, <https://github.com/mrdoob/three.js>.
+- **Earth textures:** `assets/earth_atmos_2048.jpg`, `earth_specular_2048.jpg` match the three.js r160
+  `examples/textures/planets/` files by sha256; `earth_clouds_1024.png`, `earth_lights_2048.png` match r160 pixel
+  for pixel and were only re-encoded as PNG. They are distributed through the three.js repository (MIT); the
+  original imagery is credited to **NASA Visible Earth / Blue Marble** (NASA media guidelines):
+  <https://visibleearth.nasa.gov/collection/1484/blue-marble>,
+  <https://www.nasa.gov/nasa-brand-center/images-and-media/>. NASA does not endorse this project.
+- **SPHEREx data:** NASA/IPAC IRSA (QR3/DR1), <https://irsa.ipac.caltech.edu/Missions/spherex.html>; used only
+  for the local index/cache and visualization.
+- **Visual and interaction references:** [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view)
+  (Cesium + HUD); **no code or data reused** — this tool draws with three.js and runs offline. The interaction
+  model also references WiseView (Backyard Worlds: Planet 9) <http://byw.tools/wiseview>.
+- System font stack only; no third-party fonts downloaded or distributed. Icons are CSS/Unicode or hand-drawn SVG.
+- NASA Space Apps official Legal/FAQ: <https://www.spaceappschallenge.org/legal/>,
+  <https://www.spaceappschallenge.org/faq/>.
