@@ -177,3 +177,30 @@ GET /api/v1/epochs?target_id=barnard&mjd_min=60916&mjd_max=60923
 结论：View 选区/时间 → App 时间过滤/cascade/tracks → DB epochs/coverage 链路打通；时间窗口过小时 app 返回空/insufficient，不伪造。
 
 截图：[three-module-view.png](evidence-ego/three-module-view.png)、[three-module-tracks.png](evidence-ego/three-module-tracks.png)。
+
+---
+
+## 8. 模式化重构：View 单入口 + MoveScope 同画布
+
+### View
+
+- 只剩“在 MoveScope 打开”一个分析入口；
+- `#btn-cascade` / `#btn-tracks` 已删除；
+- handoff：
+  `http://127.0.0.1:8790/?ra=269.452077&dec=4.693365&fov=0.5&t0=60890&t1=60950&from=view`
+- 页面文案：进入 MoveScope 后切换“普通 / 级联-残差 / 轨迹”。
+
+### MoveScope
+
+- 主界面模式栏：`普通 | 级联/残差 | 轨迹`，URL 始终 `/`，不跳 `/cascade` 或 `/tracks`；
+- 普通：原分析页；
+- 级联：同一画布出现 L1 实心 / masked 灰叉 / residual 空心琥珀，图层开关；
+  当前帧 `57/57/66`；时间窗口 `保留 3/4 期`；
+- 轨迹：同一画布出现轨迹线/节点，侧栏 `D0 51 / D1 0 / D2 0 / D3 2 / D4 203 / 共 256`；
+- 点击 residual/节点仍走 `/api/identify`；
+- 无 JS error；
+- 旧 `/cascade`、`/tracks` 保留为“详细表格”诊断页。
+
+截图：[mode-view-single-entry.png](evidence-ego/mode-view-single-entry.png)、
+[mode-cascade.png](evidence-ego/mode-cascade.png)、
+[mode-tracks.png](evidence-ego/mode-tracks.png)。
