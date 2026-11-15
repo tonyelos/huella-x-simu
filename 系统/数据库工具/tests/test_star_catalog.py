@@ -139,7 +139,7 @@ class StarCatalogDataTest(unittest.TestCase):
                 "imported_at",
             },
             "catalog_source": {
-                "source_id", "release_id", "catalog_id", "ra", "dec",
+                "source_id", "release_id", "field_id", "catalog_id", "ra", "dec",
                 "pmra", "pmdec", "parallax", "ra_error", "dec_error",
                 "pmra_error", "pmdec_error", "parallax_error", "ruwe",
                 "astrometric_excess_noise", "phot_variable_flag",
@@ -465,16 +465,18 @@ class StarCatalogDataTest(unittest.TestCase):
             try:
                 conn.execute("DROP VIEW IF EXISTS v_catalog_source")
                 conn.execute("DROP VIEW IF EXISTS v_catalog_release")
+                conn.execute("DROP INDEX IF EXISTS idx_catalog_source_field")
                 for col in (
                     "parallax_error",
                     "ruwe",
                     "astrometric_excess_noise",
                     "phot_variable_flag",
+                    "field_id",
                 ):
                     conn.execute(f"ALTER TABLE catalog_source DROP COLUMN {col}")
                 conn.execute("ALTER TABLE catalog_field DROP COLUMN photometry_json")
                 conn.execute(
-                    "UPDATE star_meta SET value='1' WHERE key='schema_version'"
+                    "UPDATE star_meta SET value='2' WHERE key='schema_version'"
                 )
                 conn.commit()
             finally:
@@ -495,6 +497,11 @@ class StarCatalogDataTest(unittest.TestCase):
                     for r in cat.conn.execute("PRAGMA table_info(catalog_field)")
                 }
                 self.assertIn("photometry_json", field_cols)
+                # v3 迁移按最近场心回填 field_id，测试 fixture 的 250 行都应归场。
+                nulls = cat.conn.execute(
+                    "SELECT COUNT(*) FROM catalog_source WHERE field_id IS NULL"
+                ).fetchone()[0]
+                self.assertEqual(nulls, 0)
 
     def test_ambiguous_pair_0216_arcsec(self):
         a = self.by_id[PAIR_A]

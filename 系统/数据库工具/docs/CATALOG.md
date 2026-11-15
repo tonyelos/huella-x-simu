@@ -129,7 +129,7 @@ fixture 的 `field_counts` 记录的是当时 TAP 缓存场的完整计数（合
   `source_url`；release 更新时新增版本，不允许隐式漂移。
 - 第三方材料总表：根目录 `THIRD_PARTY_NOTICES.md` §5.1。
 
-SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **2**），
+SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **3**），
 API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 ---
@@ -138,10 +138,11 @@ API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 `var/star_catalog.sqlite` 是**可重建缓存**，不是原始数据归档。删掉后用
 `tools/import_gaia.py --rebuild` 重建（联网 TAP；失败回退 fixture）。
-当前 **star schema v2**：相对 v1 增加 `parallax_error/ruwe/astrometric_excess_noise/
-phot_variable_flag` 与 `catalog_field.photometry_json`。旧 v1 库用
-`apply_star_schema()` 做 `ADD COLUMN` 迁移（保留已有行），也可直接
-`--rebuild` 重建；两条路径都有测试。
+当前 **star schema v3**：v2 增加 `parallax_error/ruwe/astrometric_excess_noise/
+phot_variable_flag` 与 `catalog_field.photometry_json`；v3 增加
+`catalog_source.field_id`（场级 upsert 的归属键）及 `(release_id, field_id)` 索引。
+旧库用 `apply_star_schema()` 做 `ADD COLUMN` + 最近场心回填迁移（保留已有行），
+也可直接 `--rebuild` 重建；两条路径都有测试。
 
 | 表/视图 | 作用 |
 |---|---|
@@ -155,7 +156,7 @@ phot_variable_flag` 与 `catalog_field.photometry_json`。旧 v1 库用
 
 关键列（`catalog_source`）：
 
-`source_id`（服务内唯一键，`<release>:<catalog_id>`）、`release_id`、`catalog_id`（Gaia
+`source_id`（服务内唯一键，`<release>:<catalog_id>`）、`release_id`、`field_id`、`catalog_id`（Gaia
 `source_id` 字符串）、`ra`、`dec`、`pmra`、`pmdec`、`parallax`、`parallax_error`、
 `ra_error`、`dec_error`、`pmra_error`、`pmdec_error`、`ruwe`、
 `astrometric_excess_noise`、`phot_variable_flag`、`gmag`、`bp_rp`、`jmag`、`hmag`、`kmag`、
@@ -200,8 +201,8 @@ phot_variable_flag` 与 `catalog_field.photometry_json`。旧 v1 库用
   "ok": true,
   "service": "star-catalog",
   "schema_version": "1.0",
-  "star_schema_version": 2,
-  "db_schema_version": 2,
+  "star_schema_version": 3,
+  "db_schema_version": 3,
   "counts": {"releases": 1, "sources": 250, "fields": 7, "matches": 0, "import_runs": 1},
   "releases": [{
     "release": "gaia-dr3", "version": "dr3", "catalog": "gaia",
@@ -210,7 +211,7 @@ phot_variable_flag` 与 `catalog_field.photometry_json`。旧 v1 库用
     "provenance": "fixture", "n_sources": 250, "n_sources_actual": 250
   }],
   "db": {"path": ".../var/star_catalog.sqlite", "disk_bytes": 7340032,
-         "schema_version": 2, "api_schema_version": "1.0"},
+         "schema_version": 3, "api_schema_version": "1.0"},
   "generated_at": "2026-11-15T01:02:43Z"
 }
 ```
@@ -431,7 +432,8 @@ D-03 建议锥半径 ≥0.3°，B 支持到 5°。
 | 400 | `BAD_REQUEST` | 缺 ra/dec、dec 越界、radius 非正、JSON 非法、persist 缺 analysis_id |
 | 400 | `CATALOG_ERROR` | 只读连接写库等调用错误 |
 | 404 | `NOT_FOUND` | 未知路径 / CATALOG.md 不存在 |
-| 405 | `METHOD_NOT_ALLOWED` | GET `/api/v1/catalog/match` |
+| 405 | `METHOD_NOT_ALLOWED` | GET `/api/v1/catalog/match` / `/api/v1/catalog/ingest` |
+| 502 | `UPSTREAM_TAP_ERROR` | ingest 的 Gaia TAP 失败/截断；**不写任何数据** |
 | 503 | `CATALOG_UNAVAILABLE` | 缺库、坏库、无 release、空 release、查询天区未缓存、SQLite 错误 |
 | 500 | `INTERNAL` | 未预期异常（带 traceback 到 stderr） |
 
@@ -459,6 +461,106 @@ D-03 建议锥半径 ≥0.3°，B 支持到 5°。
 
 启动时如果 `--db` 指向的库不存在，`catalog_server.py` 拒绝启动并返回退出码 2
 （提示先导入）；服务启动后库被删除/损坏，则请求返回 503 `CATALOG_UNAVAILABLE`。
+
+### 5.9 `POST /api/v1/catalog/ingest`
+
+场级接收：调用 Gaia TAP 锥搜索，成功后写入 `catalog_source`/`catalog_field`；
+失败（TAP 超时/502/结果截断）返回 **502 `UPSTREAM_TAP_ERROR`，不写部分数据**。
+这是 B 提供给 app D 阶段 auto-ingest 的写入口；app 端开关/重试由 identify 分支实现。
+
+请求：
+
+```json
+{
+  "catalog": "gaia",
+  "ra": 158.578,
+  "dec": 9.595,
+  "radius_deg": 0.25,
+  "mag_limit": 20.0,
+  "field_id": "auto-158.5780-9.5950-r0.25",
+  "field_name": "auto field RA 158.578 Dec 9.595",
+  "include_photometry": false,
+  "replace_field": true
+}
+```
+
+| 字段 | 默认 | 规则 |
+|---|---|---|
+| `catalog` | `gaia` | MVP 只接受 `gaia` |
+| `ra`/`dec` | 必填 | ICRS deg，dec [-90,90] |
+| `radius_deg` | 0.25 | **0.05–1.0** |
+| `mag_limit` | 20.0 | **12–20** |
+| `field_id` | 自动生成 | 1..128 字符，只允许 `A-Za-z0-9._:-` |
+| `field_name` | 自动生成 | 可选展示名 |
+| `include_photometry` | false | true 时额外用 IRSA Gator 补 2MASS/WISE；失败只 warning，不影响 Gaia 落库 |
+| `replace_field` | true | true=替换该 `field_id` 的旧源；false=追加/更新 |
+
+成功响应：
+
+```json
+{
+  "schema_version": "1.0",
+  "service": "star-catalog",
+  "ok": true,
+  "catalog": "gaia",
+  "release": "gaia-dr3",
+  "version": "dr3",
+  "field_id": "auto-158.5780-9.5950-r0.25",
+  "counts": {"n_sources": 1234, "n_new": 1234, "n_fields": 8},
+  "provenance": "tap",
+  "release_provenance": "mixed",
+  "complete": true,
+  "radius_deg": 0.25,
+  "mag_limit": 20.0,
+  "fetched_at": "2026-11-15T06:30:00Z",
+  "license": "CC BY-NC 3.0 IGO",
+  "citation": "ESA/Gaia/DPAC; Gaia Collaboration et al. 2023, ...",
+  "source_url": "https://gea.esac.esa.int/tap-server/tap/sync",
+  "n_release_sources": 18913,
+  "replace_field": true,
+  "include_photometry": false,
+  "photometry": null,
+  "warnings": []
+}
+```
+
+语义：
+
+- 已有 release **不删整个 release**；只对 `field_id` 做场级替换/追加；
+- 按 `source_id` UPSERT；仍在新列表中的源不删除，避免级联删 `catalog_match`；
+- 只删除该场不再出现的 stale 源；其它场保留；
+- 写入在事务内，server 级 `write_lock` 串行化；写连接与读连接分离；
+- 成功更新 `catalog_release.n_sources`、`catalog_field`、`catalog_import_run`、
+  `star_meta.last_import_at`；不写 `catalog_match`；
+- `n_new` 是本次新增（此前 release 中不存在）的 source_id 数；
+  同场重入通常 `n_new=0`；
+- `provenance=tap` 只在真实 TAP 成功时返回；fixture 不会被标成 tap；
+- `complete=true` 表示该场是完整 TAP 缓存；若 release 混有 fixture 场，
+  `release_provenance=mixed` 并在 `warnings` 说明；
+- `include_photometry=true` 且 Gator 失败时，Gaia 仍落库，`photometry.status=partial`，
+  缺失 J/H/K/W1/W2 为 null。
+
+示例：
+
+```bash
+curl -X POST 'http://127.0.0.1:8799/api/v1/catalog/ingest' \
+  -H 'Content-Type: application/json' \
+  -d '{"catalog":"gaia","ra":158.578,"dec":9.595,"radius_deg":0.25,
+       "mag_limit":20.0,"field_id":"auto-158.5780-9.5950-r0.25",
+       "include_photometry":false,"replace_field":true}'
+```
+
+TAP 失败示例：
+
+```json
+{"schema_version":"1.0","service":"star-catalog","code":"UPSTREAM_TAP_ERROR",
+ "status":502,"message":"Gaia TAP 失败，未写入任何数据: ...",
+ "error":{"code":"UPSTREAM_TAP_ERROR","message":"..."},
+ "catalog":"gaia","field_id":"...","generated_at":"..."}
+```
+
+**不变量：** 502 后数据库计数/字段/import_run 均不变化；客户端必须把这次 ingest
+当成“未缓存”，不能把随后 match 的 no_match 当新天体。
 
 ---
 
@@ -546,9 +648,9 @@ $PY -m unittest discover -s tests -t . -v
 
 覆盖：
 
-- schema/列/视图/外键、`schema_version=2`、release 的 epoch/license/citation/source_url；
-- v1→v2 迁移：旧库缺 `ruwe/astrometric_excess_noise/phot_variable_flag/parallax_error/
-  photometry_json` 时 `ADD COLUMN` 安全迁移；
+- schema/列/视图/外键、`schema_version=3`、release 的 epoch/license/citation/source_url；
+- v1/v2→v3 迁移：旧库缺 `ruwe/astrometric_excess_noise/phot_variable_flag/parallax_error/
+  field_id/photometry_json` 时 `ADD COLUMN` 安全迁移，并按最近场心回填 `field_id`；
 - fixture 250 行、7 场、`fetched_at=2026-11-15T02:28:40Z`、`field_counts` 合计 17,679；
 - `ruwe=1.0848505`、`astrometric_excess_noise=0.20481846`、`phot_variable_flag=
   NOT_AVAILABLE`、`parallax_error>0` 在 DB 与 HTTP cone/match 都返回；
@@ -565,7 +667,11 @@ $PY -m unittest discover -s tests -t . -v
 - `CATALOG_UNAVAILABLE`：缺库（直接 + HTTP 503）、坏库（HTTP 503）、
   空 schema（`catalog_not_imported`）、缺天区（`no_cached_field`）、
   启动后删库；
-- HTTP health/cone/match/match persist/stats/docs；`catalog_match` 持久化 2 行。
+- HTTP health/cone/match/match persist/stats/docs；`catalog_match` 持久化 2 行；
+- `POST /api/v1/catalog/ingest`（fake TAP，离线）：200 落库、重复幂等、相邻场保留、
+  TAP 失败 502 且计数不变、非法参数 400、photometry partial 不阻塞 Gaia 落库；
+- `upsert_field` 新场/重入/相邻场保留/追加模式；UPSERT 不删仍在新列表的 source，
+  `catalog_match` 不被级联清空。
 
 **真实缓存复验（可选，本地有 7 MB 库时）：**
 

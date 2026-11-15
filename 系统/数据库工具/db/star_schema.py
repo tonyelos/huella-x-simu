@@ -63,6 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_catalog_field_pos ON catalog_field(release_id, ra
 CREATE TABLE IF NOT EXISTS catalog_source (
     source_id       TEXT PRIMARY KEY,
     release_id      INTEGER NOT NULL REFERENCES catalog_release(release_id) ON DELETE CASCADE,
+    field_id        TEXT,
     catalog_id      TEXT NOT NULL,
     ra              REAL NOT NULL,
     dec             REAL NOT NULL,
@@ -142,6 +143,7 @@ CREATE VIEW IF NOT EXISTS v_catalog_source AS
 SELECT
     s.source_id,
     s.release_id,
+    s.field_id,
     s.catalog_id,
     s.ra,
     s.dec,
@@ -210,12 +212,30 @@ def migrate_star_schema(conn: sqlite3.Connection) -> None:
         ("ruwe", "REAL"),
         ("astrometric_excess_noise", "REAL"),
         ("phot_variable_flag", "TEXT"),
+        ("field_id", "TEXT"),
     ):
         if name not in source_cols:
             conn.execute(f"ALTER TABLE catalog_source ADD COLUMN {name} {typ}")
     field_cols = _table_columns(conn, "catalog_field")
     if "photometry_json" not in field_cols:
         conn.execute("ALTER TABLE catalog_field ADD COLUMN photometry_json TEXT")
+    # v3：旧库里所有源按最近场心回填 field_id；无 field 元数据时保持 NULL。
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_catalog_source_field "
+        "ON catalog_source(release_id, field_id)"
+    )
+    has_fields = conn.execute("SELECT COUNT(*) FROM catalog_field").fetchone()[0]
+    if has_fields:
+        conn.execute(
+            """UPDATE catalog_source AS s
+               SET field_id = (
+                   SELECT f.field_id FROM catalog_field f
+                   WHERE f.release_id = s.release_id
+                   ORDER BY ((s.ra-f.ra)*(s.ra-f.ra) + (s.dec-f.dec)*(s.dec-f.dec))
+                   LIMIT 1
+               )
+               WHERE s.field_id IS NULL"""
+        )
     release_cols = _table_columns(conn, "catalog_release")
     if "citation" not in release_cols:
         conn.execute("ALTER TABLE catalog_release ADD COLUMN citation TEXT")
