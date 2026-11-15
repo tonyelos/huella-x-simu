@@ -281,3 +281,23 @@ JS error：无
 
 基准脚本：[benchmark_official.py](benchmark_official.py)；
 结果：[官方案例基准_report.md](官方案例基准_report.md)。
+
+---
+
+## 11. 全量 Gaia 缓存 + 功能验证
+
+- B 8799 已切换到 **17,679 源 / 7 场 / schema v3** 全量缓存；
+- C Barnard 47 源批量匹配：
+  ```text
+  31 single_candidate / 6 ambiguous / 10 no_match / 47
+  ```
+- `/tracks` Barnard：
+  ```text
+  D0 45 / D1 11 / D3 5 / D4 189
+  ```
+- 官方基准（全量缓存 + 6.15″ 偏移门限）：
+  ```text
+  4 PASS + 1 DATA_LIMITED
+  ```
+  WISE 0855 候选 20.3″ > 6.15″，已从 known 降为 insufficient_data / CATALOG_OFFSET_TOO_LARGE。
+- 接收接口：B `POST /api/v1/catalog/ingest` 已实现；fake TAP 成功落库，真实 TAP 当前超时返回 502 且不写；app 自动 ingest 默认关闭。
