@@ -442,3 +442,5 @@ body.expert .readiness .ready-row span { color: inherit; }
 .track-ident { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,.07); font-size: 10.5px; color: var(--muted); }
 .track-empty { padding: 18px; text-align: center; color: var(--muted); }
 @media (max-width: 900px) { .track-body { grid-template-columns: 1fr 1fr; } }
+.cascade-fields { grid-template-columns: repeat(3, minmax(150px, 1fr)) !important; }
+.cascade-fields input#t0, .cascade-fields input#t1 { font-family: var(--mono); }
