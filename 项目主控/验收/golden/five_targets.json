@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "source": "项目主控/01_验收基线与结果.md §2（2026-11-14 23:07 CET 快照）",
+  "source": "项目主控/01_验收基线与结果.md §2（2026-11-14 23:07 CET 快照）；2026-11-15 官方基准优化：Barnard class L 来自 Gaia PM 先验（μ/μ_err 实测值保留）",
   "request": {
     "mode": "auto",
     "fov": 0.25
@@ -15,7 +15,7 @@
       "mode": "real",
       "n_epochs": 4,
       "readiness": "L2",
-      "class": "S",
+      "class": "L",
       "mu_mas_yr": 8033.0,
       "mu_sigma_mas_yr": 9899.0
     },

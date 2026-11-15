@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "case": "R1.custom_barnard",
-  "source": "项目主控/01_验收基线与结果.md §2.1；T2 数据桥接完成后更新为实测值",
+  "source": "项目主控/01_验收基线与结果.md §2.1；2026-11-15 官方基准优化：Barnard class L 来自 Gaia PM 先验（μ/μ_err 实测值保留）",
   "preset_target": "barnard",
   "request": {
     "ra": 269.452077,
@@ -13,7 +13,7 @@
     "n_epochs": 4,
     "real_epochs_min": 4,
     "readiness": "L2",
-    "class": "S",
+    "class": "L",
     "mu_mas_yr": 8033.0,
     "mu_tol_pct": 1.0,
     "fallback_reason": null

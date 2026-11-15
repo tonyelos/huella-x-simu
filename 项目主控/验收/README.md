@@ -13,14 +13,20 @@
 
 ## 当前状态（2026-11-15，分支 `tool/t1-acceptance`）
 
-- **全量验收已全绿（main 修复版 app）**：在 main `6b3098d`（含 app“自定义坐标 0.05° 命中复用预设”
-  修复）的 8810 app + DB 8797 上运行 `report/full-main`：**45 PASS / 0 FAIL / 1 WARN / 0 BLOCKED**，
-  共 46 条用例（45 PASS + `H.screenshot` manual WARN），50.6s，**退出码 0**。
-  `D.custom_rw_aur` 与 `D.coord_matches_preset` 均 PASS。
+- **全量验收已全绿（main 官方基准版 app `1c17c3e`）**：rebase `origin/main` 后，在 8810 app +
+  DB 8797 上运行 `report/full-main`：**45 PASS / 0 FAIL / 1 WARN / 0 BLOCKED**，
+  共 46 条用例（45 PASS + `H.screenshot` manual WARN），49.7s，**退出码 0**。
+  `D.custom_rw_aur`、`D.coord_matches_preset`、`C/F.barnard` 均 PASS。
 - **`D.custom_rw_aur` 新断言**：不再要求 `real_epochs≥1`；要求 HTTP 200、`mode=real|hybrid`、
   `matched_target_id=rw_aur`、`class=V`，并与预设 `rw_aur` 的 mode/readiness/class/μ（±5%）一致；
   **HYBRID 允许 `real_epochs=0`**。修复版实际 `hybrid/8/L2/V`、`real_epochs=0`、`matched=rw_aur`、
   `μ=49.3`，与预设一致。
+- **官方基准 Barnard `S→L`（Gaia PM 星表先验，不是独立实测）**：`golden/five_targets.json`
+  与 `golden/custom_barnard.json` 的 Barnard `class` 改为 `L`，μ/μ_err/容差原样保留；
+  `C.barnard`、`D.custom_barnard`、`F.offline.barnard` 新增断言：
+  `catalog_motion.basis="catalog_prior"`、`moving=false`、`mu_signif<3`、
+  `quality` 含 `CATALOG_PRIOR_MOTION`/`MEASUREMENT_NOT_SIGNIFICANT`、
+  无 `discovery_claim=true`/“新天体”正结论。F 离线 5/5 随黄金更新恢复。
 - **R3 等价性**：`D.coord_matches_preset` 对 5 个官方目标比较自定义坐标与预设，
   mode/readiness/class 严格一致、μ±5%；当前 5/5 一致。
 - **BLOCKED 语义保留**：DB 停止或 `/api/v1/epochs` 不可用时，DB 相关 P0 仍记 BLOCKED（不计 PASS）；
@@ -48,9 +54,8 @@ echo $?   # 0：45 PASS / 0 FAIL / 1 WARN（截图 manual）
   --report-dir report/full-db-down
 ```
 
-> 本 worktree 的 `系统/app` 仍是修复前版本；`--start` 在没有已有 app 时会启动这个旧版本。
-> 要复现上面的 green，请让 main 的 app 在 8810 运行（`SPHEREX_DB_URL=http://127.0.0.1:8797`），
-> 或把本分支合入 main 后再跑。
+> 本 worktree 已 rebase `origin/main`，`--start` 会启动当前官方基准版 app；
+> 若 8810 已有服务则直接复用（不接管）。DB 用 8797；离线子进程用 8813。
 
 ### 端口隔离
 
@@ -71,7 +76,7 @@ app 子进程（8810/8813）。
 | A 契约 | `Target`（app/DB/view 三源、7 条、8 字段、`coord_unc_arcsec`）；`EpochRef`（两入口同形、十字段、`date_obs` 非空、无重复）；`Coverage`（默认 2.47、`C*`）；`AnalysisResult`（`schema_version`、`provenance`、`fallback_reason`、`readiness_scope`） | P0；视图源/`coord_unc`/`real_epochs` 为 P1；DB 停止时 DB 源/epoch_ref/coverage 为 BLOCKED |
 | B 导出对账 | `cli.py export all` + `tools/check_compat.py` 四项 OK（fields / epoch_catalog / targets / week_index）；只读本地 SQLite，不需要 DB 服务；SQLite 不可读时 BLOCKED | P0 |
 | C 5 目标 HTTP | 5 × `POST /api/analyze`（`mode=auto,fov=0.25`）：HTTP 200、schema、`mode`/`provenance` 自洽、`readiness`/`class` 严格黄金、μ 在 ±5% 或 ±1σ、<30s | 500/class/mode/readiness/μ = P0；期数/耗时 = P1 |
-| D 任意坐标 | ① Barnard 精确坐标 → REAL 4 期 L2 S；② RW Aur 自定义坐标 = 预设（HYBRID 允许 `real_epochs=0`，`matched=rw_aur`、class V）；③ 未覆盖天区 → `NO_LOCAL_COVERAGE` + SIM；④ `--db-down` 可选；⑤ `D.coord_matches_preset`：5 官方目标自定义坐标应与 target_id 预设等价（R3） | ①/②/⑤ = P0；③/② 在 DB 不可用导致无法确认时 BLOCKED |
+| D 任意坐标 | ① Barnard 精确坐标 → REAL 4 期 L2 L（Gaia PM 先验，`moving=false`、`mu_signif<3`）；② RW Aur 自定义坐标 = 预设（HYBRID 允许 `real_epochs=0`，`matched=rw_aur`、class V）；③ 未覆盖天区 → `NO_LOCAL_COVERAGE` + SIM；④ `--db-down` 可选；⑤ `D.coord_matches_preset`：5 官方目标自定义坐标应与 target_id 预设等价（R3） | ①/②/⑤ = P0；③/② 在 DB 不可用导致无法确认时 BLOCKED |
 | E 错误路径 | `sample` 不 500；`fov=-0.2/0/999` → 400；target+冲突坐标不静默；非法 JSON/缺字段 → 400 | sample/FOV 500 = P0；其余 = P1 |
 | F 离线 | 8813 子进程 + `HTTPS_PROXY/HTTP_PROXY=http://127.0.0.1:9` + `NO_PROXY=127.0.0.1,localhost`；5 目标 200 且与在线一致 | P0 |
 | G DB 一致性 | `/api/v1/epochs` 两入口同形：Barnard 4 / RW 1；Eps/WISE/R Dra 10/10/3；`date_obs`/`key` 非空；无重复；`coverage` 默认 2.47；`header_frames` 与 SQLite 实际一致 | P0；DB 停止或 v1 404 时全部/部分 BLOCKED |
@@ -123,10 +128,12 @@ BLOCKED 用例带 `blocked_by: "DB"`、`blocked_reason`、`cause`；DB 停止时
 
 ## 黄金样本
 
-- `golden/five_targets.json`：2026-11-14 快照的 5 目标 `mode/n/readiness/class/μ`
+- `golden/five_targets.json`：2026-11-15 官方基准的 5 目标 `mode/n/readiness/class/μ`
   （μ 容差 ±5% 或 ±1σ，`readiness`/`class` 严格，期数/耗时 P1）。
+  Barnard：`mode=real/n=4/readiness=L2/class=L/μ=8033.0`（μ/μ_err 实测值保留）；
+  `L` 来自 Gaia PM 星表先验，不是 SPHEREx 独立实测运动。
 - `golden/custom_barnard.json`：R1 的 Barnard 黄金结果
-  （`real/4/L2/S`，μ 与预设差 ≤1%，`real_epochs≥4`）。
+  （`real/4/L2/L`，μ 与预设差 ≤1%，`real_epochs≥4`；同样要求 `catalog_prior` 语义）。
 - **不要在未修复时放宽容差或跳过 P0**。修复后要更新黄金样本，先跑全绿，
   再 `--update-golden`（人工确认）。
 
@@ -134,14 +141,16 @@ BLOCKED 用例带 `blocked_by: "DB"`、`blocked_reason`、`cause`；DB 停止时
 
 ### 全量：45 PASS / 0 FAIL / 1 WARN / 0 BLOCKED，退出码 0
 
-- 报告 `report/full-main`，50.6s，共 46 条用例；唯一 WARN 是 `H.screenshot`（manual）。
+- 报告 `report/full-main`，49.7s，共 46 条用例；唯一 WARN 是 `H.screenshot`（manual）。
 - A/B/C/D/E/F/G 全绿；D 组 4 条全 PASS：
-  - `D.custom_barnard`：real/4/L2/S/μ=8032.9
+  - `D.custom_barnard`：real/4/L2/L/μ=8032.9；basis=catalog_prior、moving=False、mu_signif=0.81
   - `D.custom_rw_aur`：hybrid/8/L2/V/real_epochs=0/matched=rw_aur/μ=49.3，与预设一致
   - `D.uncovered`：NO_LOCAL_COVERAGE + SIM
   - `D.coord_matches_preset`：5/5 自定义坐标与预设一致（R3）
-- 运行方式：main 的 app 已在 8810（`SPHEREX_DB_URL=http://127.0.0.1:8797`），T1 `--start` 复用。
-  本 worktree 的 app 是修复前版本，直接 `--start` 不会得到这组绿；合并 main 后即可复现。
+- 运行方式：本 worktree 已 rebase `origin/main`（含 app 官方基准优化）；app 由 `--start` 在 8810 启动，
+  DB 8797；报告的 `source_hashes` 与当前 app 源码一致。
+- `C.barnard` / `F.offline.barnard` / `D.custom_barnard` 均断言 `basis=catalog_prior`、`moving=false`、
+  `mu_signif<3`、`quality` 含两标记、无 `discovery_claim`/“新天体”；`F.offline.5of5` 5/5。
 
 ### RW Aur 前后对比（`D.custom_rw_aur`）
 
@@ -207,8 +216,8 @@ curl -s 'http://127.0.0.1:8811/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.25
 - `--start` 只支持本地 base-url；`--offline-port` 必须与 base-url 端口不同。
 - 从本 worktree 当前 DB 源码启动的 8811 已有完整 v1；若线上 DB 是旧服务（v1 404），
   报告会标 `legacy-only` 并把 v1 用例 BLOCKED，不会伪绿。
-- `report/full-main` 的 green 使用手动在 8810 启动的 main 修复版 app；报告的 `source_hashes`
-  仍取本 worktree（T1 只读自身 worktree），合并 main 后重跑才完全对齐。
 - `D.custom_rw_aur` 的 HYBRID 允许 `real_epochs=0`；若 DB 停止导致 `matched_target_id`
   无法确认，该用例记 BLOCKED（`blocked_by=DB`），不当成 app 缺陷。
+- Barnard 的 `class=L` 依赖 Gaia PM 先验与 identification；若先验/识别不可用，
+  `BAR_PRIOR_*` 断言会红，不能用“任意 class”放行。
 - 本工具不做科学判定，不替代产品测试；只验证接口/契约/降级行为。
