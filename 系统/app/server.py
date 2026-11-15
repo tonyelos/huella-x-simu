@@ -916,6 +916,12 @@ def run_cascade(q: dict) -> dict:
         "note": meta.get("note"),
         "coverage": meta.get("coverage"),
         "counts": {"n_epochs": len(epoch_rows), **totals},
+        "limits": {
+            "l1_max": 80,
+            "residual_max": 80,
+            "residual_threshold": 5.0,
+            "mask_radius_px": 2.0,
+        },
         "epochs": epoch_rows,
         "disclaimer": "残差候选不是新天体；未匹配不等于新星。级联只展示检测/残差层，不做发现声明。",
     }

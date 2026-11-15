@@ -65,6 +65,9 @@ class CascadeLayersTest(unittest.TestCase):
         self.assertEqual(len(out["l1"]), out["counts"]["l1"])
         self.assertEqual(len(out["masked"]), out["counts"]["masked"])
         self.assertEqual(len(out["residual"]), out["counts"]["residual"])
+        self.assertLessEqual(out["counts"]["l1"], 80)
+        self.assertLessEqual(out["counts"]["residual"], 80)
+        self.assertEqual(out["residual_threshold"], 5.0)
 
         l1_ids = {s["source_id"] for s in out["l1"]}
         for s in out["l1"]:
@@ -144,6 +147,9 @@ class CascadeHTTPTest(unittest.TestCase):
         self.assertEqual(body["counts"]["masked"], body["counts"]["l1"])
         self.assertGreaterEqual(body["counts"]["residual"], 1)
         self.assertEqual(body["epochs"][0]["counts"]["l1"], body["counts"]["l1"])
+        self.assertEqual(body["limits"]["l1_max"], 80)
+        self.assertEqual(body["limits"]["residual_max"], 80)
+        self.assertEqual(body["limits"]["residual_threshold"], 5.0)
         self.assertIn("残差候选不是新天体", body["disclaimer"])
         self.assertIsInstance(body["epochs"][0]["l1"][0]["source_id"], str)
 

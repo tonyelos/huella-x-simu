@@ -626,7 +626,9 @@ def _source_row(
     extra_quality=None,
 ) -> dict:
     shape = np.asarray(epoch.image).shape
-    snr_min = 4.5 if stage == "residual" else 5.0
+    # 与 A/C 的 detect_sources 口径一致：低于 5σ 的残差只标记 LOW_SNR，
+    # 不因为“残差层用低阈值”就放宽每个源的质量门槛。
+    snr_min = 5.0
     quality = source_quality(src, shape, snr_min=snr_min)
     quality = merge_quality(quality, extra_quality)
     try:
@@ -657,10 +659,10 @@ def cascade_layers(
     epoch: Epoch,
     *,
     l1_threshold: float = 6.0,
-    residual_threshold: float = 4.5,
+    residual_threshold: float = 5.0,
     mask_radius_px: float = 2.0,
-    max_l1: int = 300,
-    max_residual: int = 300,
+    max_l1: int = 80,
+    max_residual: int = 80,
 ) -> dict:
     """单历元级联：L1 高召回检测 → 掩膜 L1 → 残差低阈值复检。
 
@@ -676,6 +678,7 @@ def cascade_layers(
             "l1_threshold": float(l1_threshold),
             "residual_threshold": float(residual_threshold),
             "mask_radius_px": float(mask_radius_px),
+            "limits": {"l1_max": int(max_l1), "residual_max": int(max_residual)},
         }
     # detect_sources 的 find_peaks 可能在同一 PSF 上给出多个近邻峰；
     # L1 源表先去重，避免 masked 计数被同一颗星放大。
@@ -734,4 +737,5 @@ def cascade_layers(
         "l1_threshold": float(l1_threshold),
         "residual_threshold": float(residual_threshold),
         "mask_radius_px": float(mask_radius_px),
+        "limits": {"l1_max": int(max_l1), "residual_max": int(max_residual)},
     }
