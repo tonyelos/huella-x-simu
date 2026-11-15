@@ -159,6 +159,8 @@ A 源表批量识别已实现：215 源 → known 130 / ambiguous 33 / no_match 
 
 统一候选目录计划：[../架构/22_统一候选目录.md](../架构/22_统一候选目录.md)（A/C 同位置合并，track 一轨迹一行）。
 
+剩余四项收口：[../架构/23_剩余四项收口.md](../架构/23_剩余四项收口.md)（实际 2MASS/WISE、单目标多目录、conflict 仲裁、SIMBAD/TAP 上游阻塞）。
+
 星表可用性检查：[星表可用性检查.md](星表可用性检查.md)（7 场/17,679 源可用；任意新天区 503；不是全量 Gaia）。
 
 后续五项：JSON/服务端导出 DONE；CSV 多候选 DONE；2MASS/WISE 派生目录 + SIMBAD 名称 DONE（SIMBAD TAP unavailable）；TAP 真实 ingest BLOCKED（上游超时）；统一候选目录 DONE（A/C 217 source + 250 tracks，no_match 49）。
