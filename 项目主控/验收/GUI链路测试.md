@@ -250,3 +250,34 @@ JS error：无
 ```
 
 截图：[time-axis-new.png](evidence-ego/time-axis-new.png)、[time-continuous-1x.png](evidence-ego/time-continuous-1x.png)。
+
+---
+
+## 10. 官方案例基准与星表先验
+
+官方 5 个实例只读基准（不写 DB、不改 targets.json）：
+
+| 目标 | 状态 | expected | actual | identity | 说明 |
+|---|---|---|---|---|---|
+| Barnard | **PASS** | L | **L** | known_star | `catalog_prior`；SPHEREx 未独立测出 |
+| Eps Ind B | **PASS** | L | L | ambiguous | RUWE 4.30 |
+| WISE 0855 | **DATA_LIMITED** | L | U | insufficient_data | 1 有效历元/L0，不伪造 |
+| RW Aur | **PASS** | V | V | ambiguous | 双源 |
+| R Dra | **PASS** | V | V | known_star | Mira |
+
+Barnard UI 实测：
+
+```text
+MOTION FINGERPRINT · L2 · CATALOG PRIOR
+L · Gaia 先验
+SPHEREx 本次未独立测出；采用 Gaia PM 先验；不是发现
+置信度 60%
+Gaia 先验 μ 10.39″/yr
+SPHEREx 实测 μ 12.24 ±9.90″/yr
+JS error：无
+```
+
+截图：[official-barnard-prior.png](evidence-ego/official-barnard-prior.png)。
+
+基准脚本：[benchmark_official.py](benchmark_official.py)；
+结果：[官方案例基准_report.md](官方案例基准_report.md)。
