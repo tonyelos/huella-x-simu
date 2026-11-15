@@ -111,6 +111,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 2026-11-15 04:48 补充 GUI 链路测试：[GUI链路测试.md](GUI链路测试.md)（C 覆盖 → C 源 → 锁定 → 识别 → 视图深链；发现并修复 note 残留 P1）。
 
+单图星点识别测试：[单图星点识别测试.md](单图星点识别测试.md)（Barnard 单期 47 个检测源 vs 2,583 Gaia；G<14 完整度较高，G>16 基本不可检测）。
+
 ### 2.6 D-MVP 已知/未知识别
 
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
