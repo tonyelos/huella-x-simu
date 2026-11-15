@@ -983,6 +983,7 @@ def run_identify_batch(payload: dict) -> dict:
         }
         results.append(ident)
         match_status = (entry or {}).get("match_status")
+        ident["match_status"] = match_status
         status = ident.get("status")
         if match_status == "no_match":
             counts["no_match"] += 1

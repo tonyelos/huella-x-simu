@@ -249,7 +249,7 @@ async function loadCSources() {
 
 function batchBadgeFor(result) {
   if (!result) return "";
-  if (result.status === "uncatalogued_candidate") {
+  if (result.match_status === "no_match" || result.status === "uncatalogued_candidate") {
     return `<span class="batch-badge no_match" title="未收录候选，不是未知星体">no_match</span>`;
   }
   if (result.status === "known_star") return '<span class="batch-badge known_star">known</span>';

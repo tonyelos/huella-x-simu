@@ -84,6 +84,26 @@ console.log(JSON.stringify(out));
         self.assertEqual(len(out["json"]["rows"]), 5)
 
     @unittest.skipUnless(NODE, "node 不在 PATH")
+    def test_no_match_match_status_survives_partial_insufficient(self):
+        js = os.path.join(APP, "web", "candidate_directory.js")
+        script = r"""
+const cd = require(process.argv[1]);
+const src=[{source_id:"c1",epoch_id:"e",mjd:1,ra:1,dec:2},{source_id:"c2",epoch_id:"e",mjd:1,ra:3,dec:4}];
+const dir=cd.build({cSources:src,cById:{
+  c1:{status:"insufficient_data",match_status:"no_match",label_zh:"数据不足"},
+  c2:{status:"insufficient_data",match_status:"single_candidate",label_zh:"数据不足"}
+}});
+console.log(JSON.stringify({counts:dir.counts,rows:dir.rows.map(r=>({id:r.source_id,status:r.status}))}));
+"""
+        proc = subprocess.run([NODE, "-e", script, js], capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["counts"]["no_match"], 1)
+        self.assertEqual(out["counts"]["insufficient"], 1)
+        self.assertEqual(out["rows"][0]["status"], "no_match")
+        self.assertEqual(out["rows"][1]["status"], "insufficient")
+
+    @unittest.skipUnless(NODE, "node 不在 PATH")
     def test_no_match_and_unknown_have_distinct_status(self):
         js = os.path.join(APP, "web", "candidate_directory.js")
         script = r"""

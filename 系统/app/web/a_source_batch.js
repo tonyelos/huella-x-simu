@@ -55,6 +55,7 @@
 
   function badgeStatus(result) {
     if (!result) return "";
+    if (result.match_status === "no_match") return "no_match";
     if (result.status === "uncatalogued_candidate") return "no_match";
     if (result.status === "known_star") return "known";
     if (result.status === "ambiguous") return "ambiguous";
