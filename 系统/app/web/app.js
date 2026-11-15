@@ -27,6 +27,7 @@ const state = {
   anyfieldSources: [],
   anyfieldBatch: { byId: {}, counts: null, catalogStatus: null, error: null },
   aSourceBatch: { byId: {}, counts: null, error: null },
+  candidateDirectory: null,
   layerMode: "browse", // browse | cascade | tracks
   cascadeData: null,
   tracksData: null,
@@ -513,6 +514,12 @@ function bindUI() {
   if (exportCBtn) exportCBtn.addEventListener("click", () => exportBatchServer("c", "csv"));
   const exportCJson = $("#exportCJsonBtn");
   if (exportCJson) exportCJson.addEventListener("click", () => exportBatchServer("c", "json"));
+  const dirBtn = $("#candidateDirectoryBtn");
+  if (dirBtn) dirBtn.addEventListener("click", (e) => { e.preventDefault(); openCandidateDirectory(); });
+  const dirCsv = $("#exportDirectoryCsvBtn");
+  if (dirCsv) dirCsv.addEventListener("click", () => exportCandidateDirectory("csv"));
+  const dirJson = $("#exportDirectoryJsonBtn");
+  if (dirJson) dirJson.addEventListener("click", () => exportCandidateDirectory("json"));
   const batchBtn = $("#batchCSourcesBtn");
   if (batchBtn) batchBtn.addEventListener("click", batchIdentifyCSources);
   document.addEventListener("keydown", (e) => {
@@ -642,6 +649,7 @@ async function analyze() {
     state.layerKeys = { cascade: null, tracks: null };
     state.selectedTrack = null;
     state.aSourceBatch = { byId: {}, counts: null, error: null };
+    state.candidateDirectory = null;
     hideTip();
     await preload(d);
     renderAll(d, dt);
@@ -1478,6 +1486,106 @@ function sceneNoteForLayer(node, kind, track) {
 }
 
 
+/* ------------------------------------------------------------------ 统一候选目录 */
+
+function fmtNum(v, digits = 4) {
+  return v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(digits);
+}
+
+function candidateDirectoryCountsText(c) {
+  return `rows ${c.rows} · unique_sources ${c.unique_sources} · tracks ${c.tracks} · known ${c.known} · ambiguous ${c.ambiguous} · no_match ${c.no_match} · insufficient ${c.insufficient} · unknown ${c.unknown} · conflict ${c.conflict || 0}`;
+}
+
+async function openCandidateDirectory() {
+  const d = state.analysis;
+  const panel = $("#candidateDirectoryPanel");
+  const note = $("#candidateDirectoryNote");
+  if (!d) return;
+  if (panel) panel.classList.remove("hidden");
+  if (!state.tracksData) {
+    try {
+      const q = layerQueryString();
+      if (!q) throw new Error("没有可用的分析上下文");
+      if (note) note.textContent = "正在读取轨迹 tracklet…";
+      const r = await fetch(`/api/tracks?${q}`);
+      const data = await r.json();
+      if (!r.ok || data.error) {
+        const e = data.error;
+        throw new Error((e && (e.message || e.code)) || "轨迹接口返回错误");
+      }
+      state.tracksData = data;
+    } catch (e) {
+      if (note) note.textContent = `无法读取轨迹：${e.message}。未展开候选目录。`;
+      return;
+    }
+  }
+  const dir = window.CandidateDirectory.build({
+    aSources: state.sources || [], aById: (state.aSourceBatch && state.aSourceBatch.byId) || {},
+    cSources: state.anyfieldSources || [], cById: (state.anyfieldBatch && state.anyfieldBatch.byId) || {},
+    tracks: (state.tracksData && state.tracksData.tracks) || [],
+    epochs: (d && d.epochs) || [],
+  });
+  try {
+    state.candidateDirectory = dir;
+    renderCandidateDirectory(dir);
+    if (panel) panel.open = true;
+  } catch (e) {
+    if (note) note.textContent = `候选目录渲染失败：${e.message}。未改变源表/badge。`;
+  }
+}
+
+function renderCandidateDirectory(dir) {
+  const c = dir.counts;
+  $("#candidateDirectoryCount").textContent = String(c.rows);
+  $("#candidateDirectoryCounts").textContent = candidateDirectoryCountsText(c);
+  $("#candidateDirectoryNote").textContent = "候选目录不是发现目录；track 行不是新源，track 节点不另算源。";
+  const rows = (dir.rows || []).slice(0, 80).map((row) => {
+    const origin = String(row.origin || "").toLowerCase();
+    const status = String(row.status || "");
+    const epoch = row.origin === "track"
+      ? `${esc(row.source_id)} · ${esc(row.level)}`
+      : `F${Number(row.frame) + 1} · ${esc(String(row.epoch_id || "").slice(-10))}`;
+    const coord = `${fmtNum(row.ra, 4)} / ${fmtNum(row.dec, 4)}`;
+    const cat = row.origin === "track" ? (row.catalog || "none") : (row.catalog || "—");
+    const catTitle = row.catalog_id ? ` title="${esc(row.catalog_id)}"` : "";
+    return `<tr>
+      <td class="origin-${esc(origin)}">${esc(row.origin)}</td>
+      <td title="${esc(row.epoch_id || row.source_id || "")}">${epoch}</td>
+      <td>${esc(coord)}</td>
+      <td class="st-${esc(status)}">${esc(status)}</td>
+      <td${catTitle}>${esc(cat)}</td>
+      <td>${row.separation_arcsec == null ? "—" : fmtNum(row.separation_arcsec, 2)}</td>
+      <td title="${esc(row.caveats || "")}">${esc(row.caveats || "—")}</td>
+    </tr>`;
+  }).join("");
+  $("#candidateDirectoryRows").innerHTML = rows || '<tr><td colspan="7">没有候选行</td></tr>';
+  ["#exportDirectoryCsvBtn", "#exportDirectoryJsonBtn"].forEach((sel) => {
+    const b = $(sel);
+    if (b) b.classList.remove("hidden");
+  });
+}
+
+function exportCandidateDirectory(format) {
+  const dir = state.candidateDirectory;
+  const note = $("#candidateDirectoryNote");
+  try {
+    if (!dir || !window.CandidateDirectory) throw new Error("尚未生成统一候选目录");
+    const be = window.CandidateDirectory;
+    const text = format === "json" ? be.toJson(dir) : be.toCsv(dir.rows);
+    const blob = new Blob([text], { type: `${format === "json" ? "application/json" : "text/csv"};charset=utf-8` });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = be.downloadName(format);
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    if (note) note.textContent = `已导出候选目录 ${format.toUpperCase()}：${dir.counts.rows} 行。`;
+  } catch (e) {
+    if (note) note.textContent = `导出失败：${e.message}。候选表未改变。`;
+  }
+}
+
 /* ------------------------------------------------------------------ A 源表批量识别 */
 
 function aSourceBadge(result) {
@@ -1501,6 +1609,7 @@ function renderASources(d) {
   if (!sources.length) {
     panel.classList.add("hidden");
     state.aSourceBatch = { byId: {}, counts: null, error: null };
+    state.candidateDirectory = null;
     return;
   }
   panel.classList.remove("hidden");
@@ -1534,6 +1643,8 @@ function renderASources(d) {
     const b = $(sel);
     if (b) { b.classList.toggle("hidden", !batch.counts); b.disabled = false; }
   });
+  const dirBtn = $("#candidateDirectoryBtn");
+  if (dirBtn) dirBtn.classList.remove("hidden");
   $("#aSourceBatchNote").classList.add("hidden");
   if (batch.error) {
     $("#aSourceBatchNote").classList.remove("hidden");

@@ -515,3 +515,31 @@ body.expert .readiness .ready-row span { color: inherit; }
 .a-source-actions { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 0 9px 7px; }
 .a-source-actions button { flex: 0 0 auto; white-space: nowrap; min-width: max-content; }
 #exportASourcesBtn, #exportCSourcesBtn { white-space: nowrap; }
+
+/* ---------- 统一候选目录 ---------- */
+.candidate-directory { margin: 8px 0 4px; border: 1px solid rgba(122,162,255,.28); border-radius: 9px; background: rgba(122,162,255,.035); }
+.candidate-directory > summary { padding: 7px 9px; color: var(--ink2); font-size: 10.5px; cursor: pointer; list-style: none; }
+.candidate-directory > summary::-webkit-details-marker { display: none; }
+.candidate-directory > summary::before { content: "▸"; color: var(--muted); margin-right: 5px; }
+.candidate-directory[open] > summary::before { content: "▾"; }
+.candidate-directory > summary b { font-family: var(--mono); font-size: 10px; color: var(--ink); }
+.candidate-directory-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 9px 6px; }
+.candidate-directory-actions button { flex: 0 0 auto; white-space: nowrap; }
+.candidate-directory-table-wrap { max-height: 260px; overflow: auto; border-top: 1px solid rgba(255,255,255,.06); }
+.candidate-directory-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 8px; table-layout: fixed; }
+.candidate-directory-table th { position: sticky; top: 0; background: #0a0f18; color: var(--muted); font-weight: 500; text-align: left; padding: 2px 3px; border-bottom: 1px solid var(--line); }
+.candidate-directory-table td { padding: 2px 3px; border-bottom: 1px solid rgba(255,255,255,.035); color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.candidate-directory-table th:nth-child(1), .candidate-directory-table td:nth-child(1) { width: 9%; }
+.candidate-directory-table th:nth-child(2), .candidate-directory-table td:nth-child(2) { width: 15%; }
+.candidate-directory-table th:nth-child(3), .candidate-directory-table td:nth-child(3) { width: 18%; }
+.candidate-directory-table th:nth-child(4), .candidate-directory-table td:nth-child(4) { width: 13%; }
+.candidate-directory-table th:nth-child(5), .candidate-directory-table td:nth-child(5) { width: 15%; }
+.candidate-directory-table th:nth-child(6), .candidate-directory-table td:nth-child(6) { width: 9%; }
+.candidate-directory-table th:nth-child(7), .candidate-directory-table td:nth-child(7) { width: 21%; }
+.candidate-directory-table .origin-A { color: var(--cyan); }
+.candidate-directory-table .origin-C { color: var(--amber2); }
+.candidate-directory-table .origin-track { color: var(--violet); }
+.candidate-directory-table .st-conflict { color: var(--rose); }
+.candidate-directory-table .st-known { color: var(--green); }
+.candidate-directory-table .st-no_match { color: var(--muted); }
+.candidate-directory-table .st-unknown { color: var(--muted); }
