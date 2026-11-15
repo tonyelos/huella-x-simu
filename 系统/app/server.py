@@ -32,6 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
+from core import anyfield as anyfield_layer  # noqa: E402
 from core import catalog as catalog_layer  # noqa: E402
 from core import data as data_layer  # noqa: E402
 from core import epoch_source  # noqa: E402
@@ -52,6 +53,8 @@ VALID_MODES = {"auto", "real", "synthetic", "sample"}
 # D 阶段：B 星表服务的 app 侧客户端。测试/部署可通过
 # CATALOG_URL（兼容 MOVESCOPE_CATALOG_URL）/ MOVESCOPE_CATALOG_TIMEOUT 覆盖。
 CATALOG_CLIENT = catalog_layer.CatalogClient()
+# C-P0 可选增强：只做 /api/v1/field 覆盖握手；不影响 /api/analyze 数据路径。
+ANYFIELD_CLIENT = anyfield_layer.AnyFieldClient()
 
 
 class ApiError(Exception):
@@ -975,6 +978,30 @@ class Handler(BaseHTTPRequestHandler):
     def _api_error(self, exc: ApiError):
         return self._json({"error": {"code": exc.code, "message": exc.message}}, exc.status)
 
+    def _handle_field(self, q: dict) -> None:
+        """GET /api/field：代理 C 的 /api/v1/field，保留 200/422/503 语义。"""
+        ra_raw = (q.get("ra") or [None])[0]
+        dec_raw = (q.get("dec") or [None])[0]
+        fov_raw = (q.get("fov") or ["0.2"])[0]
+        if ra_raw is None or dec_raw is None:
+            raise ApiError(400, "MISSING_COORDINATE", "需要同时提供 ra 和 dec（度）。")
+        try:
+            ra = float(ra_raw)
+            dec = float(dec_raw)
+            fov = float(fov_raw)
+        except (TypeError, ValueError):
+            raise ApiError(400, "INVALID_QUERY", "ra/dec/fov 必须是数字。")
+        if not (math.isfinite(ra) and 0.0 <= ra < 360.0):
+            raise ApiError(400, "INVALID_RA", "ra 必须在 [0, 360) 度。")
+        if not (math.isfinite(dec) and -90.0 <= dec <= 90.0):
+            raise ApiError(400, "INVALID_DEC", "dec 必须在 [-90, 90] 度。")
+        if not (math.isfinite(fov) and 0.02 <= fov <= 3.0):
+            raise ApiError(400, "INVALID_FOV", "fov 必须在 [0.02, 3.0] 度。")
+        result = ANYFIELD_CLIENT.field(ra=ra, dec=dec, fov=fov)
+        status = result.get("status")
+        code = 200 if status == "ok" else 422 if status == "no_coverage" else 503
+        return self._json(result, code)
+
     def do_GET(self):
         u = urlparse(self.path)
         path = u.path
@@ -994,6 +1021,9 @@ class Handler(BaseHTTPRequestHandler):
                         "results_bytes": STORE.nbytes,
                     }
                 )
+            if path == "/api/field":
+                q = parse_qs(u.query)
+                return self._handle_field(q)
             if path == "/api/targets":
                 return self._json({"targets": data_layer.load_targets()})
             if path == "/api/epochs":

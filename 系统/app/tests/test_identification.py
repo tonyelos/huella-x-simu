@@ -439,6 +439,21 @@ class AnalyzeHTTPIdentificationTest(unittest.TestCase):
         self.assertIn("schema_version", body)
         self.assertIn("sources", body)
 
+    def test_http_analyze_does_not_require_anyfield(self):
+        class AnyfieldBoom:
+            def field(self, **kwargs):
+                raise AssertionError("analyze must not call C")
+
+        fake = FakeCatalogClient(cat.normalize_match(_b_response([_candidate()])))
+        with (
+            mock.patch.object(server, "CATALOG_CLIENT", fake),
+            mock.patch.object(server, "ANYFIELD_CLIENT", AnyfieldBoom()),
+        ):
+            status, body = self._post({"target_id": "barnard", "mode": "synthetic", "fov": 0.2})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["result"]["class"], "L")
+        self.assertEqual(body["identification"]["status"], "known_star")
+
     def test_http_analyze_when_catalog_down_is_still_200(self):
         class Down:
             def match(self, **kwargs):
