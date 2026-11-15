@@ -61,7 +61,7 @@ cd 系统/anyfield && ./start.sh 8798
 
 **已知/未知识别（D-MVP）**：锁定检测源后，app 会调用独立星表服务（默认 8799）做 Gaia DR3 匹配，显示“已知恒星 / 多候选 ambiguous / 未收录候选 / 星表不可用”；未匹配不等于新天体，不做发现声明。
 
-**任意天区（C-P0）**：8798 只读服务对 7 个预设场返回本地历元；74 条有 header 的历元用真实 WCS 四角足迹，其余无 header 的 5,819 条记录仍 `center_approx`；未知天区返回 `INDEX_INCOMPLETE`（422 只在显式 complete region 的测试 fixture 中出现）。新增 `POST /api/v1/ingest` 只接受本地 JSON manifest（metadata/measurement），不接受 URL/像素；完整按需取数/像素 ingest 尚未实现。
+**任意天区（C-P1B）**：8798 支持本地 NPZ/FITS ingest（P1A）、`/api/v1/discover` 周索引+64KB 头按需发现、`/api/v1/fetch` 单张 S3/IRSA cutout 取数（P1B）；C-native 源列表经 `/api/v1/sources` 返回。74 条有 header 的历元用真实 WCS 四角足迹，其余仍 `center_approx`；未知天区 503 `INDEX_INCOMPLETE`。多历元重投影/共同网格/series 仍未实现。
 
 **当前数据通路**：5 个预设目标走本地真实历元目录；**任意 RA/Dec 先查数据库 `/api/v1/epochs`**
 （本地索引 151 周，其中 23 周有帧、共 5,893 帧 / 5,562 曝光），有 ≥2 期真实历元就走真实切片；本地无覆盖时显式

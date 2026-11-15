@@ -125,8 +125,9 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 - `/api/v1/field`：7 个预设场 200 + 本地 EpochRef；未知天区 **503 `INDEX_INCOMPLETE`**；422 只在显式 `coverage_region.complete=1` 的 fixture 中成立，生产库不假装“确认空白”。
 - `POST /api/v1/ingest`：P0 支持本地 JSON manifest；P1A 支持本地 NPZ/FITS（allowed roots、202 异步、幂等、软回滚），用 app `detect_sources` 产出源列表。
 - `/api/v1/sources`：C-native 检测源；实测 Barnard 4 期 ingest 后 215 sources。
-- 测试 **36 tests OK**；app 205、DB 110。
-- 边界：完整天空索引、S3/IRSA、重投影/共同网格、series 重算仍未实现；C 不是“任意天区完成”。
+- P1B：`/api/v1/discover`（week_index + S3 64KB 头）与 `/api/v1/fetch`（单张 S3/IRSA cutout，allowlist/大小上限）；源 `source_origin=on_demand_s3`。
+- 测试 **45 tests OK**；app 205、DB 110。
+- 边界：完整天空索引、多历元重投影/共同网格、series 重算仍未实现；C 不是“任意天区完成”。
 
 ### 2.8 D-C P0 覆盖握手
 
@@ -217,7 +218,7 @@ cd ../视图工具 && $PY tools/smoke.py
 
 1. 真实数据补齐：Barnard 未饱和波段、WISE 坐标歧义、RW/R Dra 更多真实历元。
 2. 102 波段/光谱：大切片 + LVF 插值；按 6 阵列合图。
-3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 205 tests）；C-P0/P1A 本地覆盖与源列表（8798，36 tests）已合并；C 的 IRSA/S3/重投影/series 仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
+3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 205 tests）；C-P0/P1A/P1B（8798，45 tests）已合并；多历元重投影/series 仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
 4. T1 截图自动化（Playwright/ego-browser 可选）。
 5. T6 readiness 阈值统一（180d vs 0.6yr）或删除旧字段。
 6. 公网部署：鉴权、限流、CORS 收紧、`include_truth=0`。
