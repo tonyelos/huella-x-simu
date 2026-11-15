@@ -246,7 +246,7 @@ DB 不存在/损坏时 HTTP **503** `CATALOG_UNAVAILABLE`（不是 200 空健康
   "coverage": {
     "complete": true, "field_id": "barnard", "field_name": "Barnard's Star",
     "field_ra": 269.452077, "field_dec": 4.693365, "field_radius_deg": 0.25,
-    "center_sep_deg": 0.0767, "margin_deg": 0.1733,
+    "center_sep_deg": 0.0764, "margin_deg": 0.1736,
     "field_provenance": "tap", "mag_limit": 20.0, "n_cached_sources": 9603
   },
   "count": 1, "returned": 1, "truncated": false, "has_more": false,
@@ -356,7 +356,7 @@ D-03 建议锥半径 ≥0.3°，B 支持到 5°。
        "n_within_ambiguity_arcsec": 2, "confidence": 1.0,
        "pm_residual": null, "pa_residual": null, "...": "..."},
       {"source_id": "gaia-dr3:4472820212403005440", "catalog_id": "4472820212403005440",
-       "sep_arcsec": 0.2163, "confidence": 0.9999, "...": "..."}
+       "sep_arcsec": 0.2163, "confidence": 0.687781, "...": "..."}
     ]
   }],
   "n_detections": 1, "n_matched": 1, "n_ambiguous": 1, "n_unmatched": 0,
@@ -375,8 +375,9 @@ D-03 建议锥半径 ≥0.3°，B 支持到 5°。
 | ≥2 | `ambiguous` | D 的 `ambiguous` 输入之一（D 还叠加 blend/RUWE/PM 不一致） |
 | 0 | `no_match` | D 结合 `catalog_status`：`ok` 才可能进入未收录候选流程；`partial` 只能 `insufficient_data` |
 
-- `confidence = exp(-0.5 * (sep/σ)^2)` 是**几何关联权重**，不是科学概率；
-  D 不要把它直接当 `known_star` 概率。
+- `confidence = exp(-0.5 * (sep/σ_eff)^2)`，其中 `σ_eff = max(sigma_arcsec, 0.25″)`；
+  这是**几何关联权重**，不是科学概率。D 不要把它直接当 `known_star` 概率。
+  例：σ=0.05″、sep=0.2163″ 时候选 confidence≈0.688（不是 1）。
 - `pm_residual` 是 PM 大小差 [mas/yr]，`pa_residual` 是 PM 方向差 [deg]（−180..180）；
   检测没给 PM 或星表无 PM 时为 `null`。
 - `coverage` 按目录给；检测点不在任何已缓存场 → **HTTP 503**
