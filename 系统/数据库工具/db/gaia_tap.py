@@ -92,6 +92,27 @@ WHERE CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra:.8f}, {dec:.8f}, {
 """.strip()
 
 
+def adql_count_query(
+    ra: float,
+    dec: float,
+    radius_deg: float,
+    *,
+    mag_limit: float = GAIA_MAG_LIMIT,
+) -> str:
+    """与 `adql_cone_query` 同样的锥/星等条件，但不做交叉证认 join。
+
+    TAP 在负载高时可能对带 join 的大结果静默截断（HTTP 200 + 不完整 CSV）。
+    导入时用这个 COUNT 校验实际取回的唯一 source_id 数，避免把截断结果标成
+    `complete=true`。
+    """
+    return f"""
+SELECT COUNT(*) AS n
+FROM gaiadr3.gaia_source AS g
+WHERE CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', {ra:.8f}, {dec:.8f}, {radius_deg:g})) = 1
+  AND g.phot_g_mean_mag <= {mag_limit:g}
+""".strip()
+
+
 def tap_sync_url(query: str) -> str:
     params = {
         "REQUEST": "doQuery",
@@ -108,6 +129,39 @@ def _http_get(url: str, *, timeout: float) -> bytes:
         return resp.read()
 
 
+def _request_with_retries(url: str, *, timeout: float, retries: int) -> bytes:
+    last: Exception | None = None
+    for attempt in range(max(1, retries)):
+        try:
+            return _http_get(url, timeout=timeout)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
+            last = exc
+            if attempt + 1 < retries:
+                time.sleep(2 ** attempt)
+    raise GaiaTAPError(f"Gaia TAP 请求失败: {last}")
+
+
+def fetch_gaia_count(
+    ra: float,
+    dec: float,
+    radius_deg: float,
+    *,
+    mag_limit: float = GAIA_MAG_LIMIT,
+    timeout: float = 240.0,
+    retries: int = 3,
+) -> int:
+    """COUNT 校验查询；返回该锥/星等条件下的 Gaia DR3 源数。"""
+    query = adql_count_query(ra, dec, radius_deg, mag_limit=mag_limit)
+    raw = _request_with_retries(tap_sync_url(query), timeout=timeout, retries=retries)
+    text = raw.decode("utf-8", "replace")
+    reader = csv.DictReader(io.StringIO(text))
+    try:
+        row = next(reader)
+        return int(float(row["n"]))
+    except (StopIteration, KeyError, TypeError, ValueError) as exc:
+        raise GaiaTAPError(f"Gaia TAP COUNT 响应无法解析: {text[:300]!r}") from exc
+
+
 def fetch_gaia_cone(
     ra: float,
     dec: float,
@@ -117,31 +171,40 @@ def fetch_gaia_cone(
     timeout: float = 240.0,
     retries: int = 3,
 ) -> tuple[list[dict], str, str]:
-    """执行一次真实 Gaia DR3 TAP 锥搜索。
+    """执行一次真实 Gaia DR3 TAP 锥搜索，并校验结果没有被静默截断。
 
-    返回 `(normalized_rows, raw_csv, query)`。网络/服务失败抛 GaiaTAPError；
-    调用方负责决定是否回退 fixture。
+    返回 `(normalized_rows, raw_csv, query)`。网络/服务失败、或实际唯一 source_id
+    数与 COUNT 不一致时抛 GaiaTAPError；调用方回退 fixture 或中止，绝不把不完整
+    结果写进 `provenance=tap` 的完整场缓存。
     """
     query = adql_cone_query(ra, dec, radius_deg, mag_limit=mag_limit)
     url = tap_sync_url(query)
-    last: Exception | None = None
+    expected = fetch_gaia_count(
+        ra, dec, radius_deg, mag_limit=mag_limit, timeout=timeout, retries=retries
+    )
+    last_error: Exception | None = None
     for attempt in range(max(1, retries)):
         try:
-            raw = _http_get(url, timeout=timeout)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
-            last = exc
-            if attempt + 1 < retries:
-                time.sleep(2 ** attempt)
-                continue
-            raise GaiaTAPError(f"Gaia TAP 请求失败: {exc}") from exc
-        text = raw.decode("utf-8", "replace")
-        try:
-            rows = parse_gaia_csv(text)
+            raw = _request_with_retries(url, timeout=timeout, retries=1)
         except GaiaTAPError as exc:
-            # TAP 有时 HTTP 200 但返回错误文本；保留响应片段便于排障。
-            raise GaiaTAPError(f"{exc}; 响应片段: {text[:300]!r}") from exc
-        return rows, text, query
-    raise GaiaTAPError(f"Gaia TAP 请求失败: {last}")
+            last_error = exc
+        else:
+            text = raw.decode("utf-8", "replace")
+            try:
+                rows = parse_gaia_csv(text)
+            except GaiaTAPError as exc:
+                # TAP 有时 HTTP 200 但返回错误文本；保留响应片段便于排障。
+                last_error = GaiaTAPError(f"{exc}; 响应片段: {text[:300]!r}")
+            else:
+                unique = {r["catalog_id"]: r for r in rows}
+                if len(unique) == expected:
+                    return list(unique.values()), text, query
+                last_error = GaiaTAPError(
+                    f"Gaia TAP 结果不完整：COUNT={expected}，唯一 source_id={len(unique)}"
+                )
+        if attempt + 1 < retries:
+            time.sleep(2 ** attempt)
+    raise GaiaTAPError(str(last_error) if last_error else "Gaia TAP 结果不完整")
 
 
 def _bool(value) -> bool | None:
