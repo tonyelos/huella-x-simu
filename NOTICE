@@ -1,0 +1,34 @@
+MoveScope / 星动仪 (huella-x)
+Copyright 2026 huella-x contributors
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at:
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Third-party software, data, and media are NOT covered by the Apache
+License. Their licenses and attributions are listed in
+THIRD_PARTY_NOTICES.md; a short submission-ready citation list is in
+REFERENCES.md. In particular:
+
+- three.js r160 is distributed under the MIT License; the full text is at
+  系统/视图工具/vendor/three.LICENSE.
+- Earth imagery is credited to NASA Visible Earth / Blue Marble and is
+  distributed via the three.js examples (MIT); NASA media guidelines apply.
+- SPHEREx level2 data are from NASA/IPAC IRSA (QR3/DR1); NASA data are
+  publicly available, and no NASA endorsement is implied.
+- Target coordinates are from SIMBAD/CDS; see THIRD_PARTY_NOTICES.md.
+- Files under 系统/参考 资料/ are third-party reference materials; they are NOT
+  relicensed under Apache-2.0. See 系统/参考 资料/NOTICE.md.
+
+NASA Space Apps Challenge legal terms applied to this submission:
+  https://www.spaceappschallenge.org/legal/
+  https://www.spaceappschallenge.org/faq/
+
+NASA does not endorse this project or any commercial product or service.

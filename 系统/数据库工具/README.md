@@ -357,12 +357,20 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 
 ## 10. 参考资料与数据来源
 
-- SPHEREx level2 数据：NASA/IPAC IRSA，QR3 / DR1；静态切片与 S3 公开桶路径见
-  `参考 资料/03_SPHEREx数据访问笔记.md`。
-- 赛道与验收目标：`参考 资料/01_挑战原文.md`、`04_测试目标天体.md`。
+- **SPHEREx level2 数据**：NASA/IPAC IRSA，QR3 / DR1，
+  <https://irsa.ipac.caltech.edu/Missions/spherex.html>；S3 公开桶
+  <https://nasa-irsa-spherex.s3.amazonaws.com/>；静态切片与访问实测见
+  `系统/参考 资料/03_SPHEREx数据访问笔记.md`。
+- **赛道与验收目标**：NASA Space Apps 2026 “Planet X and SPHEREx” 官方页面；
+  本地副本 `系统/参考 资料/01_挑战原文.md`、`04_测试目标天体.md`（第三方参考，不按 Apache-2.0 再许可）。
 - 单个 level2 文件约 65 MB、7 个 HDU（PRIMARY/IMAGE/FLAGS/VARIANCE/ZODI/EPSF/WCS-WAVE）、
   6 个探测器、102 波段、像素约 6.15″——这些事实直接决定了本库的列选择与切片策略。
-- 目标坐标：SIMBAD（2026-11-14 查询），`app/data/targets.json`。
-- 交互范式参考：WiseView（Backyard Worlds: Planet 9）。
+- **目标坐标**：SIMBAD/CDS（2026-11-14 查询）；引用 Wenger et al. (2000), A&AS 143, 9,
+  <https://doi.org/10.1051/aas:2000332>；本地 `系统/app/data/targets.json`。
+- **交互范式参考**：WiseView（Backyard Worlds: Planet 9）<http://byw.tools/wiseview>；
+  未复制代码/数据。
+- **本工具原创代码/文档**：Apache License 2.0（根目录 `LICENSE`、`NOTICE`）。
+  第三方材料完整清单：根目录 `THIRD_PARTY_NOTICES.md`。
 
-数据许可遵循 IRSA / NASA 公开数据条款；本项目只做本地索引与缓存，不重新分发原始观测。
+数据许可遵循 IRSA / NASA 公开数据条款；本项目只做本地索引、缓存与派生分析，
+不重新分发整幅原始观测。NASA 不背书本项目。

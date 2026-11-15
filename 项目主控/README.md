@@ -18,6 +18,7 @@
 - T3 离线 5/5、T5 默认 3/3、T6 0 ERROR、DB 76 tests、app 104 tests、view smoke 全过。
 - 详细证据与限制：[验收/FINAL_REPORT.md](验收/FINAL_REPORT.md)。
 - 仓库：<https://github.com/tonyelos/huella-x-simu>；工具分支 `tool/app|db|view|t1-acceptance|t2-bridge|t3-freeze|t4-harvest|t5-launcher|t6-drift`。
+- **许可/引用**：原创 Apache-2.0（`LICENSE`/`NOTICE`）；第三方完整清单 `THIRD_PARTY_NOTICES.md`，提交简版 `REFERENCES.md`；`系统/参考 资料/` 不按 Apache-2.0 再许可。
 
 > 以下 §0–§8 是 **2026-11-14 23:07 的审计快照**，保留历史；其中“R1 未达标/DB 未接线”等描述已被上面的最终状态取代。
 

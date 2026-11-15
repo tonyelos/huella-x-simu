@@ -137,6 +137,21 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 ---
 
+### 4.1 许可与引用（提交合规）
+
+- **原创代码/文档/截图**：Apache License 2.0（根目录 `LICENSE`、`NOTICE`）。
+- **第三方完整清单**：`THIRD_PARTY_NOTICES.md`；提交表单简版：`REFERENCES.md`。
+- **three.js r160**：MIT；完整文本 `系统/视图工具/vendor/three.LICENSE`。
+- **地球纹理**：three.js r160 examples（MIT）；原始影像 NASA Visible Earth / Blue Marble，
+  按 NASA 媒体条款；截图/文件级归属见 `THIRD_PARTY_NOTICES.md`。
+- **SPHEREx 数据**：NASA/IPAC IRSA（QR3/DR1）；SIMBAD/CDS 坐标；引用 DOI
+  `10.1051/aas:2000332`。
+- **参考资料**：`系统/参考 资料/` 为第三方材料，不按 Apache-2.0 再许可；
+  见 `系统/参考 资料/NOTICE.md`。
+- **官方条款**：<https://www.spaceappschallenge.org/legal/>、
+  <https://www.spaceappschallenge.org/faq/>；所有第三方材料已引用，
+  第三方许可证均为 OSI 认可或 NASA 公开数据；NASA 不背书本项目。
+
 ## 5. 复现命令
 
 ```bash

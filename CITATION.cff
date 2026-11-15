@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use this software or data, please cite this repository and the sources listed in THIRD_PARTY_NOTICES.md."
+title: "MoveScope / 星动仪 (huella-x)"
+abstract: "A public web tool that displays multi-epoch SPHEREx images of a sky region and classifies the motion/variability of the sources."
+version: "0.2.0"
+date-released: "2026-11-15"
+license: "Apache-2.0"
+repository-code: "https://github.com/tonyelos/huella-x-simu"
+url: "https://github.com/tonyelos/huella-x-simu"
+authors:
+  - name: "huella-x contributors"
+references:
+  - type: "dataset"
+    title: "SPHEREx level2 spectral images (QR3 / DR1)"
+    publisher: "NASA/IPAC Infrared Science Archive (IRSA)"
+    url: "https://irsa.ipac.caltech.edu/Missions/spherex.html"
+  - type: "software"
+    title: "three.js r160"
+    url: "https://threejs.org/"
+    license: "MIT"
+  - type: "article"
+    title: "The SIMBAD astronomical database"
+    authors:
+      - name: "Wenger, M."
+      - name: "Ochsenbein, F."
+      - name: "Egret, D."
+      - name: "et al."
+    year: 2000
+    journal: "Astronomy and Astrophysics Supplement Series"
+    volume: 143
+    start: 9
+    doi: "10.1051/aas:2000332"
+  - type: "dataset"
+    title: "NASA Visible Earth / Blue Marble"
+    publisher: "NASA"
+    url: "https://visibleearth.nasa.gov/collection/1484/blue-marble"

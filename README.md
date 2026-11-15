@@ -154,6 +154,11 @@ http://127.0.0.1:8790/?target=barnard&ra=269.452077&dec=4.693365&fov=0.2
   架构/                   基础架构与迁移记录
   验收/ 冻结/ 启动/        控制面工具
   _归档/                  迁移前快照与未验证中间文件
+
+LICENSE / NOTICE              原创内容 Apache-2.0 + 第三方摘要
+THIRD_PARTY_NOTICES.md        第三方材料完整清单（代码/数据/图片/字体）
+REFERENCES.md                 提交表单可直接引用的简版引用
+CITATION.cff                  引用元数据
 ```
 
 ---
@@ -170,7 +175,34 @@ http://127.0.0.1:8790/?target=barnard&ra=269.452077&dec=4.693365&fov=0.2
 
 ## 8. 数据与工具引用
 
-- SPHEREx level2 数据：NASA/IPAC IRSA，QR3 / DR1。
-- 目标坐标：SIMBAD（2026-11-14 查询）。
-- 交互范式参考：WiseView（Backyard Worlds: Planet 9）。
-- 赛道：NASA Space Apps Challenge 2026 · Planet X and SPHEREx。
+- **SPHEREx level2 数据**：NASA/IPAC IRSA，QR3 / DR1；<https://irsa.ipac.caltech.edu/Missions/spherex.html>。
+  本地样本/头/切片见 `系统/参考 资料/muestras/`、`系统/app/data/`、`系统/数据库工具/var/`。
+- **目标坐标/真值**：SIMBAD/CDS（2026-11-14 查询）；Wenger et al. (2000), A&AS 143, 9,
+  <https://doi.org/10.1051/aas:2000332>。
+- **3D 引擎**：three.js r160（MIT），`系统/视图工具/vendor/three.module.js`；
+  MIT 全文：`系统/视图工具/vendor/three.LICENSE`。
+- **地球纹理**：NASA Visible Earth / Blue Marble（NASA 媒体条款），经 three.js r160 examples
+  （MIT）分发；`系统/视图工具/assets/earth_*.{jpg,png}`。
+- **交互范式参考**：WiseView（Backyard Worlds: Planet 9）<http://byw.tools/wiseview>；
+  3D 地球/HUD 视觉参考 [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view)
+  （**未复用其代码/数据**）。
+- **赛道**：NASA Space Apps Challenge 2026 · Planet X and SPHEREx，
+  <https://www.spaceappschallenge.org/2026/challenges/planet-x-and-spherex/>。
+
+---
+
+## 9. 许可与第三方声明
+
+- **本项目原创代码/文档/截图**：**Apache License 2.0**；全文见 [`LICENSE`](LICENSE)，
+  版权与第三方摘要见 [`NOTICE`](NOTICE)。
+- **全部第三方代码/数据/图片/参考资料的许可证与来源**：见
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+- **提交表单可直接引用的简版清单**：见 [`REFERENCES.md`](REFERENCES.md)（许可证、数据、图片、参考项目、官方条款）。
+- **参考资料**（`系统/参考 资料/`）是第三方材料，**不**按 Apache-2.0 再许可；
+  见 [`系统/参考 资料/NOTICE.md`](系统/参考%20资料/NOTICE.md)。
+- NASA Space Apps 官方条款：
+  <https://www.spaceappschallenge.org/legal/>、<https://www.spaceappschallenge.org/faq/>。
+  未指定许可证的原创内容按 Apache-2.0 分发；第三方材料必须无限制可用或 OSI 开源，
+  且许可证必须写入提交文档。
+- **NASA 不背书本项目**；NASA 名称/徽标不用于暗示背书。所有第三方材料均已引用；
+  若发现遗漏，请在提交前补充 `THIRD_PARTY_NOTICES.md`。

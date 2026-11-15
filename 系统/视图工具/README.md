@@ -147,12 +147,33 @@ python3 tools/smoke.py
 │   └── smoke.py
 ├── docs/                   预览截图与交接修复报告
 ├── vendor/three.module.js
+├── vendor/three.LICENSE     three.js MIT 全文
 ├── assets/earth_*.{jpg,png}
 └── start.sh
 ```
 
 ## 9. 参考与许可
 
-- 视觉与交互参考 [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view)；未复用其代码或数据，three.js 自绘、离线可用。
-- three.js r160（MIT）；地球纹理来自 NASA Visible Earth（公有领域），取自 three.js examples。
-- SPHEREx 数据：NASA/IPAC IRSA 公开数据。
+> 本工具原创代码/文档按 **Apache-2.0**；第三方材料逐项列在根目录
+> `THIRD_PARTY_NOTICES.md`。以下只列本工具直接使用的部分。
+
+- **three.js r160**（MIT）：`vendor/three.module.js` 是 r160 的 minified ESM build
+  （sha256 `3e690ac7…`），文件头保留 `SPDX-License-Identifier: MIT`；
+  完整 MIT 文本见 `vendor/three.LICENSE`。来源：
+  <https://threejs.org/>、<https://github.com/mrdoob/three.js>。
+- **地球纹理**：`assets/earth_atmos_2048.jpg`、`earth_specular_2048.jpg` 与 three.js r160
+  `examples/textures/planets/` 原文件 sha256 相同；`earth_clouds_1024.png`、
+  `earth_lights_2048.png` 像素与 r160 一致、仅 PNG 重新编码。
+  它们经 three.js 仓库（MIT）分发；原始影像来源标注为
+  **NASA Visible Earth / Blue Marble**（NASA 媒体条款）：
+  <https://visibleearth.nasa.gov/collection/1484/blue-marble>、
+  <https://www.nasa.gov/nasa-brand-center/images-and-media/>。
+  NASA 不背书本项目。
+- **SPHEREx 数据**：NASA/IPAC IRSA（QR3/DR1），
+  <https://irsa.ipac.caltech.edu/Missions/spherex.html>；仅作本地索引/缓存/可视化。
+- **视觉与交互参考**：[bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view)
+  （Cesium + HUD）；**未复用其代码或数据**，本工具用 three.js 自绘、离线可用。
+  交互范式还参考 WiseView（Backyard Worlds: Planet 9）<http://byw.tools/wiseview>。
+- 字体使用系统字体栈，不下载/分发第三方字体；图标为 CSS/Unicode/自绘 SVG。
+- NASA Space Apps 官方 Legal/FAQ：
+  <https://www.spaceappschallenge.org/legal/>、<https://www.spaceappschallenge.org/faq/>。
