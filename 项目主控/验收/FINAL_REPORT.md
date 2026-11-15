@@ -131,6 +131,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 模式化重构已完成并验证：View 只剩“在 MoveScope 打开”；MoveScope 主画布模式栏切换普通/级联/轨迹，URL 不跳页。见 [GUI链路测试.md](GUI链路测试.md) §8。
 
+时间轴优化计划：[../架构/15_时间轴与播放优化.md](../架构/15_时间轴与播放优化.md)（UTC 输入、观测序列播放、5 刻度时间轴、统一时间源）。
+
 跨历元轨迹实施计划：[../架构/12_跨历元轨迹发现计划.md](../架构/12_跨历元轨迹发现计划.md)（T1 tracklet → T2 UI → T3 验证）。
 
 跨历元轨迹页已实现：`/tracks`（Barnard 4 期：D0 45 / D1 0 / D3 10 / D4 195；D1=0 因 B fixture partial；轨迹候选 ≠ 新天体）。见 [GUI链路测试.md](GUI链路测试.md) §6。
