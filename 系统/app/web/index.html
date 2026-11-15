@@ -60,6 +60,7 @@
           <button id="batchASourcesBtn" class="ghost small" type="button">批量识别 A 源</button>
           <button id="exportASourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
           <button id="exportAJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
+          <button id="candidateDirectoryBtn" class="ghost small hidden" type="button">统一候选目录</button>
         </div>
         <div id="aSourceBatchNote" class="anyfield-source-note hidden" aria-live="polite"></div>
         <div id="aSourceTableWrap" class="a-source-table-wrap">
@@ -70,6 +71,22 @@
         </div>
         <div id="aSourceSummary" class="anyfield-source-note"></div>
         <div class="anyfield-source-note">点击行锁定该 A 源；批量 badge 只是星表身份，不是发现声明。no_match = 未收录候选。</div>
+      </details>
+      <details id="candidateDirectoryPanel" class="candidate-directory hidden">
+        <summary>统一候选目录 <b id="candidateDirectoryCount">0</b> 行</summary>
+        <div id="candidateDirectoryNote" class="anyfield-source-note"></div>
+        <div class="candidate-directory-actions">
+          <button id="exportDirectoryCsvBtn" class="ghost small hidden" type="button">导出 CSV</button>
+          <button id="exportDirectoryJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
+        </div>
+        <div id="candidateDirectoryCounts" class="anyfield-source-note"></div>
+        <div class="candidate-directory-table-wrap">
+          <table class="candidate-directory-table">
+            <thead><tr><th>origin</th><th>epoch/track</th><th>RA / Dec</th><th>status/level</th><th>catalog</th><th>sep</th><th>caveats</th></tr></thead>
+            <tbody id="candidateDirectoryRows"></tbody>
+          </table>
+        </div>
+        <div class="anyfield-source-note">候选目录不是发现目录；track 行不是新源，节点不另算源。</div>
       </details>
       <section id="anyfieldCard" class="anyfield-card hidden" aria-live="polite">
         <div class="anyfield-head">
@@ -252,6 +269,7 @@
 <script src="/static/lock_note.js"></script>
 <script src="/static/a_source_batch.js"></script>
 <script src="/static/batch_export.js"></script>
+<script src="/static/candidate_directory.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
