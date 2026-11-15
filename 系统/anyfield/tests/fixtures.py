@@ -149,3 +149,156 @@ def build_fixture(db_path: str | Path) -> Path:
     finally:
         conn.close()
     return path
+
+
+# --------------------------------------------------------------------------- P1A pixel fixtures
+def _wcs_header(ra: float, dec: float, naxis: int = 96, obsid: str = "2026W50_1A_0001_1",
+                detector: int = 1, mjd: float = 61340.0, release: str = "dr1") -> dict:
+    scale = 6.15 / 3600.0  # deg/pixel
+    return {
+        "CRVAL1": ra,
+        "CRVAL2": dec,
+        "CRPIX1": naxis / 2.0 + 0.5,
+        "CRPIX2": naxis / 2.0 + 0.5,
+        "PC1_1": scale,
+        "PC1_2": 0.0,
+        "PC2_1": 0.0,
+        "PC2_2": -scale,
+        "CDELT1": 1.0,
+        "CDELT2": 1.0,
+        "CTYPE1": "RA---TAN-SIP",
+        "CTYPE2": "DEC--TAN-SIP",
+        "NAXIS1": naxis,
+        "NAXIS2": naxis,
+        "OBSID": obsid,
+        "DETECTOR": detector,
+        "MJD-OBS": mjd,
+        "DATE-OBS": "2026-11-15T00:00:00.000",
+        "BUNIT": "MJy/sr",
+        "RELEASE": release,
+    }
+
+
+def _pixel_arrays(naxis: int = 96):
+    import numpy as np
+
+    yy, xx = np.mgrid[0:naxis, 0:naxis]
+    image = np.full((naxis, naxis), 1.0, dtype=np.float32)
+    for cx, cy, amp, sigma in ((naxis * 0.52, naxis * 0.51, 60.0, 1.4),
+                               (naxis * 0.30, naxis * 0.66, 25.0, 1.5)):
+        image += amp * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma * sigma))
+    rng = np.random.default_rng(20261115)
+    image += rng.normal(0.0, 0.04, image.shape).astype(np.float32)
+    variance = np.full(image.shape, 0.04 ** 2, dtype=np.float32)
+    flags = np.zeros(image.shape, dtype=np.int32)
+    psf = np.zeros((33, 33), dtype=np.float64)
+    py, px = np.mgrid[0:33, 0:33]
+    psf = np.exp(-((px - 16) ** 2 + (py - 16) ** 2) / (2 * 1.2 ** 2))
+    psf /= psf.sum()
+    return image.astype(np.float32), variance.astype(np.float32), flags, psf
+
+
+def build_npz_fixture(path: str | Path, *, ra: float = 120.0, dec: float = 20.0,
+                      obsid: str = "2026W50_1A_0001_1", detector: int = 1,
+                      release: str = "dr1") -> Path:
+    import json
+    import numpy as np
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image, variance, flags, psf = _pixel_arrays()
+    header = _wcs_header(ra, dec, obsid=obsid, detector=detector, release=release)
+    np.savez_compressed(
+        path,
+        image=image,
+        variance=variance,
+        flags=flags,
+        header=json.dumps(header),
+        psf=psf,
+        mjd=61340.0,
+        obsid=obsid,
+        detector=str(detector),
+        date_obs="2026-11-15T00:00:00.000",
+        release=release,
+        sep_deg=0.0,
+        wave=1.6,
+    )
+    return path
+
+
+def _fits_card(key: str, value, comment: str = "") -> bytes:
+    if isinstance(value, str):
+        raw = f"'{value:<8}'"
+        card = f"{key:<8}= {raw:<20}"
+    elif isinstance(value, bool):
+        card = f"{key:<8}= {'T' if value else 'F':>20}"
+    elif isinstance(value, (int, float)):
+        card = f"{key:<8}= {value:>20}"
+    else:
+        card = f"{key:<8}= {str(value):>20}"
+    if comment:
+        card = f"{card} / {comment}"
+    return card.ljust(80)[:80].encode("latin-1")
+
+
+def _fits_header(cards: list[bytes]) -> bytes:
+    body = b"".join(cards)
+    body += b"END".ljust(80)
+    body = body.ljust(((len(body) + 2879) // 2880) * 2880, b" ")
+    return body
+
+
+def _fits_hdu(cards: list[bytes], data: bytes | None = None) -> bytes:
+    out = _fits_header(cards)
+    if data is not None:
+        out += data
+        out = out.ljust(((len(out) + 2879) // 2880) * 2880, b"\x00")
+    return out
+
+
+def build_fits_fixture(path: str | Path, *, ra: float = 121.0, dec: float = 21.0,
+                       obsid: str = "2026W50_1A_0002_1", detector: int = 1,
+                       release: str = "dr1") -> Path:
+    import numpy as np
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image, variance, flags, _psf = _pixel_arrays()
+    header = _wcs_header(ra, dec, obsid=obsid, detector=detector, release=release)
+    primary = _fits_header([
+        _fits_card("SIMPLE", True, "conforms to FITS"),
+        _fits_card("BITPIX", 8),
+        _fits_card("NAXIS", 0),
+        _fits_card("EXTEND", True),
+    ])
+    image_cards = [
+        _fits_card("XTENSION", "IMAGE"),
+        _fits_card("BITPIX", -32),
+        _fits_card("NAXIS", 2),
+        _fits_card("NAXIS1", header["NAXIS1"]),
+        _fits_card("NAXIS2", header["NAXIS2"]),
+        _fits_card("PCOUNT", 0),
+        _fits_card("GCOUNT", 1),
+        _fits_card("EXTNAME", "IMAGE"),
+    ]
+    for key in ("CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2", "PC1_1", "PC1_2",
+                "PC2_1", "PC2_2", "CDELT1", "CDELT2", "CTYPE1", "CTYPE2",
+                "OBSID", "DETECTOR", "MJD-OBS", "DATE-OBS", "BUNIT", "RELEASE"):
+        image_cards.append(_fits_card(key, header[key]))
+    def plane_cards(name: str, bitpix: int) -> list[bytes]:
+        return [
+            _fits_card("XTENSION", "IMAGE"),
+            _fits_card("BITPIX", bitpix),
+            _fits_card("NAXIS", 2),
+            _fits_card("NAXIS1", header["NAXIS1"]),
+            _fits_card("NAXIS2", header["NAXIS2"]),
+            _fits_card("PCOUNT", 0),
+            _fits_card("GCOUNT", 1),
+            _fits_card("EXTNAME", name),
+        ]
+    with path.open("wb") as fh:
+        fh.write(primary)
+        fh.write(_fits_hdu(image_cards, np.asarray(image, dtype=">f4").tobytes()))
+        fh.write(_fits_hdu(plane_cards("VARIANCE", -32), np.asarray(variance, dtype=">f4").tobytes()))
+        fh.write(_fits_hdu(plane_cards("FLAGS", 32), np.asarray(flags, dtype=">i4").tobytes()))
+    return path

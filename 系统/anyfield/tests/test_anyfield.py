@@ -19,7 +19,7 @@ for path in (str(SERVICE), str(HERE)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from core import (  # noqa: E402
+from anyfield_core import (  # noqa: E402
     COVERAGE_MODE,
     SCHEMA_VERSION,
     ApiError,
@@ -34,7 +34,9 @@ from fixtures import (  # noqa: E402
     LOCAL_FRAME_RA,
     UNKNOWN_DEC,
     UNKNOWN_RA,
+    build_fits_fixture,
     build_fixture,
+    build_npz_fixture,
 )
 
 
@@ -98,8 +100,8 @@ class AnyFieldHTTPTest(unittest.TestCase):
     def test_capabilities_declares_no_network_or_ingest(self) -> None:
         status, body = self._get("/api/v1/capabilities")
         self.assertEqual(status, 200)
-        self.assertEqual(body["ingest"], "metadata_only")
-        self.assertFalse(body["pixel_ingest"])
+        self.assertEqual(body["ingest"], "metadata_or_local_pixels")
+        self.assertTrue(body["pixel_ingest"])
         self.assertFalse(body["sim"])
         self.assertEqual(body["network"], "none")
 
@@ -255,6 +257,13 @@ class AnyFieldOfflineTest(unittest.TestCase):
             self.assertTrue(store.health()["db"]["readable"])
             body = store.resolve_epochs(BARNARD_RA, BARNARD_DEC, 0.1)
         self.assertEqual(body["count"], 2)
+
+    def test_ingest_root_env_is_configurable(self) -> None:
+        import os
+
+        with mock.patch.dict(os.environ, {"ANYFIELD_INGEST_ROOT": str(self.tmp.name)}):
+            store = Store(self.db, sidecar_path=self.sidecar, blob_root=self.blobs)
+        self.assertEqual([p.resolve() for p in store.ingest_roots], [Path(self.tmp.name).resolve()])
 
     def test_unknown_still_503_when_called_offline(self) -> None:
         store = Store(self.db, sidecar_path=self.sidecar, blob_root=self.blobs)
@@ -626,3 +635,205 @@ class AnyFieldIngestTest(unittest.TestCase):
         status, body = self._get("/api/v1/ingest/ing_does_not_exist")
         self.assertEqual(status, 404)
         self.assertEqual(body["error"]["code"], "JOB_NOT_FOUND")
+
+
+class AnyFieldFileIngestTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory(prefix="anyfield-file-")
+        cls.root = Path(cls.tmp.name)
+        cls.db = build_fixture(cls.root / "catalog.sqlite")
+        cls.sidecar = cls.root / "anyfield.sqlite"
+        cls.blobs = cls.root / "blobs"
+        cls.blobs.mkdir(parents=True, exist_ok=True)
+        cls.npz = build_npz_fixture(cls.root / "synthetic_sources.npz")
+        cls.fits = build_fits_fixture(cls.root / "synthetic_sources.fits")
+        cls.bad = cls.root / "bad.npz"
+        cls.bad.write_bytes(b"not a real npz")
+        cls.server = build_server(
+            db_path=cls.db,
+            host="127.0.0.1",
+            port=0,
+            sidecar_path=cls.sidecar,
+            blob_root=cls.blobs,
+            ingest_roots=[
+                cls.root,
+                SERVICE.parent / "app" / "data",
+                SERVICE.parent / "参考 资料" / "muestras",
+            ],
+        )
+        cls.server.quiet = True
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        host, port = cls.server.server_address[:2]
+        cls.base = f"http://{host}:{port}"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=2)
+        cls.tmp.cleanup()
+
+    def setUp(self) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(str(self.sidecar))
+        try:
+            conn.execute("DELETE FROM measurement")
+            conn.execute("DELETE FROM epoch_extra")
+            conn.execute("DELETE FROM ingest_job")
+            conn.execute("DELETE FROM coverage_region")
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _get(self, path: str) -> tuple[int, dict]:
+        try:
+            with urlopen(Request(self.base + path), timeout=3) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def _post(self, path: str, payload: dict | str) -> tuple[int, dict]:
+        body = payload.encode("utf-8") if isinstance(payload, str) else json.dumps(payload).encode("utf-8")
+        request = Request(self.base + path, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=3) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def _wait(self, job_id: str, timeout: float = 5.0) -> dict:
+        import time
+
+        deadline = time.time() + timeout
+        last = {}
+        while time.time() < deadline:
+            status, last = self._get(f"/api/v1/ingest/{job_id}")
+            self.assertEqual(status, 200)
+            if last.get("state") in ("committed", "failed", "retracted"):
+                return last
+            time.sleep(0.02)
+        self.fail(f"pixel ingest job did not finish: {last}")
+
+    def _ingest(self, path: Path) -> dict:
+        status, created = self._post("/api/v1/ingest", {"input": {"path": str(path)}})
+        self.assertEqual(status, 202, created)
+        return self._wait(created["job_id"])
+
+    def test_npz_ingest_sources_and_field(self) -> None:
+        job = self._ingest(self.npz)
+        self.assertEqual(job["state"], "committed")
+        self.assertEqual(job["input_kind"], "npz")
+        self.assertGreaterEqual(job["measurements_added"], 2)
+
+        status, sources = self._get(
+            "/api/v1/sources?ra=120&dec=20&fov=0.1&limit=100"
+        )
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(sources["count"], 2)
+        self.assertEqual(sources["source_origin"], "ingested")
+        for src in sources["sources"]:
+            self.assertEqual(src["source_origin"], "ingested")
+            self.assertEqual(src["provenance"], "real")
+            self.assertIn("source_index", src)
+            for field in ("x", "y", "ra", "dec", "flux", "flux_err", "snr", "saturated", "quality"):
+                self.assertIn(field, src)
+
+        status, field = self._get("/api/v1/field?ra=120&dec=20&fov=0.1")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(field["source_count"], 2)
+        self.assertEqual(field["source_origin"], "ingested")
+        self.assertEqual(len(field["sources"]), field["source_count"])
+        self.assertTrue(field["sources_url"].startswith("/api/v1/sources?"))
+        self.assertTrue(any(e.get("source_count", 0) >= 2 for e in field["epochs"]))
+        self.assertNotIn("synthetic", json.dumps(field).lower())
+
+    def test_fits_ingest_sources_and_field(self) -> None:
+        job = self._ingest(self.fits)
+        self.assertEqual(job["state"], "committed")
+        self.assertEqual(job["input_kind"], "fits")
+        self.assertGreaterEqual(job["measurements_added"], 2)
+
+        status, sources = self._get("/api/v1/sources?ra=121&dec=21&fov=0.1")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(sources["count"], 2)
+        self.assertTrue(any(s["ingest_kind"] == "fits" for s in sources["sources"]))
+
+        status, field = self._get("/api/v1/field?ra=121&dec=21&fov=0.1")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(field["source_count"], 2)
+
+    def test_file_ingest_is_idempotent(self) -> None:
+        first = self._ingest(self.npz)
+        self.assertEqual(first["state"], "committed")
+        status, second = self._post("/api/v1/ingest", {"input": {"path": str(self.npz)}})
+        self.assertEqual(status, 202)
+        self.assertTrue(second["replayed"])
+        second_job = self._wait(second["job_id"])
+        self.assertEqual(second_job["state"], "committed")
+        self.assertEqual(second_job["measurements_added"], 0)
+        status, sources = self._get("/api/v1/sources?ra=120&dec=20&fov=0.1")
+        self.assertEqual(status, 200)
+        count_after = sources["count"]
+        self.assertGreaterEqual(count_after, 2)
+
+    def test_url_path_outside_and_bad_file_are_400(self) -> None:
+        status, body = self._post("/api/v1/ingest", {"input": {"path": "https://example.com/x.npz"}})
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "NETWORK_SOURCE_NOT_ALLOWED")
+
+        outside = Path(self.tmp.name).parent / "outside.npz"
+        outside.write_bytes(b"x")
+        try:
+            status, body = self._post("/api/v1/ingest", {"input": {"path": str(outside)}})
+            self.assertEqual(status, 400)
+            self.assertEqual(body["error"]["code"], "PATH_NOT_ALLOWED")
+        finally:
+            outside.unlink(missing_ok=True)
+
+        status, body = self._post("/api/v1/ingest", {"input": {"path": str(self.bad)}})
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "INVALID_INGEST_FILE")
+
+        status, body = self._post("/api/v1/ingest", {"input": {"path": str(self.root / "missing.npz")}})
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "INGEST_FILE_NOT_FOUND")
+
+    def test_pixel_file_ingest_does_not_use_network(self) -> None:
+        import socket
+
+        with mock.patch.object(socket, "create_connection", side_effect=AssertionError("network used")):
+            with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network used")):
+                normalized = self.server.store.validate_file_manifest(
+                    {"input": {"path": str(self.npz)}}
+                )
+        self.assertEqual(normalized["file"]["kind"], "npz")
+        self.assertEqual(normalized["epoch"]["obsid"], "2026W50_1A_0001_1")
+
+    def test_real_barnard_app_npz_sources(self) -> None:
+        cache = SERVICE.parent / "app" / "data" / "epochcache"
+        paths = [
+            cache / "dr1_2025W35_2A_0221_1_D2_269.4462_4.7673_0.200.npz",
+            cache / "dr1_2025W35_2A_0233_1_D1_269.4462_4.7673_0.200.npz",
+            cache / "dr1_2025W36_2B_0123_1_D1_269.4462_4.7673_0.200.npz",
+            cache / "dr1_2026W12_2A_0324_1_D3_269.4464_4.7688_0.200.npz",
+        ]
+        if not all(p.is_file() for p in paths):
+            self.skipTest("real app NPZ fixtures not available")
+        for path in paths:
+            job = self._ingest(path)
+            self.assertEqual(job["state"], "committed")
+            self.assertGreaterEqual(job["measurements_added"], 1)
+        status, sources = self._get(
+            "/api/v1/sources?ra=269.4462&dec=4.7673&fov=0.2&limit=500"
+        )
+        self.assertEqual(status, 200)
+        self.assertGreater(sources["count"], 0)
+        self.assertTrue(any(s["snr"] > 5 for s in sources["sources"]))
+        self.assertTrue(all(s["ra"] is not None and s["dec"] is not None for s in sources["sources"]))
+        status, field = self._get("/api/v1/field?ra=269.4462&dec=4.7673&fov=0.2")
+        self.assertEqual(status, 200)
+        self.assertGreater(field["source_count"], 0)
+        self.assertTrue(field["sources"])

@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""AnyField P0 HTTP service (port 8798 by default).
+"""AnyField P1A HTTP service (port 8798 by default).
 
 Endpoints:
   GET  /api/v1/health
   GET  /api/v1/field?ra=&dec=&fov=
   GET  /api/v1/epochs?ra=&dec=&fov=   (1.0-compatible)
-  POST /api/v1/ingest                 (local JSON manifest, metadata only)
+  GET  /api/v1/sources?ra=&dec=&fov=  (local ingested sources)
+  POST /api/v1/ingest                 (local JSON manifest or local NPZ/FITS path)
   GET  /api/v1/ingest/{job_id}
   POST /api/v1/ingest/{job_id}/rollback
 
 The catalog DB is read-only. The sidecar is the only writable store. There is
 no outbound network access, no pixel download, no detection/reprojection, and
-no SIM generation. The P0 ingest is metadata/measurement only.
+no SIM generation. P1A adds local NPZ/FITS pixel ingest + source detection; it
+still has no IRSA/S3, no reprojection/common grid, and no series recomputation.
 """
 from __future__ import annotations
 
@@ -30,7 +32,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 try:  # package import
-    from .core import (  # type: ignore[import-not-found]
+    from .anyfield_core import (  # type: ignore[import-not-found]
         ApiError,
         COVERAGE_MODE,
         DEFAULT_SIDECAR,
@@ -42,7 +44,7 @@ try:  # package import
         error_payload,
     )
 except ImportError:  # script/direct test import
-    from core import (  # type: ignore[no-redef]
+    from anyfield_core import (  # type: ignore[no-redef]
         ApiError,
         COVERAGE_MODE,
         DEFAULT_SIDECAR,
@@ -156,6 +158,25 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                 body["request_id"] = request_id
                 self._send_json(200, body)
                 return
+            if path == "/api/v1/sources":
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                ra = self._param(query, "ra")
+                dec = self._param(query, "dec")
+                if ra is None or dec is None:
+                    raise ApiError(400, "INVALID_QUERY", "需要同时提供 ra、dec（度）")
+                fov = self._param(query, "fov", "0.2")
+                epoch = self._param(query, "epoch")
+                limit_raw = self._param(query, "limit", "1000")
+                try:
+                    limit = int(limit_raw)
+                except (TypeError, ValueError) as exc:
+                    raise ApiError(400, "INVALID_QUERY", "limit 必须是整数") from exc
+                body = self.server.store.resolve_sources(  # type: ignore[attr-defined]
+                    ra, dec, fov, epoch=epoch, limit=limit
+                )
+                body["request_id"] = request_id
+                self._send_json(200, body)
+                return
             if path.startswith("/api/v1/ingest/"):
                 parts = [p for p in path.split("/") if p]
                 if len(parts) == 4 and parts[:3] == ["api", "v1", "ingest"]:
@@ -176,6 +197,7 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                             "/api/v1/health",
                             "/api/v1/field",
                             "/api/v1/epochs",
+                            "/api/v1/sources",
                             "/api/v1/ingest",
                             "/api/v1/ingest/{job_id}",
                             "/api/v1/ingest/{job_id}/rollback",
@@ -183,8 +205,10 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                         "network": "none",
                         "catalog_writes": "none",
                         "sidecar_writes": "enabled",
-                        "ingest": "metadata_only",
-                        "pixel_ingest": False,
+                        "ingest": "metadata_or_local_pixels",
+                        "pixel_ingest": True,
+                        "pixel_kinds": ["npz", "fits"],
+                        "pixel_detection": True,
                         "sim": False,
                     },
                 )
@@ -260,12 +284,14 @@ def build_server(
     *,
     sidecar_path: str | Path | None = None,
     blob_root: str | Path | None = None,
+    ingest_roots: list[str | Path] | None = None,
     build_footprints: bool = True,
 ) -> AnyFieldHTTPServer:
     store = Store(
         db_path,
         sidecar_path=sidecar_path,
         blob_root=blob_root,
+        ingest_roots=ingest_roots,
         build_footprints=build_footprints,
     )
     return AnyFieldHTTPServer((host, int(port)), store)
@@ -276,6 +302,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--db", default=str(DEFAULT_DB), help="catalog.sqlite（只读）")
     parser.add_argument("--sidecar", default=str(DEFAULT_SIDECAR), help="anyfield.sqlite（可写）")
     parser.add_argument("--blob-root", default=str(DEFAULT_BLOB_ROOT), help="fits-header blob 根目录")
+    parser.add_argument(
+        "--ingest-root",
+        action="append",
+        default=None,
+        help="允许的本地像素 root（可重复；默认 系统/app/data + 系统/参考 资料/muestras）",
+    )
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--no-build-footprints", action="store_true", help="不重建 header 足迹")
@@ -285,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
         args.db,
         sidecar_path=args.sidecar,
         blob_root=args.blob_root,
+        ingest_roots=args.ingest_root,
         build_footprints=not args.no_build_footprints,
     )
     server = AnyFieldHTTPServer((args.host, args.port), store)
@@ -295,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
         f"blob_root={store.blob_root} network=none",
         flush=True,
     )
+    print(f"ingest_roots={[str(p) for p in store.ingest_roots]}", flush=True)
     print(f"footprints={store.footprint_stats}", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
