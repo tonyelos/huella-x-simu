@@ -269,7 +269,7 @@ async function batchIdentifyCSources() {
     note.textContent = `正在批量识别 ${sources.length} 个 C 源…`;
   }
   const payload = {
-    catalogs: ["gaia"],
+    catalogs: ["gaia", "2mass", "wise"],
     radius_arcsec: 3.0,
     sources: sources.filter((s) => Number.isFinite(Number(s.ra)) && Number.isFinite(Number(s.dec)) && Number.isFinite(Number(s.mjd))).map((s) => ({
       source_id: String(s.source_id || ""),
@@ -305,7 +305,7 @@ async function batchIdentifyCSources() {
     };
     if (note) {
       note.classList.remove("hidden");
-      note.innerHTML = `<b>${esc(batchSummary(d.counts))}</b> · catalog ${esc(d.catalog_status || "?")} · 点击行仍做单源识别`;
+      note.innerHTML = `<b>${esc(batchSummary(d.counts))}</b> · gaia+2mass+wise · catalog ${esc(d.catalog_status || "?")} · 点击行仍做单源识别`;
     }
     renderCSources({ status: "ok", sources: state.anyfieldSources, truncated: false }, 200);
   } catch (e) {
@@ -1548,7 +1548,7 @@ async function batchIdentifyASources() {
       const r = await fetch("/api/identify/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sources: batches[i], catalogs: ["gaia"], radius_arcsec: 3.0 }),
+        body: JSON.stringify({ sources: batches[i], catalogs: ["gaia", "2mass", "wise"], radius_arcsec: 3.0 }),
       });
       const body = await r.json();
       if (!r.ok || body.error) {
@@ -1562,7 +1562,7 @@ async function batchIdentifyASources() {
     renderASources(d);
     if (note) {
       note.classList.remove("hidden");
-      note.textContent = `批量识别完成：${$("#aSourceSummary").textContent}`;
+      note.textContent = `批量识别完成（gaia+2mass+wise）：${$("#aSourceSummary").textContent}`;
     }
   } catch (e) {
     // 失败不覆盖旧表/旧 badge；只写错误。
@@ -1591,7 +1591,7 @@ function downloadTextFile(name, text, mime) {
 function batchExportPayload(kind) {
   if (kind === "a") {
     const sources = window.ASourceBatch.buildBatchSources(state.sources || [], (state.analysis && state.analysis.epochs) || []);
-    return { sources, catalogs: ["gaia"], radius_arcsec: 3.0 };
+    return { sources, catalogs: ["gaia", "2mass", "wise"], radius_arcsec: 3.0 };
   }
   const sources = (state.anyfieldSources || []).filter((s) => Number.isFinite(Number(s.ra)) && Number.isFinite(Number(s.dec)) && Number.isFinite(Number(s.mjd))).map((s) => ({
     source_id: String(s.source_id || ""),
@@ -1604,7 +1604,7 @@ function batchExportPayload(kind) {
     mjd: Number(s.mjd),
     sigma_arcsec: 0.5,
   }));
-  return { sources, catalogs: ["gaia"], radius_arcsec: 3.0 };
+  return { sources, catalogs: ["gaia", "2mass", "wise"], radius_arcsec: 3.0 };
 }
 
 async function exportBatchServer(kind, format) {

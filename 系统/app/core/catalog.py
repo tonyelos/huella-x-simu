@@ -162,6 +162,102 @@ def _candidate(raw: dict) -> dict | None:
     }
 
 
+CATALOG_PRIORITY = {"gaia": 0, "2mass": 1, "wise": 2}
+
+
+def _sep_deg(ra1, dec1, ra2, dec2) -> float:
+    """两点球面角距（度），用于 0.5″ 物理源去重。"""
+    try:
+        r1, d1, r2, d2 = map(math.radians, (float(ra1), float(dec1), float(ra2), float(dec2)))
+        dra, ddec = r2 - r1, d2 - d1
+        h = math.sin(ddec / 2) ** 2 + math.cos(d1) * math.cos(d2) * math.sin(dra / 2) ** 2
+        return math.degrees(2 * math.asin(min(1.0, math.sqrt(max(h, 0.0)))))
+    except (TypeError, ValueError, OverflowError):
+        return float("inf")
+
+
+def _cat_priority(candidate: dict) -> int:
+    cat = str(candidate.get("catalog") or "").lower()
+    return CATALOG_PRIORITY.get(cat, 9)
+
+
+def _candidate_pos(candidate: dict):
+    ra = candidate.get("ra_pred")
+    dec = candidate.get("dec_pred")
+    if not (isinstance(ra, (int, float)) and isinstance(dec, (int, float))):
+        ra, dec = candidate.get("ra"), candidate.get("dec")
+    return ra, dec
+
+
+def _crossmatch(candidate: dict) -> dict:
+    return {
+        "catalog": candidate.get("catalog") or "",
+        "catalog_id": candidate.get("catalog_id"),
+        "release": candidate.get("release"),
+        "separation_arcsec": candidate.get("separation_arcsec"),
+        "sep_arcsec": candidate.get("separation_arcsec"),
+        "jmag": candidate.get("jmag"),
+        "hmag": candidate.get("hmag"),
+        "kmag": candidate.get("kmag"),
+        "w1": candidate.get("w1"),
+        "w2": candidate.get("w2"),
+    }
+
+
+def group_candidates(candidates: list[dict], radius_arcsec: float = 0.5) -> list[dict]:
+    """跨目录按位置去重；同一目录的不同候选不会被合并。
+
+    2MASS/WISE 同一物理源可能与 Gaia 各一行：group 后只保留 1 个 primary
+    candidate（优先 Gaia），其余目录写入 primary.crossmatches。
+    """
+    cands = [c for c in (candidates or []) if isinstance(c, dict)]
+    if len({str(c.get("catalog") or "").lower() for c in cands}) <= 1:
+        return cands
+    ordered = sorted(
+        cands,
+        key=lambda c: (
+            _cat_priority(c),
+            _finite(c.get("separation_arcsec")) if _finite(c.get("separation_arcsec")) is not None else float("inf"),
+        ),
+    )
+    groups: list[list[dict]] = []
+    for cand in ordered:
+        placed = False
+        cat = str(cand.get("catalog") or "").lower()
+        for group in groups:
+            if cat in {str(x.get("catalog") or "").lower() for x in group}:
+                continue
+            pos = _candidate_pos(cand)
+            primary = group[0]
+            ppos = _candidate_pos(primary)
+            if pos[0] is None or ppos[0] is None:
+                continue
+            if _sep_deg(pos[0], pos[1], ppos[0], ppos[1]) <= radius_arcsec / 3600.0:
+                group.append(cand)
+                placed = True
+                break
+        if not placed:
+            groups.append([cand])
+
+    out = []
+    for group in groups:
+        selected = min(
+            group,
+            key=lambda c: (
+                _cat_priority(c),
+                _finite(c.get("separation_arcsec")) if _finite(c.get("separation_arcsec")) is not None else float("inf"),
+            ),
+        )
+        primary = dict(selected)
+        primary["crossmatches"] = [_crossmatch(c) for c in group if c is not selected]
+        out.append(primary)
+    out.sort(key=lambda c: (
+        _cat_priority(c),
+        _finite(c.get("separation_arcsec")) if _finite(c.get("separation_arcsec")) is not None else float("inf"),
+    ))
+    return out
+
+
 def _photometry(candidate: dict) -> dict | None:
     """只输出真实存在的 2MASS/WISE 数值/交叉证认，缺失不补 0/不猜测。"""
     keys = ("jmag", "hmag", "kmag", "w1", "w2")
@@ -254,6 +350,7 @@ def normalize_match(raw: dict) -> dict:
         cand = _candidate(item)
         if cand is not None:
             candidates.append(cand)
+    candidates = group_candidates(candidates)
 
     release = match.get("release") or raw.get("release")
     if not release and isinstance(raw.get("releases"), list):
@@ -270,7 +367,7 @@ def normalize_match(raw: dict) -> dict:
         "release": release,
         "catalog_schema_version": raw.get("star_schema_version") or raw.get("db_schema_version"),
         "n_candidates": len(candidates),
-        "ambiguous": bool(match.get("ambiguous")) or len(candidates) >= 2,
+        "ambiguous": len(candidates) >= 2,
         "candidates": candidates[:MAX_CANDIDATES],
         "reason": None,
         "catalog_reason": None,
@@ -648,6 +745,17 @@ class CatalogClient:
                 body = {}
             reason = str(body.get("reason") or body.get("code") or "HTTP_ERROR")
             detail = body.get("message")
+            if len(catalogs or []) > 1 and status in (400, 404, 422):
+                # 旧版 B 不认识 2mass/wise：显式回退 Gaia 一次。
+                try:
+                    retry_payload = dict(payload)
+                    retry_payload["catalogs"] = ["gaia"]
+                    raw2 = self._post_json("/api/v1/catalog/match", retry_payload)
+                    out2 = normalize_batch(raw2, detections)
+                    out2["catalog_fallback"] = "gaia"
+                    return out2
+                except Exception:  # noqa: BLE001 - 回退失败时仍返回结构化原错误
+                    pass
             out = normalize_batch(
                 {"unavailable": True, "reason": reason, "message": detail},
                 detections,
@@ -663,7 +771,19 @@ class CatalogClient:
         except Exception as exc:  # noqa: BLE001
             out = normalize_batch({"unavailable": True, "reason": "CATALOG_CLIENT_ERROR", "message": str(exc)}, detections)
             return out
-        return normalize_batch(raw, detections)
+        out = normalize_batch(raw, detections)
+        reason = str(out.get("reason") or "").lower()
+        if len(catalogs or []) > 1 and ("unknown_catalog" in reason or "invalid_catalog" in reason):
+            try:
+                retry_payload = dict(payload)
+                retry_payload["catalogs"] = ["gaia"]
+                raw2 = self._post_json("/api/v1/catalog/match", retry_payload)
+                out2 = normalize_batch(raw2, detections)
+                out2["catalog_fallback"] = "gaia"
+                return out2
+            except Exception:  # noqa: BLE001
+                pass
+        return out
 
     def match(
         self,
