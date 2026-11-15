@@ -51,6 +51,22 @@
       </div>
       <button id="runBtn" class="primary"><span class="dot"></span>识别运动规律</button>
       <div id="sourceNote" class="note">选择目标或输入坐标后开始。</div>
+      <details id="aSourcePanel" class="a-source-panel hidden">
+        <summary>
+          <span>A 检测源（本次分析）</span>
+          <b id="aSourceCount" class="a-source-count">0</b> 个
+          <button id="batchASourcesBtn" class="ghost small" type="button">批量识别 A 源</button>
+        </summary>
+        <div id="aSourceBatchNote" class="anyfield-source-note hidden" aria-live="polite"></div>
+        <div id="aSourceTableWrap" class="a-source-table-wrap">
+          <table class="a-source-table">
+            <thead><tr><th>epoch</th><th>S/N</th><th>RA / Dec</th><th>quality</th><th>catalog</th></tr></thead>
+            <tbody id="aSourceRows"></tbody>
+          </table>
+        </div>
+        <div id="aSourceSummary" class="anyfield-source-note"></div>
+        <div class="anyfield-source-note">点击行锁定该 A 源；批量 badge 只是星表身份，不是发现声明。no_match = 未收录候选。</div>
+      </details>
       <section id="anyfieldCard" class="anyfield-card hidden" aria-live="polite">
         <div class="anyfield-head">
           <span>C 任意天区 · P0</span>
@@ -226,6 +242,7 @@
 
 <script src="/static/source_pick.js"></script>
 <script src="/static/lock_note.js"></script>
+<script src="/static/a_source_batch.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

@@ -26,6 +26,7 @@ const state = {
   anyfieldContext: null, // {ra, dec, fov} 当前 C 覆盖卡对应的查询
   anyfieldSources: [],
   anyfieldBatch: { byId: {}, counts: null, catalogStatus: null, error: null },
+  aSourceBatch: { byId: {}, counts: null, error: null },
   layerMode: "browse", // browse | cascade | tracks
   cascadeData: null,
   tracksData: null,
@@ -485,6 +486,8 @@ function bindUI() {
   });
   const loadBtn = $("#loadCSourcesBtn");
   if (loadBtn) loadBtn.addEventListener("click", loadCSources);
+  const aBatchBtn = $("#batchASourcesBtn");
+  if (aBatchBtn) aBatchBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); batchIdentifyASources(); });
   const batchBtn = $("#batchCSourcesBtn");
   if (batchBtn) batchBtn.addEventListener("click", batchIdentifyCSources);
   document.addEventListener("keydown", (e) => {
@@ -613,6 +616,7 @@ async function analyze() {
     state.tracksData = null;
     state.layerKeys = { cascade: null, tracks: null };
     state.selectedTrack = null;
+    state.aSourceBatch = { byId: {}, counts: null, error: null };
     hideTip();
     await preload(d);
     renderAll(d, dt);
@@ -754,6 +758,7 @@ function renderAll(d, dt) {
   });
   $("#slider").max = Math.max(d.epochs.length - 1, 0);
   $("#canvasEmpty").classList.add("hidden");
+  renderASources(d);
   renderFrame();
   renderLayerPanel();
   if (state.layerMode !== "browse") loadLayerData(state.layerMode);
@@ -1203,6 +1208,8 @@ function renderEmptyAnalysis(d) {
   cx.clearRect(0, 0, cv.width, cv.height);
   cx.fillStyle = "#03050a";
   cx.fillRect(0, 0, cv.width, cv.height);
+  const aPanel = $("#aSourcePanel");
+  if (aPanel) aPanel.classList.add("hidden");
   $("#canvasEmpty").classList.remove("hidden");
   $("#canvasEmpty").innerHTML = `<div class="glyph">◌</div><p>时间窗口内没有历元</p><span>未做测量/拟合，不伪造轨迹；请扩大 t0–t1。</span>`;
   $("#epochLabel").textContent = "窗口内无历元";
@@ -1443,6 +1450,112 @@ function sceneNoteForLayer(node, kind, track) {
   const s = state.locked;
   const label = kind === "track" ? `轨迹节点 ${track ? track.track_id : ""}` : `${kind} 源`;
   note(`已锁定 <b>${esc(label)}</b>：RA ${Number(s.ra).toFixed(6)}° · Dec ${Number(s.dec).toFixed(6)}° · S/N ${Number(s.snr).toFixed(1)}；正在查询星表…`);
+}
+
+
+/* ------------------------------------------------------------------ A 源表批量识别 */
+
+function aSourceBadge(result) {
+  const ab = window.ASourceBatch;
+  if (!ab || !result) return "";
+  const st = ab.badgeStatus(result);
+  if (!st) return "";
+  const label = ab.badgeLabel(st);
+  const title = st === "no_match" ? "未收录候选，不是未知星体" : label;
+  return `<span class="a-source-badge ${esc(st)}" title="${esc(title)}">${esc(label)}</span>`;
+}
+
+function aSourceQuality(src) {
+  return (src.quality || []).join(" · ") || (src.saturated ? "SATURATED" : "—");
+}
+
+function renderASources(d) {
+  const panel = $("#aSourcePanel");
+  if (!panel) return;
+  const sources = state.sources || [];
+  if (!sources.length) {
+    panel.classList.add("hidden");
+    state.aSourceBatch = { byId: {}, counts: null, error: null };
+    return;
+  }
+  panel.classList.remove("hidden");
+  $("#aSourceCount").textContent = String(sources.length);
+  const batch = state.aSourceBatch || { byId: {}, counts: null };
+  const shown = sources.slice(0, 50);
+  const rows = shown.map((src) => {
+    const key = window.ASourceBatch ? window.ASourceBatch.sourceKey(src) : `${src.epoch_id}:${src.x}:${src.y}`;
+    const result = batch.byId && batch.byId[key];
+    return `<tr data-a-source-index="${sources.indexOf(src)}">
+      <td>${Number(src.frame) + 1} · ${esc(String(src.epoch_id || "").slice(-18))}</td>
+      <td>${Number(src.snr || 0).toFixed(1)}</td>
+      <td>${Number(src.ra).toFixed(4)} / ${Number(src.dec).toFixed(4)}</td>
+      <td class="q">${esc(aSourceQuality(src))}</td>
+      <td>${aSourceBadge(result)}</td>
+    </tr>`;
+  }).join("");
+  $("#aSourceRows").innerHTML = rows;
+  $("#aSourceRows").onclick = (e) => {
+    const tr = e.target.closest("tr[data-a-source-index]");
+    if (!tr) return;
+    const src = state.sources[Number(tr.dataset.aSourceIndex)];
+    if (src) selectSource(src);
+  };
+  const c = batch.counts;
+  $("#aSourceSummary").textContent = c
+    ? `known ${c.known_star || 0} / ambiguous ${c.ambiguous || 0} / no_match ${c.no_match || 0} / insufficient ${c.insufficient_data || 0} / unavailable ${c.catalog_unavailable || 0}`
+    : (sources.length > 50 ? `显示前 50 / 共 ${sources.length} 个；批量识别计数为全量。` : "共 " + sources.length + " 个；可批量识别星表身份。");
+  $("#aSourceBatchNote").classList.add("hidden");
+  if (batch.error) {
+    $("#aSourceBatchNote").classList.remove("hidden");
+    $("#aSourceBatchNote").textContent = batch.error;
+  }
+}
+
+async function batchIdentifyASources() {
+  const sources = state.sources || [];
+  const d = state.analysis;
+  if (!sources.length || !d || !window.ASourceBatch) return;
+  const btn = $("#batchASourcesBtn");
+  const note = $("#aSourceBatchNote");
+  const items = window.ASourceBatch.buildBatchSources(sources, d.epochs || []);
+  const batches = window.ASourceBatch.chunks(items, 200);
+  const old = state.aSourceBatch;
+  if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
+  if (note) { note.classList.remove("hidden"); note.textContent = `正在批量识别 A 源 ${sources.length} 个（${batches.length} 批）…`; }
+  const merged = {};
+  let counts = {};
+  try {
+    for (let i = 0; i < batches.length; i++) {
+      if (note) note.textContent = `正在批量识别 A 源 · 第 ${i + 1}/${batches.length} 批…`;
+      const r = await fetch("/api/identify/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sources: batches[i], catalogs: ["gaia"], radius_arcsec: 3.0 }),
+      });
+      const body = await r.json();
+      if (!r.ok || body.error) {
+        const e = body.error;
+        throw new Error((e && (e.message || e.code)) || "批量识别接口返回错误");
+      }
+      (body.results || []).forEach((res) => { merged[String(res.source_id || res.detection_id || "")] = res; });
+      counts = window.ASourceBatch.mergeCounts(counts, body.counts);
+    }
+    state.aSourceBatch = { byId: merged, counts, error: null };
+    renderASources(d);
+    if (note) {
+      note.classList.remove("hidden");
+      note.textContent = `批量识别完成：${$("#aSourceSummary").textContent}`;
+    }
+  } catch (e) {
+    // 失败不覆盖旧表/旧 badge；只写错误。
+    state.aSourceBatch = old;
+    if (note) {
+      note.classList.remove("hidden");
+      note.textContent = `批量识别失败：${e.message}。A 源表和已有 badge 保持不变。`;
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "批量识别 A 源"; }
+  }
 }
 
 /* ------------------------------------------------------------------ 画布 */
