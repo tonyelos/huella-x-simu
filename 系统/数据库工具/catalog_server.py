@@ -73,6 +73,7 @@ ENDPOINTS = [
     ("POST", "/api/v1/catalog/match", "检测源位置/误差 → 星表候选 + ambiguous"),
     ("POST", "/api/v1/catalog/ingest", "Gaia TAP 按场接收并缓存（写 SQL）"),
     ("GET", "/api/v1/catalog/releases", "已导入星表版本、许可、来源"),
+    ("GET", "/api/v1/catalog/targets", "7 个 preset target 名称 enrichment（SIMBAD 状态）"),
     ("GET", "/api/v1/catalog/fields", "已缓存的预设场与半径"),
     ("GET", "/api/v1/catalog/stats", "计数/存储/schema"),
     ("GET", "/api/v1/health", "健康检查"),
@@ -190,6 +191,16 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 return self._landing()
             if path in ("/api/health", "/api/v1/health", "/api/v1/catalog/health"):
                 return self._json(self._catalog().health())
+            if path == "/api/v1/catalog/targets":
+                payload = self._catalog().target_names()
+                payload.update(
+                    {
+                        "schema_version": CATALOG_API_VERSION,
+                        "service": SERVICE_NAME,
+                        "generated_at": utcnow(),
+                    }
+                )
+                return self._json(payload)
             if path == "/api/v1/catalog/releases":
                 releases = self._catalog().releases()
                 return self._json(

@@ -79,6 +79,13 @@ $PY catalog_server.py --port 8799             # 只绑 127.0.0.1
 
 - **场级接收**：`POST /api/v1/catalog/ingest` 可从 Gaia TAP 接收一个新场并写 SQL；
   TAP 失败 502 `UPSTREAM_TAP_ERROR` 且不写部分数据。详见 `docs/CATALOG.md` §5.9。
+- **第二/第三目录（派生，不联网）**：`tools/derive_secondary_catalogs.py --db ...`
+  从 Gaia 缓存派生 `2mass`（8,278 唯一 ID）与 `wise`（7,898 唯一 ID）release；
+  坐标/PM 沿用 Gaia，7 场复制，`provenance=derived_from_gaia_cache`。
+  这是交叉证认子集，不是完整 2MASS/WISE。
+- **SIMBAD 名称**：`tools/import_simbad.py --db ...` 只 enrich 7 个 preset target
+  的名称/ID；当前 TAP 不可用，`simbad=unavailable`，不建 SIMBAD 场目录、不参与位置匹配。
+  `GET /api/v1/catalog/targets` 查看名称与状态。
 - **数据范围**：Gaia DR3，7 个预设场 × 0.25° × G≤20，合计 **17,679 源**。
   这是**按场缓存，不是 Gaia 全量**，也不是全天可按需查询的服务；缓存外查询返回
   `CATALOG_UNAVAILABLE`。真实 TAP 抓取/导入时间见 release 的 `imported_at` 与
@@ -94,7 +101,8 @@ $PY catalog_server.py --port 8799             # 只绑 127.0.0.1
   元数据见同名 `.meta.json`，说明见 [`docs/CATALOG.md`](docs/CATALOG.md)。
 - **2MASS/WISE 测光**：`jmag/hmag/kmag/w1/w2` 来自 IRSA Gator 的 2MASS PSC
   与 AllWISE，按 Gaia 交叉证认 ID 对回；真实 7 场缓存覆盖 2MASS 8,419 条（47.6%）、
-  WISE 8,052 条（45.5%），未覆盖/无质量值为 null（不是 0）。2MASS/WISE 为公共领域数据；
+  WISE 8,052 条（45.5%），未覆盖/无质量值为 null（不是 0）。派生 release 去重后
+  2MASS 8,278、WISE 7,898 唯一 ID；2MASS/WISE 为公共领域数据；
   Gator 失败时整列保持 null，并标 `photometry.status=partial`。
 - **不提交**：`var/star_catalog.sqlite`（约 7 MB 真实缓存）已被 `.gitignore` 忽略，
   本地保留供测试；`.tmp_hp/`（HEALPix 临时依赖）已删除。
@@ -361,16 +369,19 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── star_schema.py     星表 schema（release/source/field/match）
 │   ├── star_catalog.py    星表锥搜索/匹配/导入/持久化
 │   ├── gaia_tap.py        Gaia DR3 TAP 客户端 + fixture
+│   ├── simbad.py          SIMBAD 名称 enrichment（不做位置匹配）
 │   ├── healpix.py         纯 Python HEALPix NESTED ang2pix
 │   └── bench.py           查询基准
 ├── tools/
 │   ├── import_all.sh          一键导入
 │   ├── import_gaia.py         Gaia 星表缓存导入（TAP/离线 fixture）
+│   ├── derive_secondary_catalogs.py  2MASS/WISE 交叉证认子集派生
+│   ├── import_simbad.py       SIMBAD 名称 enrichment（TAP 不可用标 unavailable）
 │   ├── check_compat.py        导出 JSON 与两个项目逐项对账
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 126 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 42 个、时间窗 8 个）
+├── tests/                 133 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 49 个、时间窗 8 个）
 ├── tests/fixtures/        gaia_dr3_sample.csv（250 行真实 Gaia 子集，仅测试）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/

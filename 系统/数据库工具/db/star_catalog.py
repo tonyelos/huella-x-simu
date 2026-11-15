@@ -40,6 +40,8 @@ from .star_config import (
     MAX_MATCH_DETECTIONS,
     MAX_MATCH_RADIUS_ARCSEC,
     MAX_QUERY_RADIUS_DEG,
+    PRESET_FIELDS,
+    PRESET_TARGET_NAMES,
     SERVICE_NAME,
     STAR_SCHEMA_VERSION,
 )
@@ -303,6 +305,74 @@ class StarCatalog:
             out.append(d)
         return out
 
+    def _meta_value(self, key: str, default: str | None = None) -> str | None:
+        try:
+            row = self.conn.execute(
+                "SELECT value FROM star_meta WHERE key=?", (key,)
+            ).fetchone()
+        except sqlite3.Error:
+            return default
+        return row[0] if row else default
+
+    def target_names(self) -> dict:
+        """7 个 preset target 的名称/ID enrichment。
+
+        这些名称是项目策展元数据（provenance=preset_target_names），不是 SIMBAD
+        场目录，也不用于位置匹配。`simbad` 状态来自 star_meta；网络不可用时为
+        `unavailable`，不能把本地名称说成 SIMBAD 在线查询结果。
+        """
+        status = self._meta_value("simbad_status", "unavailable") or "unavailable"
+        note = self._meta_value("simbad_note")
+        try:
+            rows = self.conn.execute(
+                "SELECT * FROM target_name ORDER BY target_id"
+            ).fetchall()
+        except sqlite3.Error:
+            rows = []
+        targets: list[dict] = []
+        if rows:
+            for r in rows:
+                d = dict(r)
+                raw = d.pop("aliases_json", None)
+                try:
+                    d["aliases"] = json.loads(raw) if raw else []
+                except (TypeError, json.JSONDecodeError):
+                    d["aliases"] = []
+                d["simbad_status"] = status
+                preset = PRESET_FIELDS.get(d.get("target_id"), {})
+                if d.get("ra") is None:
+                    d["ra"] = preset.get("ra")
+                if d.get("dec") is None:
+                    d["dec"] = preset.get("dec")
+                targets.append(d)
+        else:
+            for target_id, item in PRESET_TARGET_NAMES.items():
+                targets.append(
+                    {
+                        "target_id": target_id,
+                        "name": item["name"],
+                        "simbad_id": item.get("simbad_id"),
+                        "aliases": list(item.get("aliases") or []),
+                        "object_type": item.get("object_type"),
+                        "provenance": "preset_target_names",
+                        "simbad_status": status,
+                        "note": item.get("note"),
+                    }
+                )
+        return {
+            "catalog": "preset_target_names",
+            "simbad": status,
+            "simbad_note": note,
+            "targets": targets,
+            "count": len(targets),
+            "note": (
+                "SIMBAD TAP 不可用：以下名称是项目 preset target 元数据，"
+                "不是 SIMBAD 场目录/在线查询结果，也不参与位置匹配。"
+                if status == "unavailable"
+                else "名称 enrichment 仅为 preset target 元数据；SIMBAD 场锥搜索未接入。"
+            ),
+        }
+
     def get_release(self, catalog: str = "gaia", version: str | None = None) -> dict:
         if not catalog:
             raise CatalogValidationError("catalog 不能为空")
@@ -331,6 +401,12 @@ class StarCatalog:
             "SELECT COUNT(*) FROM catalog_source WHERE release_id=?", (release["release_id"],)
         ).fetchone()[0]
         release["n_sources_actual"] = int(n)
+        release["n_fields"] = int(
+            self.conn.execute(
+                "SELECT COUNT(*) FROM catalog_field WHERE release_id=?",
+                (release["release_id"],),
+            ).fetchone()[0]
+        )
         if n == 0:
             raise CatalogUnavailable(
                 f"星表 {release['release']} 存在但没有源（空 release）",
@@ -376,6 +452,7 @@ class StarCatalog:
             "db_schema_version": stats["db"]["schema_version"],
             "counts": stats["counts"],
             "releases": stats["releases"],
+            "simbad": self._meta_value("simbad_status", "unavailable") or "unavailable",
             "db": stats["db"],
             "generated_at": stats["generated_at"],
         }
@@ -434,13 +511,24 @@ class StarCatalog:
             "mag_limit": release.get("mag_limit"),
             "n_cached_sources": int(best.get("n_sources") or 0),
         }
-        if best.get("provenance") != "tap":
-            # fixture/mixed 只是真实行的小样本，不是完整场缓存；不能声称完整。
+        prov = best.get("provenance")
+        if prov == "derived_from_gaia_cache":
+            # 派生目录只含 Gaia 缓存中带交叉证认 ID+星等的子集，不是完整目录。
+            cov["complete"] = False
+            cov["warning"] = (
+                "该场是 Gaia 缓存派生的 2MASS/WISE 交叉证认子集，不是完整星表；"
+                "缺失交叉证认/星等的源不会出现，complete=false。"
+            )
+        elif prov == "fixture":
+            # fixture 只是真实行的小样本，不是完整场缓存；不能声称完整。
             cov["complete"] = False
             cov["warning"] = (
                 "该场来自 fixture 小样本（真实 Gaia 行，但不是完整场缓存）；"
                 "fixture 缺失的源不会出现在结果里，complete=false。"
             )
+        elif prov != "tap":
+            cov["complete"] = False
+            cov["warning"] = f"该场 provenance={prov}，不是完整 TAP 缓存；complete=false。"
         elif not complete:
             if best_margin < 0:
                 cov["warning"] = (
@@ -1260,6 +1348,162 @@ class StarCatalog:
             "source_url": release.get("source_url"),
             "warnings": warnings,
         }
+
+    def derive_secondary_catalogs(
+        self,
+        *,
+        gaia_version: str = "dr3",
+        replace: bool = True,
+    ) -> dict:
+        """从 Gaia 缓存派生 2MASS / WISE 交叉证认子集。
+
+        只收录同时有交叉证认 ID 与对应真实星等的源：
+        - 2mass: twomass_id + jmag/hmag/kmag
+        - wise:  wise_id + w1/w2
+        坐标沿用 Gaia 坐标（同 epoch_ref/MJD），provenance=derived_from_gaia_cache。
+        这是**交叉证认子集，不是完整 2MASS/WISE 目录**；7 个 field 元数据复制。
+        """
+        if self.readonly:
+            raise CatalogError("只读连接不能派生目录")
+        apply_star_schema(self.conn)
+        gaia = self.get_release("gaia", gaia_version)
+        fields = self.fields(gaia["release_id"])
+        if not fields:
+            raise CatalogError("Gaia release 没有 field 元数据，无法派生场目录")
+
+        configs = (
+            {
+                "catalog": "2mass",
+                "id_col": "twomass_id",
+                "mag_cols": ("jmag", "hmag", "kmag"),
+                "version": f"derived-gaia-{gaia_version}",
+                "license": "Public domain (2MASS/IPAC/Caltech/UMass)",
+                "citation": (
+                    "2MASS PSC (Skrutskie et al. 2006, AJ 131, 1163); "
+                    "derived crossmatch subset from Gaia DR3"
+                ),
+                "source_url": "https://irsa.ipac.caltech.edu/Missions/2mass.html",
+            },
+            {
+                "catalog": "wise",
+                "id_col": "wise_id",
+                "mag_cols": ("w1", "w2"),
+                "version": f"derived-gaia-{gaia_version}",
+                "license": "Public domain (NASA/JPL-Caltech)",
+                "citation": (
+                    "AllWISE Source Catalog (Wright et al. 2010, AJ 140, 1868; "
+                    "Cutri et al. 2021, VizieR II/328); derived crossmatch subset from Gaia DR3"
+                ),
+                "source_url": "https://irsa.ipac.caltech.edu/Missions/wise.html",
+            },
+        )
+
+        results: dict = {"gaia_release": gaia["release"], "gaia_version": gaia_version}
+        for conf in configs:
+            catalog = conf["catalog"]
+            id_col = conf["id_col"]
+            mag_cols = conf["mag_cols"]
+            where = [f"{id_col} IS NOT NULL"] + [f"{m} IS NOT NULL" for m in mag_cols]
+            rows = self.conn.execute(
+                "SELECT * FROM catalog_source WHERE release_id=? AND "
+                + " AND ".join(where),
+                (gaia["release_id"],),
+            ).fetchall()
+            field_counts: dict[str, int] = {f["field_id"]: 0 for f in fields}
+            sources: list[dict] = []
+            skipped_no_field = 0
+            seen_ids: set[str] = set()
+            for r in rows:
+                fld = r["field_id"]
+                if not fld:
+                    skipped_no_field += 1
+                    continue
+                # catalog_source 以 catalog_id 唯一；跨场/重复证认只保留第一行。
+                if r[id_col] in seen_ids:
+                    continue
+                seen_ids.add(r[id_col])
+                field_counts[fld] = field_counts.get(fld, 0) + 1
+                src = {
+                    "catalog_id": r[id_col],
+                    "field_id": fld,
+                    "ra": r["ra"],
+                    "dec": r["dec"],
+                    "pmra": r["pmra"],
+                    "pmdec": r["pmdec"],
+                    "parallax": r["parallax"],
+                    "epoch_ref": r["epoch_ref"],
+                    "object_type": r["object_type"],
+                    "provenance": "derived_from_gaia_cache",
+                }
+                if catalog == "2mass":
+                    src.update(
+                        {
+                            "twomass_id": r[id_col],
+                            "jmag": r["jmag"],
+                            "hmag": r["hmag"],
+                            "kmag": r["kmag"],
+                        }
+                    )
+                else:
+                    src.update({"wise_id": r[id_col], "w1": r["w1"], "w2": r["w2"]})
+                sources.append(src)
+
+            field_meta = [
+                {
+                    "field_id": f["field_id"],
+                    "field_name": f.get("field_name"),
+                    "ra": f["ra"],
+                    "dec": f["dec"],
+                    "radius_deg": f["radius_deg"],
+                    "n_sources": field_counts.get(f["field_id"], 0),
+                    "provenance": "derived_from_gaia_cache",
+                    "photometry": {
+                        "status": "derived_from_gaia_cache",
+                        "source": "Gaia cache crossmatch columns",
+                        "note": "只含 Gaia 缓存中带对应交叉证认 ID 与星等的源，不是完整目录",
+                    },
+                }
+                for f in fields
+            ]
+            notes = (
+                f"derived from {gaia['release']} cache; "
+                f"subset with {id_col} and {','.join(mag_cols)}; "
+                f"{len(sources)} sources; NOT a complete {catalog.upper()} catalog; "
+                "coordinates/PM are Gaia coordinates (J2016.0), not the original survey epoch; "
+                "no full-sky download."
+            )
+            rel = self.import_release(
+                catalog=catalog,
+                version=conf["version"],
+                epoch_ref=gaia["epoch_ref"],
+                epoch_mjd=gaia["epoch_mjd"],
+                license=conf["license"],
+                citation=conf["citation"],
+                source_url=conf["source_url"],
+                provenance="derived_from_gaia_cache",
+                sources=sources,
+                fields=field_meta,
+                release_key=f"{catalog}-derived-gaia-{gaia_version}",
+                cache_radius_deg=gaia.get("cache_radius_deg"),
+                mag_limit=gaia.get("mag_limit"),
+                notes=notes,
+                replace=replace,
+                run_mode="derive",
+            )
+            results[catalog] = {
+                "release": rel["release"],
+                "version": rel["version"],
+                "n_sources": rel["n_sources_actual"],
+                "n_input_rows": len(rows),
+                "n_unique_ids": len({r[id_col] for r in rows}),
+                "n_fields": rel["n_fields"],
+                "provenance": "derived_from_gaia_cache",
+                "license": conf["license"],
+                "field_counts": field_counts,
+                "skipped_no_field": skipped_no_field,
+                "n_duplicate_ids": len(rows) - len(seen_ids) - skipped_no_field,
+            }
+        return results
 
     def import_release(
         self,

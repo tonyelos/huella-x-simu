@@ -12,11 +12,12 @@
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
 from .connection import connect, utcnow
-from .star_config import STAR_SCHEMA_VERSION
+from .star_config import PRESET_FIELDS, PRESET_TARGET_NAMES, STAR_SCHEMA_VERSION
 
 STAR_TABLES_DDL = r"""
 PRAGMA foreign_keys = ON;
@@ -119,6 +120,19 @@ CREATE TABLE IF NOT EXISTS catalog_match (
 CREATE INDEX IF NOT EXISTS idx_catalog_match_analysis ON catalog_match(analysis_id);
 CREATE INDEX IF NOT EXISTS idx_catalog_match_source ON catalog_match(source_id);
 CREATE INDEX IF NOT EXISTS idx_catalog_match_release ON catalog_match(release_id);
+
+CREATE TABLE IF NOT EXISTS target_name (
+    target_id       TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    simbad_id       TEXT,
+    aliases_json    TEXT,
+    object_type     TEXT,
+    ra              REAL,
+    dec             REAL,
+    provenance      TEXT NOT NULL DEFAULT 'preset_target_names',
+    simbad_status   TEXT NOT NULL DEFAULT 'unavailable',
+    updated_at      TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS catalog_import_run (
     run_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,6 +265,28 @@ def apply_star_schema(conn: sqlite3.Connection) -> None:
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         (str(STAR_SCHEMA_VERSION),),
     )
+    # 名称 enrichment 是策展的 preset target 元数据，不是 SIMBAD 场目录。
+    now = utcnow()
+    for target_id, item in PRESET_TARGET_NAMES.items():
+        conn.execute(
+            """INSERT INTO target_name(
+                   target_id, name, simbad_id, aliases_json, object_type,
+                   ra, dec, provenance, simbad_status, updated_at)
+               VALUES(?,?,?,?,?,?,?,'preset_target_names','unavailable',?)
+               ON CONFLICT(target_id) DO UPDATE SET
+                   ra=COALESCE(target_name.ra, excluded.ra),
+                   dec=COALESCE(target_name.dec, excluded.dec)""",
+            (
+                target_id,
+                item["name"],
+                item.get("simbad_id"),
+                json.dumps(item.get("aliases") or [], ensure_ascii=False),
+                item.get("object_type"),
+                PRESET_FIELDS.get(target_id, {}).get("ra"),
+                PRESET_FIELDS.get(target_id, {}).get("dec"),
+                now,
+            ),
+        )
     conn.execute(
         "INSERT INTO star_meta(key, value) VALUES('updated_at', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
