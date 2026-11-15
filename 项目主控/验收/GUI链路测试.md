@@ -406,3 +406,29 @@ POST /api/identify/batch/export?format=csv|json&kind=A|C&target=barnard
 - CSV 按候选展开；
 - JSON 保留 sources/results/byId/candidates；
 - 实测 1 源导出正常。
+
+---
+
+## 16. 实际 2MASS/WISE + 单目标多目录 + conflict 仲裁
+
+- B schema v5：5 releases / 66,303 行 / 35 fields；
+  - Gaia 17,679
+  - 2MASS IRSA 8,674
+  - WISE IRSA 23,774
+  - 旧 derived 8,278/7,898 保留
+- 单目标 `/api/analyze` 请求 `gaia+2mass+wise`；
+- 同源跨目录 2.0″ 合并，Gaia primary，附 crossmatches；
+- 6.15″ 偏移门限：WISE 15.4″ → insufficient；
+- R Dra 2MASS/WISE 同源 >0.5″、<2″ → known；
+- 统一目录 conflict 仲裁：
+  `ambiguous > known > insufficient > no_match > unknown`；
+  known-vs-known 不同 catalog ID 才 conflict；
+- 官方 5 目标：**4 PASS + 1 DATA_LIMITED**。
+
+当前统一目录（Barnard）：
+
+```text
+rows 467 · unique_sources 217 · tracks 250
+known 131 · ambiguous 36 · no_match 46 · insufficient 4
+unknown 0 · conflict 0
+```

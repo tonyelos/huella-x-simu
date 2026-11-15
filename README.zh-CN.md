@@ -46,13 +46,13 @@ MoveScope 是候选审查工具，不是发现引擎。对目标输出以下运�
 
 ## 2. 当前状态
 
-app 测试套件当前为 **286 项**：
+app 测试套件当前为 **291 项**：
 
 ```bash
 PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
 cd 系统/app
 $PY -m unittest discover -s tests
-# Ran 286 tests ... OK
+# Ran 291 tests ... OK
 ```
 
 近期完成的能力：
@@ -335,10 +335,10 @@ A/C 批量请求：
 {"catalogs": ["gaia", "2mass", "wise"]}
 ```
 
-2MASS/WISE 是 Gaia 缓存的**派生交叉证认子集**，不是完整巡天。
-B 可能返回 `catalog_status=partial`。客户端：
+2MASS/WISE 已接入 **7 个预设场的 IRSA Gator 实际缓存**（2MASS 8,674；WISE 23,774），
+另保留旧 derived release；仍不是全球巡天，7 场之外不可直接查询。客户端：
 
-- 不同目录候选在 **0.5″** 内合并为同一物理源；
+- 不同目录候选在 **2.0″** 内合并为同一物理源；
 - primary 优先 Gaia，其次 2MASS，再 WISE；
 - 其他目录放进 `crossmatches`；
 - 不同位置不合并；两个物理组才是 ambiguous；
@@ -418,7 +418,7 @@ export MOVESCOPE_CATALOG_INGEST_TIMEOUT=60
 PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
 cd 系统/app
 $PY -m unittest discover -s tests -v
-# Ran 286 tests ... OK
+# Ran 291 tests ... OK
 ```
 
 覆盖：sample/real、FOV 校验、缓存/LRU、目标坐标冲突、schema 契约、
@@ -511,7 +511,7 @@ app 不会静默换端口；启动器不会替换 PID/命令行不匹配的在�
 2. **像素尺度。** SPHEREx 约 6.15″/像素；短基线对 μ < 0.5″/yr 只能给上限。
 3. **饱和。** Barnard 等目标会饱和，bloom 质心误差大，显式标
    `SATURATED_SOURCE`，不把先验伪装成实测。
-4. **星表覆盖。** B 可能 partial；2MASS/WISE 是派生交叉子集，不是完整巡天。
+4. **星表覆盖。** B 只有 7 个预设场；2MASS/WISE 是这些场的实际 IRSA Gator 缓存，不是全球巡天。旧 derived release 保留但明确标记。
    `partial`/`catalog_unavailable` 不能当“未找到”。
 5. **4 期歧义。** 4 期关联本身欠定，D0–D4 是候选，不是确认。
 6. **残差。** 级联 residual 可能包含 PSF 翼、边缘伪源和噪声；

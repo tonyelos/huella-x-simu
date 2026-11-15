@@ -51,13 +51,13 @@ match” means “uncatalogued candidate”, never “new star” or “new plan
 
 ## 2. Current status
 
-The app-side test suite currently has **286 tests**:
+The app-side test suite currently has **291 tests**:
 
 ```bash
 PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
 cd 系统/app
 $PY -m unittest discover -s tests
-# Ran 286 tests ... OK
+# Ran 291 tests ... OK
 ```
 
 Recent capabilities:
@@ -357,10 +357,11 @@ A/C batch requests use:
 {"catalogs": ["gaia", "2mass", "wise"]}
 ```
 
-2MASS/WISE are **derived cross-match subsets of the Gaia cache**, not complete
-surveys. The B service may report `catalog_status=partial`. The client:
+2MASS/WISE now have **actual IRSA Gator field caches for the 7 preset fields**
+(2MASS 8,674; WISE 23,774), plus legacy derived releases. They are not global
+surveys; queries outside the 7 fields remain unavailable. The client:
 
-- groups candidates from different catalogs within **0.5″**;
+- groups candidates from different catalogs within **2.0″**;
 - prefers Gaia as the primary candidate, then 2MASS, then WISE;
 - keeps other-catalog rows under `crossmatches`;
 - does not merge two different positions; two physical groups remain
@@ -446,7 +447,7 @@ reported as `NO_LOCAL_COVERAGE` or `DB_UNAVAILABLE` when absent.
 PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
 cd 系统/app
 $PY -m unittest discover -s tests -v
-# Ran 286 tests ... OK
+# Ran 291 tests ... OK
 ```
 
 Coverage includes: sample/real modes, FOV validation, caching and LRU,
@@ -546,8 +547,9 @@ to replace a live service with a mismatched PID.
    often `S` with an upper limit.
 3. **Saturation.** Barnard's Star is saturated in some SPHEREx data; bloom
    centroid errors are large and explicitly flagged (`SATURATED_SOURCE`).
-4. **Catalog coverage.** B may be partial; 2MASS/WISE are derived cross-match
-   subsets of the Gaia cache, not complete surveys. `partial` and
+4. **Catalog coverage.** B has 7 preset fields only; 2MASS/WISE are actual
+   IRSA Gator field caches for those fields, not global surveys. Legacy derived
+   releases are retained but marked derived. `partial` and
    `catalog_unavailable` are not “not found”.
 5. **4-epoch ambiguity.** Cross-epoch association with only four epochs is
    underdetermined; D0–D4 are candidates, not confirmation.

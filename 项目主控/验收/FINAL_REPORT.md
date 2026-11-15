@@ -64,7 +64,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 | 组件 | 命令 | 结果 |
 |---|---|---|
 | app | `cd 系统/app && $PY -m unittest discover -s tests` | **271 tests OK** |
-| DB | `cd 系统/数据库工具 && $PY -m unittest discover -s tests -t .` | **133 tests OK** |
+| DB | `cd 系统/数据库工具 && $PY -m unittest discover -s tests -t .` | **137 tests OK** |
 | DB 完整性 | `$PY cli.py verify --deep` | quick ok / 0 FK / 0 missing / 0 corrupt |
 | DB 导出对账 | `check_compat.py --root ..` | fields 5,893 / epochs 74 / targets 7 / weeks 151 全过 |
 | view | `$PY tools/smoke.py` | **全部 PASS / 0 warning** |
@@ -143,7 +143,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 数据接收接口：[../架构/17_数据接收接口与自动缓存.md](../架构/17_数据接收接口与自动缓存.md)（Gaia TAP → SQL ingest → app 自动重试）。
 
-数据接收接口已实现：B `POST /api/v1/catalog/ingest` 场级 TAP→SQL；app `CATALOG_AUTO_INGEST=1` 可自动 ingest+重试一次；DB 133 tests / app 271 tests。TAP 当前超时只验证 502 不写，fake TAP 路径通过。
+数据接收接口已实现：B `POST /api/v1/catalog/ingest` 场级 TAP→SQL；app `CATALOG_AUTO_INGEST=1` 可自动 ingest+重试一次；DB 137 tests / app 271 tests。TAP 当前超时只验证 502 不写，fake TAP 路径通过。
 
 全量缓存功能验证：B 17,679 源/7 场/schema v3；C 47 源 → 31 single/6 ambiguous/10 no_match；tracks D1=11；官方基准 4 PASS + 1 DATA_LIMITED（WISE 20.3″ 候选被 6.15″ 门限拒绝）。见 [官方案例基准_fullcache.md](官方案例基准_fullcache.md)、[星表识别覆盖率.md](星表识别覆盖率.md)。
 
@@ -163,7 +163,7 @@ A 源表批量识别已实现：215 源 → known 130 / ambiguous 33 / no_match 
 
 星表可用性检查：[星表可用性检查.md](星表可用性检查.md)（7 场/17,679 源可用；任意新天区 503；不是全量 Gaia）。
 
-后续五项：JSON/服务端导出 DONE；CSV 多候选 DONE；2MASS/WISE 派生目录 + SIMBAD 名称 DONE（SIMBAD TAP unavailable）；TAP 真实 ingest BLOCKED（上游超时）；统一候选目录 DONE（A/C 217 source + 250 tracks，no_match 49）。
+后续五项：JSON/服务端导出 DONE；CSV 多候选 DONE；2MASS/WISE **实际 IRSA 7 场目录** DONE（SIMBAD 在线仍 unavailable）；TAP 真实 ingest BLOCKED（上游超时）；统一候选目录 DONE（A/C 217 source + 250 tracks，conflict 仲裁完成）。
 
 批量结果审计导出计划：[../架构/20_批量结果审计导出.md](../架构/20_批量结果审计导出.md)（CSV/JSON，含 RUWE 与 J/H/K/W1/W2）。
 
@@ -182,7 +182,7 @@ A 源表批量识别计划：[../架构/19_A源表批量识别.md](../架构/19_
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
 - 状态：`known_star / ambiguous / uncatalogued_candidate / insufficient_data / catalog_unavailable`；全部 `discovery_claim=false`。
 - 已知源显示 `source_id`/release/角距/置信度；未匹配只标“未收录候选”，不是“新恒星”。
-- 测试：app **271 tests OK**（含 fake catalog HTTP、503/partial、source_id 字符串、UI 文案）；DB **133 tests OK**。
+- 测试：app **271 tests OK**（含 fake catalog HTTP、503/partial、source_id 字符串、UI 文案）；DB **137 tests OK**。
 - B v2：RUWE/astrometric excess noise/phot_variable_flag + 2MASS/WISE 测光；D 对 `RUWE>2` 降级为 ambiguous，`CATALOG_PERSIST=1` 时可选写 `catalog_match`。
 - 边界：B 的 7 MB Gaia 按场缓存不提交；真实演示需先 `import_gaia.py --rebuild`；2MASS/WISE 覆盖约 47.6%/45.5%，缺失保持 null；持久化默认关闭，`CATALOG_PERSIST=1` 才写。
 
@@ -194,7 +194,7 @@ A 源表批量识别计划：[../架构/19_A源表批量识别.md](../架构/19_
 - `POST /api/v1/ingest`：P0 支持本地 JSON manifest；P1A 支持本地 NPZ/FITS（allowed roots、202 异步、幂等、软回滚），用 app `detect_sources` 产出源列表。
 - `/api/v1/sources`：C-native 检测源；实测 Barnard 4 期 ingest 后 215 sources。
 - P1B：`/api/v1/discover`（week_index + S3 64KB 头）与 `/api/v1/fetch`（单张 S3/IRSA cutout，allowlist/大小上限）；源 `source_origin=on_demand_s3`。
-- 测试 **45 tests OK**；app 271、DB 133。
+- 测试 **45 tests OK**；app 271、DB 137。
 - 边界：完整天空索引、多历元重投影/共同网格、series 重算仍未实现；C 不是“任意天区完成”。
 
 ### 2.8 D-C P0 覆盖握手
