@@ -255,6 +255,34 @@ class ClassificationTest(unittest.TestCase):
         self.assertFalse(ident["discovery_claim"])
         self.assertNotIn("新恒星", ident["disclaimer"])
 
+    def test_offset_over_one_spherex_pixel_is_insufficient(self):
+        result = cat.normalize_match(_response([_candidate(sep=20.16)]))
+        ident = cat.identify(result, target=TARGET, motion=MOTION)
+        self.assertEqual(ident["status"], "insufficient_data")
+        self.assertEqual(ident["reason"], "CATALOG_OFFSET_TOO_LARGE")
+        self.assertEqual(ident["label_zh"], "数据不足")
+        self.assertIn("CATALOG_OFFSET_TOO_LARGE", ident["quality"])
+        self.assertAlmostEqual(ident["separation_arcsec"], 20.16)
+        self.assertIsNone(ident["catalog_id"])
+        self.assertIsNone(ident["source_id"])
+        self.assertEqual(len(ident["candidates"]), 1)
+        self.assertEqual(ident["candidates"][0]["catalog_id"], "4472832130942575872")
+        self.assertIn("20.16", " ".join(ident["caveats"]))
+        self.assertIn("6.15", " ".join(ident["caveats"]))
+        self.assertIn("未匹配不等于新天体", ident["disclaimer"])
+
+    def test_offset_boundary_6p0_known_and_6p3_insufficient(self):
+        ok = cat.identify(cat.normalize_match(_response([_candidate(sep=6.0)])), target=TARGET, motion=MOTION)
+        self.assertEqual(ok["status"], "known_star")
+        far = cat.identify(cat.normalize_match(_response([_candidate(sep=6.3)])), target=TARGET, motion=MOTION)
+        self.assertEqual(far["status"], "insufficient_data")
+        self.assertEqual(far["reason"], "CATALOG_OFFSET_TOO_LARGE")
+
+    def test_barnard_offset_3p5_still_known(self):
+        ident = cat.identify(cat.normalize_match(_response([_candidate(sep=3.5253)])), target=TARGET, motion=MOTION)
+        self.assertEqual(ident["status"], "known_star")
+        self.assertEqual(ident["catalog_id"], "4472832130942575872")
+
     def test_partial_single_candidate_is_known_but_degraded(self):
         # B 的 fixture 缓存永远 coverage.complete=false；Barnard 验收需要在
         # fixture 可用时仍能 known，因此 partial + 唯一候选降级 known。
