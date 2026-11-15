@@ -93,6 +93,24 @@
 
 ---
 
+## 5.1 计划中的星表服务（尚未随仓库分发）
+
+> 状态：仅设计（`项目主控/架构/07_已知未知识别与数据比对设计.md`），**当前仓库未包含 Gaia/2MASS/WISE/CatWISE/SIMBAD 数据文件**。接入前必须逐项复核许可证并补入本文件。
+
+| 数据 | 许可证/条款 | 来源 | 接入注意 |
+|---|---|---|---|
+| Gaia DR3 | **CC BY-NC 3.0 IGO**（非 OSI；非商业限制） | <https://www.cosmos.esa.int/web/gaia-users/license>；<https://doi.org/10.1051/0004-6361/202243940> | 需署名 ESA/Gaia DPAC；商业使用需单独确认；NASA Space Apps Legal 对“第三方材料”的要求需项目方复核 |
+| 2MASS | NASA/IPAC 公开数据 | <https://www.ipac.caltech.edu/2mass/> | 署名 2MASS/IPAC |
+| WISE / AllWISE | NASA/IPAC 公开数据 | <https://wise2.ipac.caltech.edu/> | 署名 WISE/IPAC |
+| CatWISE2020 | NASA/IPAC 公开数据 | <https://doi.org/10.3847/1538-4365/abd805> | 署名 CatWISE |
+| SIMBAD | CDS **ODbL**（署名/共享-alike） | <https://simbad.u-strasbg.fr/Files/public/CDS_SIMBAD_Terms_of_use_v1.0.pdf> | 若派生数据库对外分发，需按 ODbL 处理；名称/坐标引用 |
+| NASA Exoplanet Archive | NASA 公开数据 | <https://exoplanetarchive.ipac.caltech.edu/> | 署名 NASA/Exoplanet Archive；仅宿主排除 |
+| JPL Horizons / MPC | NASA/JPL、IAU MPC 公开数据 | <https://ssd.jpl.nasa.gov/horizons/>；<https://www.minorplanetcenter.net/> | 署名；查询限流 |
+
+**合规风险提示**：Gaia 的 CC BY-NC 与 SIMBAD 的 ODbL 都不是 OSI 软件许可证；它们作为“数据”使用，需按各自条款处理，并确认 NASA Space Apps Legal 对“space agency partner data”的适用性。接入前不要把“未匹配”说成“新星”。
+
+---
+
 ## 6. 字体与图标
 
 - 本项目 CSS 使用系统字体栈；`--sans` 首选 `"Inter"`，但**不下载/不分发 Inter 字体文件**，缺失时回退到
@@ -107,7 +125,7 @@
 
 1. 本项目原创内容按 **Apache-2.0** 开源；未指定其他许可证。
 2. 所有第三方代码/数据/图片/参考资料已在本文件或 `系统/参考 资料/NOTICE.md` 中引用；NASA 可据此核验。
-3. three.js（MIT）与 Apache-2.0 兼容；NASA 数据/影像按 NASA 条款使用；SIMBAD 坐标按 CDS 引用。
+3. three.js（MIT）与 Apache-2.0 兼容；NASA 数据/影像按 NASA 条款使用；SIMBAD 坐标按 CDS 引用。计划中的 Gaia/SIMBAD 星表尚未随仓库分发，接入前需按 §5.1 复核许可。
 4. 本项目不包含 export-controlled 信息，不包含第三方机密信息，不暗示 NASA 背书。
 5. 若发现任何未列出的第三方材料，请在提交前补充到本文件并确认其许可证；NASA 可因未引用而取消提名/奖项。
 
