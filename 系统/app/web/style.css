@@ -511,3 +511,6 @@ body.expert .readiness .ready-row span { color: inherit; }
 .a-source-panel #aSourceSummary { margin: 4px 9px; }
 .a-source-table-wrap { overflow-x: hidden; }
 .anyfield-sources { overflow-x: hidden; }
+.a-source-actions { margin-left: auto; display: inline-flex; gap: 4px; align-items: center; }
+.a-source-panel summary button { margin-left: 0; }
+#exportASourcesBtn, #exportCSourcesBtn { white-space: nowrap; }
