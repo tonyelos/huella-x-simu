@@ -8,6 +8,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
@@ -153,6 +154,68 @@ class CascadeHTTPTest(unittest.TestCase):
         self.assertIn("残差候选不是新天体", body["disclaimer"])
         self.assertIsInstance(body["epochs"][0]["l1"][0]["source_id"], str)
 
+    def _four_epochs(self):
+        return [replace(self.epoch, id=f"e{i}", mjd=60916.0 + i * 10.0) for i in range(4)]
+
+    def test_time_window_two_epochs(self):
+        meta = {"mode": "real", "fallback_reason": None, "note": "test"}
+        with mock.patch.object(
+            server.data_layer, "build_dataset", return_value=(self.target, self._four_epochs(), None, meta)
+        ):
+            status, body = self._get("target_id=barnard&fov=0.2&t0=60916&t1=60926")
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["time_filter"]["filtered"])
+        self.assertEqual(body["time_filter"]["requested"], 4)
+        self.assertEqual(body["time_filter"]["kept"], 2)
+        self.assertEqual(body["counts"]["n_epochs"], 2)
+        self.assertEqual(len(body["epochs"]), 2)
+
+    def test_time_window_zero_epochs_is_200_empty(self):
+        meta = {"mode": "real", "fallback_reason": None, "note": "test"}
+        with mock.patch.object(
+            server.data_layer, "build_dataset", return_value=(self.target, self._four_epochs(), None, meta)
+        ):
+            status, body = self._get("target_id=barnard&fov=0.2&t0=70000&t1=70001")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["time_filter"]["kept"], 0)
+        self.assertEqual(body["counts"]["n_epochs"], 0)
+        self.assertEqual(body["epochs"], [])
+        self.assertIn("没有历元", body["note"])
+
+    def test_time_window_one_epoch_is_200(self):
+        meta = {"mode": "real", "fallback_reason": None, "note": "test"}
+        with mock.patch.object(
+            server.data_layer, "build_dataset", return_value=(self.target, self._four_epochs(), None, meta)
+        ):
+            status, body = self._get("target_id=barnard&fov=0.2&t0=60916&t1=60916")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["time_filter"]["kept"], 1)
+        self.assertEqual(body["counts"]["n_epochs"], 1)
+
+    def test_time_window_alias_and_invalid(self):
+        meta = {"mode": "real", "fallback_reason": None, "note": "test"}
+        with mock.patch.object(
+            server.data_layer, "build_dataset", return_value=(self.target, self._four_epochs(), None, meta)
+        ):
+            status, body = self._get("target_id=barnard&fov=0.2&mjd_min=60916&mjd_max=60926")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["time_filter"]["kept"], 2)
+        status, body = self._get("target_id=barnard&fov=0.2&t0=60930&t1=60916")
+        self.assertEqual(status, 400, body)
+        self.assertEqual(body["error"]["code"], "INVALID_TIME_WINDOW")
+
+    def test_no_time_window_keeps_old_behavior(self):
+        meta = {"mode": "real", "fallback_reason": None, "note": "test"}
+        with mock.patch.object(
+            server.data_layer, "build_dataset", return_value=(self.target, self._four_epochs(), None, meta)
+        ):
+            status, body = self._get("target_id=barnard&fov=0.2")
+        self.assertEqual(status, 200, body)
+        self.assertFalse(body["time_filter"]["filtered"])
+        self.assertEqual(body["time_filter"]["requested"], 4)
+        self.assertEqual(body["time_filter"]["kept"], 4)
+        self.assertEqual(body["counts"]["n_epochs"], 4)
+
     def test_cascade_db_unavailable_503(self):
         meta = {"mode": "synthetic", "fallback_reason": "DB_UNAVAILABLE", "note": "db down"}
         with mock.patch.object(
@@ -202,6 +265,12 @@ class CascadePageStaticTest(unittest.TestCase):
         self.assertIn("catalog_unavailable", js)
         self.assertIn("残差候选", js)
         self.assertIn("/cascade", index)
+        self.assertIn('id="t0"', html)
+        self.assertIn('id="t1"', html)
+        self.assertIn('id="viewLink"', html)
+        self.assertIn("time_filter", js)
+        self.assertIn("timeFilterText", js)
+        self.assertIn("viewLink", js)
         for text in (html, js):
             self.assertNotIn("新恒星", text)
             self.assertNotIn("新行星", text)

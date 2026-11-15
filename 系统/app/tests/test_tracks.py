@@ -154,6 +154,35 @@ class TracksHTTPTest(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read())
 
+    def test_tracks_time_filter_zero_is_200_empty(self):
+        empty = _cascade_payload()
+        empty["counts"] = {"n_epochs": 0, "l1": 0, "masked": 0, "residual": 0}
+        empty["epochs"] = []
+        empty["time_filter"] = {"t0": 70000.0, "t1": 70001.0, "requested": 4, "kept": 0, "filtered": True}
+        empty["note"] = "时间窗口内没有历元"
+        with mock.patch.object(server, "run_cascade", return_value=empty):
+            status, body = self._get("target_id=barnard&fov=0.2&t0=70000&t1=70001")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["counts"]["D0"] + body["counts"]["D1"] + body["counts"]["D2"] + body["counts"]["D3"] + body["counts"]["D4"], 0)
+        self.assertEqual(body["tracks"], [])
+        self.assertTrue(body["insufficient"])
+        self.assertEqual(body["time_filter"]["kept"], 0)
+
+    def test_tracks_one_epoch_is_insufficient(self):
+        one = _cascade_payload()
+        one["epochs"] = one["epochs"][:1]
+        one["counts"] = {"n_epochs": 1, "l1": 4, "masked": 4, "residual": 4}
+        one["time_filter"] = {"t0": 60916.0, "t1": 60916.0, "requested": 4, "kept": 1, "filtered": True}
+        one["note"] = "时间窗口保留 1/4 期"
+        with mock.patch.object(server, "run_cascade", return_value=one):
+            status, body = self._get("target_id=barnard&fov=0.2&t0=60916&t1=60916")
+        self.assertEqual(status, 200, body)
+        self.assertTrue(body["insufficient"])
+        self.assertEqual(body["time_filter"]["kept"], 1)
+        self.assertTrue(body["tracks"])
+        self.assertTrue(all(t["n_epochs"] == 1 for t in body["tracks"]))
+        self.assertTrue(all("insufficient_epochs" in t["caveats"] for t in body["tracks"]))
+
     def test_tracks_200(self):
         class DownCatalog:
             def match(self, **kwargs):
@@ -226,6 +255,12 @@ class TracksPageStaticTest(unittest.TestCase):
         self.assertIn("/api/identify", js)
         self.assertIn("轨迹候选不是新天体", html + js)
         self.assertIn("D5", html)
+        self.assertIn('id="t0"', html)
+        self.assertIn('id="t1"', html)
+        self.assertIn('id="viewLink"', html)
+        self.assertIn("time_filter", js)
+        self.assertIn("timeFilterText", js)
+        self.assertIn("viewLink", js)
         for text in (html, js):
             self.assertNotIn("新恒星", text)
             self.assertNotIn("新行星", text)

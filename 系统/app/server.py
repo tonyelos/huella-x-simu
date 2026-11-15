@@ -825,6 +825,33 @@ def run_identify(payload: dict) -> dict:
     return ident
 
 
+def _parse_time_window(q: dict):
+    """解析 t0/t1 或 mjd_min/mjd_max；返回 (t0,t1,requested)。无过滤返回 (None,None,False)。"""
+    def first(*names):
+        for name in names:
+            vals = q.get(name)
+            if vals and vals[0] not in (None, ""):
+                return vals[0]
+        return None
+
+    raw0 = first("t0", "mjd_min")
+    raw1 = first("t1", "mjd_max")
+    if raw0 is None and raw1 is None:
+        return None, None, False
+    if raw0 is None or raw1 is None:
+        raise ApiError(400, "INVALID_TIME_WINDOW", "t0/t1（或 mjd_min/mjd_max）必须同时提供。")
+    try:
+        t0 = float(raw0)
+        t1 = float(raw1)
+    except (TypeError, ValueError):
+        raise ApiError(400, "INVALID_TIME_WINDOW", "t0/t1 必须是 MJD 数字。")
+    if not (math.isfinite(t0) and math.isfinite(t1)):
+        raise ApiError(400, "INVALID_TIME_WINDOW", "t0/t1 必须是有限数字。")
+    if t0 > t1:
+        raise ApiError(400, "INVALID_TIME_WINDOW", "t0 必须 ≤ t1。")
+    return t0, t1, True
+
+
 def run_cascade(q: dict) -> dict:
     """级联/残差页的数据端点：每个历元跑 L1 → mask → residual。
 
@@ -843,6 +870,7 @@ def run_cascade(q: dict) -> dict:
     if dec_raw is not None:
         payload["dec"] = dec_raw
     fov = validate_fov(fov_raw)
+    t0, t1, time_requested = _parse_time_window(q)
     tid, ra, dec, target_preset = resolve_request(payload)
 
     if tid != "custom":
@@ -862,11 +890,24 @@ def run_cascade(q: dict) -> dict:
     meta = meta or {}
     if meta.get("fallback_reason") == "DB_UNAVAILABLE":
         raise ApiError(503, "DB_UNAVAILABLE", "数据库不可用，无法读取真实历元；级联页不做 SIM 冒充。")
-    if not epochs:
+    requested_epochs = list(epochs)
+    if time_requested:
+        epochs = [
+            ep for ep in requested_epochs
+            if t0 <= float(getattr(ep, "mjd", float("nan"))) <= t1
+        ]
+    time_filter = {
+        "t0": t0,
+        "t1": t1,
+        "requested": len(requested_epochs),
+        "kept": len(epochs),
+        "filtered": bool(time_requested),
+    }
+    if not epochs and not time_requested:
         raise ApiError(503, "NO_EPOCHS", "该天区没有可用历元。")
-    if meta.get("mode") == "unavailable":
+    if epochs and meta.get("mode") == "unavailable":
         raise ApiError(503, "FETCH_FAILED", "真实历元取数失败，无法做级联检测。")
-    if all(str(getattr(ep, "provenance", "")) == "synthetic" for ep in epochs):
+    if epochs and all(str(getattr(ep, "provenance", "")) == "synthetic" for ep in epochs):
         raise ApiError(503, "NO_LOCAL_COVERAGE", "该天区只有 SIM 历元；级联页不把模拟数据当真实检测。")
 
     epoch_rows = []
@@ -915,7 +956,20 @@ def run_cascade(q: dict) -> dict:
         },
         "mode": meta.get("mode"),
         "fallback_reason": meta.get("fallback_reason"),
-        "note": meta.get("note"),
+        "note": (
+            (meta.get("note") or "")
+            + (
+                f" 时间窗口 MJD {t0:.3f}–{t1:.3f}：保留 {len(epochs)}/{len(requested_epochs)} 期。"
+                if time_requested and epochs
+                else (
+                    f" 时间窗口 MJD {t0:.3f}–{t1:.3f} 内没有历元（请求 {len(requested_epochs)} 期，保留 0 期）；"
+                    "未跑级联，不伪造数据。"
+                    if time_requested
+                    else ""
+                )
+            )
+        ).strip(),
+        "time_filter": time_filter,
         "coverage": meta.get("coverage"),
         "counts": {"n_epochs": len(epoch_rows), **totals},
         "limits": {
@@ -1000,6 +1054,12 @@ def run_tracks(q: dict) -> dict:
         max_catalog_checks=20,
     )
     track_counts = tracks_layer.counts(tracks)
+    time_filter = cascade.get("time_filter") or {}
+    kept = int(time_filter.get("kept") or len(epochs))
+    insufficient = kept < 2
+    note = cascade.get("note") or ""
+    if insufficient:
+        note = (note + f" 时间窗口内仅 {kept} 期；tracklet 只能给 insufficient/transient，不伪造运动。").strip()
     return {
         "schema_version": "1.0",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1007,7 +1067,9 @@ def run_tracks(q: dict) -> dict:
         "target": cascade.get("target"),
         "mode": cascade.get("mode"),
         "fallback_reason": cascade.get("fallback_reason"),
-        "note": cascade.get("note"),
+        "note": note,
+        "time_filter": time_filter,
+        "insufficient": insufficient,
         "cascade_counts": cascade.get("counts"),
         "counts": track_counts,
         "tracks": tracks,

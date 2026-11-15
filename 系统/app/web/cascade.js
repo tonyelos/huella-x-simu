@@ -25,6 +25,39 @@ function fmtSnr(v) {
   return v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(1);
 }
 
+function readTimeWindow() {
+  const t0 = $("#t0").value.trim();
+  const t1 = $("#t1").value.trim();
+  if (!t0 && !t1) return { ok: true, t0: null, t1: null };
+  if (!t0 || !t1) return { ok: false, error: "t0 与 t1 必须同时填写（MJD）。" };
+  const a = Number(t0), b = Number(t1);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: "t0/t1 必须是 MJD 数字。" };
+  if (a > b) return { ok: false, error: "t0 必须 ≤ t1。" };
+  return { ok: true, t0: a, t1: b };
+}
+
+function timeFilterText(tf) {
+  if (!tf || !tf.filtered) return tf && tf.requested != null ? `全时段 ${tf.requested} 期` : "全时段";
+  return `来自视图 / 时间窗口 MJD ${Number(tf.t0).toFixed(3)}–${Number(tf.t1).toFixed(3)} / 保留 ${tf.kept}/${tf.requested} 期`;
+}
+
+function updateViewLink(sel, fov, win) {
+  const link = $("#viewLink");
+  if (!link) return;
+  const u = new URL("http://127.0.0.1:8830/");
+  u.searchParams.set("from", "analysis");
+  if (sel && sel.target_id) u.searchParams.set("target_id", sel.target_id);
+  else if (sel && Number.isFinite(sel.ra) && Number.isFinite(sel.dec)) {
+    u.searchParams.set("ra", String(sel.ra));
+    u.searchParams.set("dec", String(sel.dec));
+  }
+  if (Number.isFinite(fov)) u.searchParams.set("fov", String(fov));
+  if (win && win.t0 != null) u.searchParams.set("t0", String(win.t0));
+  if (win && win.t1 != null) u.searchParams.set("t1", String(win.t1));
+  link.href = u.toString();
+  link.classList.remove("hidden");
+}
+
 function note(html, cls = "") {
   const el = $("#cascadeNote");
   el.innerHTML = html;
@@ -94,7 +127,7 @@ function render(data) {
     <div class="cascade-stat"><b>${c.masked ?? 0}</b><span>Masked</span></div>
     <div class="cascade-stat"><b>${c.residual ?? 0}</b><span>Residual</span></div>
     <div class="cascade-stat"><b>${esc(data.mode || "?")}</b><span>数据模式</span></div>`;
-  note(`<b>${esc(data.mode || "?")}</b> · ${c.n_epochs ?? 0} 历元 · ${esc(data.note || "")}`);
+  note(`<b>${esc(data.mode || "?")}</b> · ${timeFilterText(data.time_filter)} · ${c.n_epochs ?? 0} 历元 · ${esc(data.note || "")}`);
   const oldDetail = $("#sourceDetail");
   if (oldDetail) oldDetail.remove();
   state.selected = null;
@@ -186,6 +219,8 @@ async function runCascade() {
     note("FOV 需在 0.02–3.0 度之间。", "err");
     return;
   }
+  const win = readTimeWindow();
+  if (!win.ok) { note(win.error, "err"); return; }
   const sel = selectedTarget();
   const params = new URLSearchParams();
   if (sel.target_id) params.set("target_id", sel.target_id);
@@ -198,6 +233,9 @@ async function runCascade() {
     params.set("dec", String(sel.dec));
   }
   params.set("fov", String(fov));
+  if (win.t0 != null) params.set("t0", String(win.t0));
+  if (win.t1 != null) params.set("t1", String(win.t1));
+  updateViewLink(sel, fov, win);
   const btn = $("#runCascade");
   btn.disabled = true;
   note("正在取历元并跑级联层…");
@@ -220,6 +258,8 @@ async function runCascade() {
       u.searchParams.delete("target_id");
     }
     u.searchParams.set("fov", String(fov));
+    if (win.t0 != null) u.searchParams.set("t0", String(win.t0)); else u.searchParams.delete("t0");
+    if (win.t1 != null) u.searchParams.set("t1", String(win.t1)); else u.searchParams.delete("t1");
     history.replaceState(null, "", u.toString());
   } catch (e) {
     $("#summary").classList.add("hidden");
@@ -260,6 +300,11 @@ async function init() {
   const dec = u.searchParams.get("dec");
   const fov = u.searchParams.get("fov");
   if (fov) $("#fov").value = fov;
+  const t0 = u.searchParams.get("t0");
+  const t1 = u.searchParams.get("t1");
+  if (t0) $("#t0").value = t0;
+  if (t1) $("#t1").value = t1;
+  if (t0 || t1 || u.searchParams.get("from") === "view") $("#viewLink").classList.remove("hidden");
   if (ra && dec) {
     $("#targetSelect").value = "";
     $("#ra").value = ra;
@@ -274,6 +319,7 @@ async function init() {
     }
   }
   $("#runCascade").onclick = runCascade;
+  updateViewLink(selectedTarget(), parseFloat($("#fov").value), readTimeWindow());
   runCascade();
 }
 

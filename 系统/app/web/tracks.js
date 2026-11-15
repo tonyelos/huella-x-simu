@@ -18,6 +18,39 @@ function fmt(v, digits = 5) { return v == null || !Number.isFinite(Number(v)) ? 
 function note(html, cls = "") { const el = $("#tracksNote"); el.innerHTML = html; el.className = "note " + cls; }
 function qualityText(n) { return Array.isArray(n.quality) && n.quality.length ? n.quality.join(" · ") : "—"; }
 
+function readTimeWindow() {
+  const t0 = $("#t0").value.trim();
+  const t1 = $("#t1").value.trim();
+  if (!t0 && !t1) return { ok: true, t0: null, t1: null };
+  if (!t0 || !t1) return { ok: false, error: "t0 与 t1 必须同时填写（MJD）。" };
+  const a = Number(t0), b = Number(t1);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: "t0/t1 必须是 MJD 数字。" };
+  if (a > b) return { ok: false, error: "t0 必须 ≤ t1。" };
+  return { ok: true, t0: a, t1: b };
+}
+
+function timeFilterText(tf) {
+  if (!tf || !tf.filtered) return tf && tf.requested != null ? `全时段 ${tf.requested} 期` : "全时段";
+  return `来自视图 / 时间窗口 MJD ${Number(tf.t0).toFixed(3)}–${Number(tf.t1).toFixed(3)} / 保留 ${tf.kept}/${tf.requested} 期`;
+}
+
+function updateViewLink(sel, fov, win) {
+  const link = $("#viewLink");
+  if (!link) return;
+  const u = new URL("http://127.0.0.1:8830/");
+  u.searchParams.set("from", "analysis");
+  if (sel && sel.target_id) u.searchParams.set("target_id", sel.target_id);
+  else if (sel && Number.isFinite(sel.ra) && Number.isFinite(sel.dec)) {
+    u.searchParams.set("ra", String(sel.ra));
+    u.searchParams.set("dec", String(sel.dec));
+  }
+  if (Number.isFinite(fov)) u.searchParams.set("fov", String(fov));
+  if (win && win.t0 != null) u.searchParams.set("t0", String(win.t0));
+  if (win && win.t1 != null) u.searchParams.set("t1", String(win.t1));
+  link.href = u.toString();
+  link.classList.remove("hidden");
+}
+
 function nodeRows(track) {
   return (track.nodes || []).map((n, i) => `<tr>
     <td>${esc(n.epoch_id || "—")}</td>
@@ -65,7 +98,7 @@ function render(data) {
   $("#trackSummary").innerHTML = ["D0", "D1", "D2", "D3", "D4"].map((lv) =>
     `<div class="cascade-stat"><b>${c[lv] ?? 0}</b><span>${lv} ${esc((LEVEL_TEXT[lv] || "").split(" ").slice(1).join(" "))}</span></div>`
   ).join("");
-  note(`<b>${esc(data.mode || "?")}</b> · ${cascadeText(data.cascade_counts)} · ${esc(data.note || "")}`);
+  note(`<b>${esc(data.mode || "?")}</b> · ${timeFilterText(data.time_filter)} · ${data.insufficient ? "<b>insufficient</b> · " : ""}${cascadeText(data.cascade_counts)} · ${esc(data.note || "")}`);
   const shown = state.tracks.slice(0, 120);
   $("#trackList").innerHTML = shown.length ? shown.map(trackCard).join("") :
     '<div class="track-empty">没有 tracklet。数据不足/没有节点时不伪造轨迹。</div>';
@@ -131,6 +164,8 @@ async function runTracks() {
     note("FOV 需在 0.02–3.0 度之间。", "err");
     return;
   }
+  const win = readTimeWindow();
+  if (!win.ok) { note(win.error, "err"); return; }
   const sel = selectedTarget();
   const params = new URLSearchParams();
   if (sel.target_id) params.set("target_id", sel.target_id);
@@ -143,6 +178,9 @@ async function runTracks() {
     params.set("dec", String(sel.dec));
   }
   params.set("fov", String(fov));
+  if (win.t0 != null) params.set("t0", String(win.t0));
+  if (win.t1 != null) params.set("t1", String(win.t1));
+  updateViewLink(sel, fov, win);
   const btn = $("#runTracks");
   btn.disabled = true;
   note("正在取历元、跑 cascade 并关联 tracklet…");
@@ -158,6 +196,8 @@ async function runTracks() {
     if (sel.target_id) { u.searchParams.set("target_id", sel.target_id); u.searchParams.delete("ra"); u.searchParams.delete("dec"); }
     else { u.searchParams.set("ra", String(sel.ra)); u.searchParams.set("dec", String(sel.dec)); u.searchParams.delete("target_id"); }
     u.searchParams.set("fov", String(fov));
+    if (win.t0 != null) u.searchParams.set("t0", String(win.t0)); else u.searchParams.delete("t0");
+    if (win.t1 != null) u.searchParams.set("t1", String(win.t1)); else u.searchParams.delete("t1");
     history.replaceState(null, "", u.toString());
   } catch (e) {
     $("#trackSummary").classList.add("hidden");
@@ -195,6 +235,11 @@ async function init() {
   const dec = u.searchParams.get("dec");
   const fov = u.searchParams.get("fov");
   if (fov) $("#fov").value = fov;
+  const t0 = u.searchParams.get("t0");
+  const t1 = u.searchParams.get("t1");
+  if (t0) $("#t0").value = t0;
+  if (t1) $("#t1").value = t1;
+  if (t0 || t1 || u.searchParams.get("from") === "view") $("#viewLink").classList.remove("hidden");
   if (ra && dec) {
     $("#targetSelect").value = "";
     $("#ra").value = ra;
@@ -204,6 +249,7 @@ async function init() {
     if (t) { $("#targetSelect").value = t.id; $("#ra").value = t.ra; $("#dec").value = t.dec; }
   }
   $("#runTracks").onclick = runTracks;
+  updateViewLink(selectedTarget(), parseFloat($("#fov").value), readTimeWindow());
   runTracks();
 }
 
