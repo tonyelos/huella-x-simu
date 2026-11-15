@@ -1,29 +1,49 @@
-# T1 验收工具 · 状态：全量全绿（main 修复版 app）
+# T1 验收工具 · 状态：全量全绿（main 官方基准版 app）
 
 > 时间：2026-11-15 CET
-> 分支：`tool/t1-acceptance`（worktree `项目主控/_worktrees/tool-t1-acceptance`）
+> 分支：`tool/t1-acceptance`（worktree `项目主控/_worktrees/tool-t1-acceptance`，已 rebase `origin/main`）
 > 目录：`项目主控/验收/`
 
 ## 结论
 
-在 main `6b3098d`（含 app “自定义坐标 0.05° 命中复用预设”修复）的 app 上跑全量 T1：
+在 main 官方基准版 app（`1c17c3e`）上跑全量 T1：
 
-**45 PASS / 0 FAIL / 1 WARN / 0 BLOCKED，46 条用例，50.6s，退出码 0。**
+**45 PASS / 0 FAIL / 1 WARN / 0 BLOCKED，46 条用例，49.7s，退出码 0。**
 
 唯一 WARN 是 `H.screenshot`（`WARN: manual`，不引入 Playwright）。
-报告：`report/full-main/report.{json,md}`；单跑 RW：`report/rw-only/report.md`。
+报告：`report/full-main/report.{json,md}`；Barnard 单测：`report/prior-check`、`report/offline-prior`。
 
-## 本轮变更
+## 本轮变更（官方基准 Barnard `S→L`）
 
-- `D.custom_rw_aur` 断言更新：不再要求 `real_epochs≥1`，改为
-  - HTTP 200；`mode=real|hybrid`；`matched_target_id="rw_aur"`；`class="V"`；
-  - 与预设 `rw_aur` 的 mode/readiness/class 严格一致，μ ±5%；
-  - **HYBRID 允许 `real_epochs=0`**（纯 SIM 回退是正确结果）。
-- `contracts/analysis.py::summary` 增加 `matched_target_id` / `source` 提取。
-- `D.custom_rw_aur` 在 DB 停止且 `matched_target_id` 无法确认时记 BLOCKED
-  （`blocked_by=DB`），不伪造 PASS，也不当作 app 缺陷。
-- 保留 `D.coord_matches_preset`：5 个官方目标自定义坐标 vs 预设，mode/readiness/class 严格、μ±5%。
-- 报告仍保留 DB 停止 / `/api/v1/epochs` 404 的 BLOCKED 语义与归因。
+- `golden/five_targets.json`：Barnard `class` `S→L`；`mode=real/n=4/readiness=L2/μ=8033.0/μ_err=9899.0` 原样保留；
+  其他 4 目标不动。
+- `golden/custom_barnard.json`：`class` `S→L`；μ 容差与 `real_epochs≥4` 原样保留。
+- 新增 `barnard_prior_problems()`，在 **C.barnard / D.custom_barnard / F.offline.barnard** 断言：
+  - `class=="L"`；
+  - `result.catalog_motion.basis=="catalog_prior"`；
+  - `result.moving is False`；
+  - `mu_signif<3`（读 `result.fingerprint.mu_signif`，等价读 `catalog_motion.measurement_significance`）；
+  - `quality` 含 `CATALOG_PRIOR_MOTION`、`MEASUREMENT_NOT_SIGNIFICANT`；
+  - 无 `discovery_claim=true`、无“新天体”正结论；
+  - `public_text/caveats` 明确“星表先验、不是独立实测”。
+- `barnard_prior_actual()` 把 `basis/moving/mu_signif/quality` 写进 C/D/F 的 actual，报告可直接看出不是实测运动。
+- 负向自检：手动把 class 改 S、basis 改 measured、moving 改 True、mu_signif 改 3.5、
+  删 quality 标记、discovery_claim 改 true、public_text 改“新天体” → 分别命中
+  `BAR_CLASS` / `BAR_PRIOR_BASIS` / `BAR_MOVING` / `BAR_MU_SIGNIF` / `BAR_QUALITY` /
+  `BAR_DISCOVERY_CLAIM` / `BAR_DISCOVERY_TEXT`，断言非空转。
+- `F.offline.5of5` 随黄金更新恢复 5/5（Barnard 离线也是 L + catalog_prior）。
+
+## Barnard 断言实际值（C/D/F 共用）
+
+| 字段 | 期望 | 实际 |
+|---|---|---|
+| class | L | L |
+| catalog_motion.basis | catalog_prior | catalog_prior |
+| moving | false | False |
+| mu_signif | <3 | 0.8115 |
+| quality | 含两个标记 | `SATURATED_SOURCE, LARGE_CENTROID_ERROR, CATALOG_PRIOR_MOTION, MEASUREMENT_NOT_SIGNIFICANT` |
+| μ / μ_err | 保留实测 | 8032.9 / 9898.9 mas/yr |
+| discovery_claim / 新天体 | 不允许 | 无 |
 
 ## RW Aur 前后对比（`D.custom_rw_aur`）
 
@@ -35,31 +55,28 @@
 ## 验证命令
 
 ```bash
-# 全量（main 修复版 app 在 8810；DB 8797；--start 复用已有 app）
+# 全量（本 worktree 已 rebase origin/main；app 由 --start 起，DB 8797）
 ./run.sh --start --base-url http://127.0.0.1:8810 --db-url http://127.0.0.1:8797 \
   --view-url http://127.0.0.1:8812 --offline --offline-port 8813 \
   --report-dir report/full-main
 echo $?   # 0
 
-# 单跑 RW
+# 只跑 Barnard C/D
 ./run.sh --start --base-url http://127.0.0.1:8810 --db-url http://127.0.0.1:8797 \
-  --view-url http://127.0.0.1:8812 --only D.custom_rw_aur \
-  --report-dir report/rw-only
-echo $?   # 0，PASS=1
+  --only C.barnard,D.custom_barnard --report-dir report/prior-check
+echo $?   # 0
 ```
 
 ## 历史 / 兼容性
 
 - `report/full-db-down`（28 PASS / 4 FAIL / 13 BLOCKED）与 `report/full-db-up`
-  （40 PASS / 5 FAIL）是修复前 app 的历史基线，只用于验证 BLOCKED 语义与旧回归。
-- 修复版 app 的自定义命中走本地目录，DB 停止时仍可能与预设一致；若 `matched_target_id`
-  无法确认则 D2 BLOCKED。DB 相关 P0 契约（A.epoch_ref/coverage、G）仍按 BLOCKED。
+  （40 PASS / 5 FAIL）是官方基准前的历史基线，只用于验证 BLOCKED 语义与旧回归。
+- DB 停止 / `/api/v1/epochs` 404 的 BLOCKED 语义保留；D2 在 `matched_target_id` 无法确认时 BLOCKED。
 - `report/` 是运行产物，未提交（`.gitignore`）。
 
 ## 风险 / 限制
 
-- `report/full-main` 的 green 使用手动在 8810 起的 main 版本 app；报告的 `source_hashes`
-  仍取本 worktree（T1 只读自身 worktree），合并 main 后重跑才完全对齐。
-- 本 worktree 的 `系统/app` 仍是修复前版本；直接 `--start` 会起旧版，不能复现 green。
+- Barnard 的 `class=L` 依赖 Gaia PM 先验与 identification；若先验/识别不可用，
+  `BAR_PRIOR_*` 会红，不能用“任意 class”放行。
 - H 截图仍为 `WARN: manual`。
 - 本工具只做接口/契约/降级验证，不做科学判定。

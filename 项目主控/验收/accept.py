@@ -1074,6 +1074,117 @@ def post_analyze(ctx: Context, payload: dict, artifact: str) -> HttpResponse:
     return resp
 
 
+def barnard_prior_problems(doc: dict, label: str = "barnard") -> list[dict]:
+    """断言 Barnard 的 L 是 Gaia PM 星表先验，而不是 SPHEREx 独立实测运动。
+
+    官方基准优化后：class 由 S 变 L，但 moving=False、μ/μ_err 实测值保留、
+    mu_signif<3；catalog_motion.basis="catalog_prior" 且 quality 带
+    CATALOG_PRIOR_MOTION / MEASUREMENT_NOT_SIGNIFICANT；不得出现 discovery_claim
+    或“新天体”正结论。这组断言防止把星表先验伪装成实测运动。
+    """
+    if not isinstance(doc, dict):
+        return [{"code": "BAR_DOC", "severity": "P0", "message": f"{label}: 响应不是 JSON 对象"}]
+    result = doc.get("result")
+    if not isinstance(result, dict):
+        return [{"code": "BAR_RESULT", "severity": "P0", "message": f"{label}: 缺 result 对象"}]
+    problems: list[dict] = []
+    if result.get("class") != "L":
+        problems.append(
+            {
+                "code": "BAR_CLASS",
+                "severity": "P0",
+                "message": f"class={result.get('class')!r}，期望 'L'（Gaia PM 先验）",
+            }
+        )
+    motion = result.get("catalog_motion")
+    basis = motion.get("basis") if isinstance(motion, dict) else None
+    if basis != "catalog_prior":
+        problems.append(
+            {
+                "code": "BAR_PRIOR_BASIS",
+                "severity": "P0",
+                "message": f"catalog_motion.basis={basis!r}，期望 'catalog_prior'（星表先验，不是实测运动）",
+            }
+        )
+    if result.get("moving") is not False:
+        problems.append(
+            {
+                "code": "BAR_MOVING",
+                "severity": "P0",
+                "message": f"moving={result.get('moving')!r}，期望 False（未独立测出运动）",
+            }
+        )
+    sig = result.get("mu_signif")
+    if not isinstance(sig, (int, float)) or isinstance(sig, bool):
+        sig = (result.get("fingerprint") or {}).get("mu_signif")
+    if not isinstance(sig, (int, float)) or isinstance(sig, bool):
+        sig = motion.get("measurement_significance") if isinstance(motion, dict) else None
+    try:
+        sig_val = float(sig)
+    except (TypeError, ValueError):
+        sig_val = None
+    if sig_val is None or not (0.0 <= sig_val < 3.0):
+        problems.append(
+            {
+                "code": "BAR_MU_SIGNIF",
+                "severity": "P0",
+                "message": f"mu_signif={sig!r}，期望 <3（实测不显著，class=L 来自先验）",
+            }
+        )
+    quality = [str(x) for x in (result.get("quality") or [])]
+    for flag in ("CATALOG_PRIOR_MOTION", "MEASUREMENT_NOT_SIGNIFICANT"):
+        if flag not in quality:
+            problems.append(
+                {
+                    "code": "BAR_QUALITY",
+                    "severity": "P0",
+                    "message": f"quality 缺 {flag}（当前 {quality}）",
+                }
+            )
+    if result.get("discovery_claim") is True or doc.get("discovery_claim") is True:
+        problems.append(
+            {
+                "code": "BAR_DISCOVERY_CLAIM",
+                "severity": "P0",
+                "message": "discovery_claim=true（星表先验/未实测不得声称发现或确认）",
+            }
+        )
+    texts = [result.get("public_text"), result.get("label_zh")]
+    caveats = result.get("caveats")
+    if isinstance(caveats, list):
+        texts.extend(caveats)
+    else:
+        texts.append(caveats)
+    text = " ".join(str(t) for t in texts if t)
+    if "新天体" in text:
+        problems.append(
+            {"code": "BAR_DISCOVERY_TEXT", "severity": "P0", "message": f"出现“新天体”正结论：{text[:120]}"}
+        )
+    public_text = str(result.get("public_text") or "")
+    if "先验" not in text or not any(k in text for k in ("未独立", "不是 SPHEREx 实测", "不是实测")):
+        problems.append(
+            {
+                "code": "BAR_PRIOR_TEXT",
+                "severity": "P0",
+                "message": "public_text/caveats 未明确说明“星表先验、不是独立实测”："
+                + public_text[:120],
+            }
+        )
+    return problems
+
+
+def barnard_prior_actual(doc: dict) -> str:
+    result = (doc or {}).get("result") if isinstance(doc, dict) else None
+    result = result if isinstance(result, dict) else {}
+    motion = result.get("catalog_motion") if isinstance(result.get("catalog_motion"), dict) else {}
+    sig = (result.get("fingerprint") or {}).get("mu_signif")
+    quality = ",".join(str(x) for x in (result.get("quality") or []))
+    return (
+        f"；basis={motion.get('basis')}；moving={result.get('moving')}；"
+        f"mu_signif={sig}；quality={quality}"
+    )
+
+
 def golden_target_problems(tid: str, doc: dict, elapsed_ms: float, golden: dict) -> list[dict]:
     problems: list[dict] = []
     g = golden["targets"][tid]
@@ -1119,6 +1230,8 @@ def golden_target_problems(tid: str, doc: dict, elapsed_ms: float, golden: dict)
     )
     if not ok:
         problems.append({"code": "GOLDEN_MU", "severity": "P0", "message": f"μ {detail}"})
+    if tid == "barnard":
+        problems.extend(barnard_prior_problems(doc, "C/F.barnard"))
     limit_ms = float(golden.get("tolerance", {}).get("duration_s", 30.0)) * 1000.0
     if elapsed_ms > limit_ms:
         problems.append(
@@ -1157,6 +1270,8 @@ def run_c(ctx: Context) -> None:
                 f"{summary.get('readiness')}；{summary.get('class')}；μ={_fmt_mu(summary.get('mu_mas_yr'))}；"
                 f"{resp.elapsed_ms/1000:.2f}s"
             )
+            if tid == "barnard":
+                actual += barnard_prior_actual(doc)
         ctx.online[tid] = {
             "http": resp.status,
             "summary": summary,
@@ -1171,7 +1286,13 @@ def run_c(ctx: Context) -> None:
             "P0",
             f"HTTP 200；mode={g['mode']}；n={g['n_epochs']}；{g['readiness']}；{g['class']}；"
             + ("μ 无黄金值；" if g.get("mu_mas_yr") is None else f"μ≈{_fmt_mu(g.get('mu_mas_yr'))}（±5% 或 ±1σ）；")
-            + "<30s",
+            + "<30s"
+            + (
+                "；class=L 来自 Gaia PM 先验（basis=catalog_prior、moving=false、mu_signif<3、"
+                "quality 含 CATALOG_PRIOR_MOTION/MEASUREMENT_NOT_SIGNIFICANT、无 discovery_claim）"
+                if tid == "barnard"
+                else ""
+            ),
             problems,
             actual,
             evidence,
@@ -1391,11 +1512,13 @@ def run_d(ctx: Context) -> None:
         )
         if not ok:
             problems.append({"code": "CUSTOM_MU", "severity": "P0", "message": f"μ {detail}"})
+        problems.extend(barnard_prior_problems(doc, "D.custom_barnard"))
         actual = (
             f"HTTP 200；mode={summary.get('mode')}；n={summary.get('n_epochs')}；"
             f"real_epochs={summary.get('real_epochs')}；{summary.get('readiness')}；{summary.get('class')}；"
             f"fallback={summary.get('fallback_reason')}；μ={_fmt_mu(summary.get('mu_mas_yr'))}"
         )
+        actual += barnard_prior_actual(doc)
         if summary.get("fallback_reason") == "DB_UNAVAILABLE":
             cause = "DB 停止导致（DB_UNAVAILABLE）；R1 未闭环"
         elif problems:
@@ -1405,7 +1528,9 @@ def run_d(ctx: Context) -> None:
         "D.custom_barnard",
         "D",
         "P0",
-        "无 target_id 的 Barnard 精确坐标：mode=real、4 期、real_epochs≥4、L2、S、fallback=null，与预设 μ 差 ≤1%",
+        "无 target_id 的 Barnard 精确坐标：mode=real、4 期、real_epochs≥4、L2、class=L（Gaia PM 先验）、"
+        "fallback=null、与预设 μ 差 ≤1%；basis=catalog_prior、moving=false、mu_signif<3、"
+        "quality 含 CATALOG_PRIOR_MOTION/MEASUREMENT_NOT_SIGNIFICANT、无 discovery_claim",
         problems,
         actual,
         evidence,
@@ -2158,6 +2283,8 @@ def run_f(ctx: Context) -> None:
                     f"{summary.get('readiness')}；{summary.get('class')}；μ={_fmt_mu(summary.get('mu_mas_yr'))}；"
                     f"{resp.elapsed_ms/1000:.2f}s"
                 )
+                if tid == "barnard":
+                    actual += barnard_prior_actual(doc)
                 if not problems:
                     passed += 1
             g = ctx.golden["targets"][tid]
@@ -2166,7 +2293,13 @@ def run_f(ctx: Context) -> None:
                 f"F.offline.{tid}",
                 "F",
                 "P0",
-                f"离线 HTTP 200；mode={g['mode']}；{g['readiness']}；{g['class']}；μ 与在线差 ≤5%",
+                f"离线 HTTP 200；mode={g['mode']}；{g['readiness']}；{g['class']}；μ 与在线差 ≤5%"
+                + (
+                    "；Barnard L 来自 Gaia PM 先验（basis=catalog_prior、moving=false、"
+                    "mu_signif<3、quality 含两标记、无 discovery_claim）"
+                    if tid == "barnard"
+                    else ""
+                ),
                 problems,
                 actual,
                 f"artifacts/F.{tid}.json",
