@@ -125,6 +125,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 多历元层级发现：[../架构/11_多历元层级发现.md](../架构/11_多历元层级发现.md)（tracklet + D0–D5；候选发现，不是自动确认）。
 
+跨历元轨迹实施计划：[../架构/12_跨历元轨迹发现计划.md](../架构/12_跨历元轨迹发现计划.md)（T1 tracklet → T2 UI → T3 验证）。
+
 ### 2.6 D-MVP 已知/未知识别
 
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
