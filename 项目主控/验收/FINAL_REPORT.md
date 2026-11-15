@@ -184,7 +184,7 @@ cd ../视图工具 && $PY tools/smoke.py
 
 1. 真实数据补齐：Barnard 未饱和波段、WISE 坐标歧义、RW/R Dra 更多真实历元。
 2. 102 波段/光谱：大切片 + LVF 插值；按 6 阵列合图。
-3. Gaia/WISE 叠加层；污染 flags 可视化。
+3. 星点选择与已知/未知恒星识别（Gaia/2MASS/WISE + DB 星表同步）：见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
 4. T1 截图自动化（Playwright/ego-browser 可选）。
 5. T6 readiness 阈值统一（180d vs 0.6yr）或删除旧字段。
 6. 公网部署：鉴权、限流、CORS 收紧、`include_truth=0`。

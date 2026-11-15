@@ -205,6 +205,7 @@ L0 数据源  IRSA 静态切片 · S3 公开桶 · SIMBAD 参考
 | [架构/02_赛道分析与工具定义.md](架构/02_赛道分析与工具定义.md) | 赛道/数据/目标/9 工具定义 |
 | [架构/03_各工具目标与期望.md](架构/03_各工具目标与期望.md) | **基于全部参考资料的目标期望**：逐工具 P0/P1、量化验收、追溯矩阵、发布门槛 |
 | [架构/04_FISICA-HUELLA-X_核验.md](架构/04_FISICA-HUELLA-X_核验.md) | 旧 HUELLA X 物理文档核验：可用公式、算术错误、阈值风险与修正建议 |
+| [架构/05_星点选择与识别路线图.md](架构/05_星点选择与识别路线图.md) | **A/B/C/D 排期**：点选星点、Gaia source_id、任意天区、已知/未知识别；含 DB 星表同步架构 |
 | [验收/STATUS.md](验收/STATUS.md) | T1 状态：WIP / BLOCKED |
 | [冻结/STATUS.md](冻结/STATUS.md) | T3 状态：PASS |
 | [启动/STATUS.md](启动/STATUS.md) | T5 状态：PASS（sandbox） |
