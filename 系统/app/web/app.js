@@ -25,6 +25,7 @@ const state = {
   anyfieldSeq: 0, // C 覆盖握手请求序号：旧响应不得覆盖新坐标
   anyfieldContext: null, // {ra, dec, fov} 当前 C 覆盖卡对应的查询
   anyfieldSources: [],
+  anyfieldBatch: { byId: {}, counts: null, catalogStatus: null, error: null },
   layerMode: "browse", // browse | cascade | tracks
   cascadeData: null,
   tracksData: null,
@@ -105,10 +106,15 @@ function hideAnyfield() {
   state.anyfieldSeq += 1;
   state.anyfieldContext = null;
   state.anyfieldSources = [];
+  state.anyfieldBatch = { byId: {}, counts: null, catalogStatus: null, error: null };
   const card = $("#anyfieldCard");
   if (card) card.classList.add("hidden");
   const btn = $("#loadCSourcesBtn");
   if (btn) btn.classList.add("hidden");
+  const batchBtn = $("#batchCSourcesBtn");
+  if (batchBtn) batchBtn.classList.add("hidden");
+  const batchNote = $("#anyfieldBatchNote");
+  if (batchNote) { batchNote.classList.add("hidden"); batchNote.innerHTML = ""; }
   const list = $("#anyfieldSources");
   if (list) {
     list.classList.add("hidden");
@@ -133,11 +139,16 @@ function renderAnyfield(data, httpStatus) {
     if (loadBtn) loadBtn.classList.remove("hidden");
   } else {
     if (loadBtn) loadBtn.classList.add("hidden");
+    const batchBtn = $("#batchCSourcesBtn");
+    if (batchBtn) batchBtn.classList.add("hidden");
+    const batchNote = $("#anyfieldBatchNote");
+    if (batchNote) { batchNote.classList.add("hidden"); batchNote.innerHTML = ""; }
     if (list) {
       list.classList.add("hidden");
       list.innerHTML = "";
     }
     state.anyfieldSources = [];
+    state.anyfieldBatch = { byId: {}, counts: null, catalogStatus: null, error: null };
   }
   if (status === "ok" && httpStatus === 200) {
     const n = Number(data.n_epochs || 0);
@@ -157,6 +168,11 @@ async function refreshAnyfield(ra, dec, fov) {
   const seq = ++state.anyfieldSeq;
   state.anyfieldContext = { ra: Number(ra), dec: Number(dec), fov: Number(fov) };
   state.anyfieldSources = [];
+  state.anyfieldBatch = { byId: {}, counts: null, catalogStatus: null, error: null };
+  const batchBtn = $("#batchCSourcesBtn");
+  if (batchBtn) batchBtn.classList.add("hidden");
+  const batchNote = $("#anyfieldBatchNote");
+  if (batchNote) { batchNote.classList.add("hidden"); batchNote.innerHTML = ""; }
   const list = $("#anyfieldSources");
   if (list) {
     list.classList.add("hidden");
@@ -223,6 +239,84 @@ async function loadCSources() {
   }
 }
 
+function batchBadgeFor(result) {
+  if (!result) return "";
+  if (result.status === "uncatalogued_candidate") {
+    return `<span class="batch-badge no_match" title="未收录候选，不是未知星体">no_match</span>`;
+  }
+  if (result.status === "known_star") return '<span class="batch-badge known_star">known</span>';
+  if (result.status === "ambiguous") return '<span class="batch-badge ambiguous">ambiguous</span>';
+  if (result.status === "catalog_unavailable") return '<span class="batch-badge catalog_unavailable">catalog_unavailable</span>';
+  if (result.status === "insufficient_data") return '<span class="batch-badge insufficient_data">insufficient</span>';
+  return "";
+}
+
+function batchSummary(counts) {
+  if (!counts) return "";
+  return `known ${counts.known_star || 0} / ambiguous ${counts.ambiguous || 0} / no_match ${counts.no_match || 0}`;
+}
+
+async function batchIdentifyCSources() {
+  const sources = state.anyfieldSources || [];
+  const btn = $("#batchCSourcesBtn");
+  const note = $("#anyfieldBatchNote");
+  if (!sources.length) return;
+  if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
+  if (note) {
+    note.classList.remove("hidden");
+    note.textContent = `正在批量识别 ${sources.length} 个 C 源…`;
+  }
+  const payload = {
+    catalogs: ["gaia"],
+    radius_arcsec: 3.0,
+    sources: sources.filter((s) => Number.isFinite(Number(s.ra)) && Number.isFinite(Number(s.dec)) && Number.isFinite(Number(s.mjd))).map((s) => ({
+      source_id: String(s.source_id || ""),
+      ra: Number(s.ra),
+      dec: Number(s.dec),
+      mjd: Number(s.mjd),
+      sigma_arcsec: 0.5,
+    })),
+  };
+  if (!payload.sources.length) {
+    if (note) note.textContent = "C 源缺少 ra/dec/mjd，无法批量识别；列表保持不变。";
+    if (btn) { btn.disabled = false; btn.textContent = "批量识别 C 源"; }
+    return;
+  }
+  try {
+    const r = await fetch("/api/identify/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) {
+      const e = d.error;
+      throw new Error((e && (e.message || e.code)) || "批量识别接口返回错误");
+    }
+    const byId = {};
+    (d.results || []).forEach((res) => { byId[String(res.source_id || res.detection_id || "")] = res; });
+    state.anyfieldBatch = {
+      byId,
+      counts: d.counts || null,
+      catalogStatus: d.catalog_status || null,
+      error: null,
+    };
+    if (note) {
+      note.classList.remove("hidden");
+      note.innerHTML = `<b>${esc(batchSummary(d.counts))}</b> · catalog ${esc(d.catalog_status || "?")} · 点击行仍做单源识别`;
+    }
+    renderCSources({ status: "ok", sources: state.anyfieldSources, truncated: false }, 200);
+  } catch (e) {
+    // 失败不覆盖旧列表/旧 badge
+    if (note) {
+      note.classList.remove("hidden");
+      note.innerHTML = `批量识别失败：${esc(e.message)}。C 源列表和已有结果保持不变。`;
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "批量识别 C 源"; }
+  }
+}
+
 function renderCSources(data, httpStatus) {
   const box = $("#anyfieldSources");
   if (!box) return;
@@ -232,22 +326,30 @@ function renderCSources(data, httpStatus) {
     const all = Array.isArray(data.sources) ? data.sources : [];
     state.anyfieldSources = all;
     if (!all.length) {
+      const batchBtn = $("#batchCSourcesBtn");
+      if (batchBtn) batchBtn.classList.add("hidden");
       box.innerHTML = '<div class="anyfield-source-note">C 源列表为空：该场尚未 ingest，或源在搜索半径外。空列表不等于“没有天体”。</div>';
       return;
     }
     const shown = all.slice(0, 50);
-    const head = `<div class="anyfield-source-head">C 源列表：${all.length} 个（显示前 ${shown.length}${data.truncated ? "，已截断" : ""}）</div>`;
+    const batch = state.anyfieldBatch || {};
+    const summary = batch.counts ? ` · ${batchSummary(batch.counts)}` : "";
+    const head = `<div class="anyfield-source-head">C 源列表：${all.length} 个（显示前 ${shown.length}${data.truncated ? "，已截断" : ""}）${esc(summary)}</div>`;
     const rows = shown.map((src, i) => {
       const q = (src.quality || []).join(" · ") || (src.saturated ? "SATURATED" : "—");
       const sid = esc(src.source_id || `#${i}`);
+      const result = batch.byId && (batch.byId[String(src.source_id || "")] || batch.byId[String(i)]);
       return `<button type="button" class="anyfield-source${state.locked && state.locked.c_source && state.locked.source_id === src.source_id ? " locked" : ""}" data-c-index="${i}" title="${sid}">
         <span>S/N ${Number(src.snr || 0).toFixed(1)}</span>
         <span>${Number(src.ra).toFixed(4)}°</span>
         <span>${Number(src.dec).toFixed(4)}°</span>
         <span class="q">${esc(q)}</span>
+        ${batchBadgeFor(result)}
       </button>`;
     }).join("");
-    box.innerHTML = head + rows + '<div class="anyfield-source-note">点击源 → 锁定并调用 /api/identify。C 源列表只是检测源，不是 known/unknown 结论。</div>';
+    box.innerHTML = head + rows + '<div class="anyfield-source-note">点击源 → 锁定并调用 /api/identify。批量 badge 只是星表身份，不是发现声明。</div>';
+    const batchBtn = $("#batchCSourcesBtn");
+    if (batchBtn) batchBtn.classList.remove("hidden");
     box.querySelectorAll(".anyfield-source").forEach((el) => {
       el.addEventListener("click", () => {
         const idx = Number(el.dataset.cIndex);
@@ -255,10 +357,13 @@ function renderCSources(data, httpStatus) {
       });
     });
   } else if (status === "no_coverage" || httpStatus === 422) {
+    const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
     box.innerHTML = '<div class="anyfield-source-note">C 确认无覆盖，没有可加载的源列表。</div>';
   } else if (status === "index_incomplete" || httpStatus === 503) {
+    const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
     box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用（索引不完整）；旧分析和本地源列表不受影响。</div>';
   } else {
+    const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
     box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用；旧分析和本地源列表不受影响。</div>';
   }
 }
@@ -380,6 +485,8 @@ function bindUI() {
   });
   const loadBtn = $("#loadCSourcesBtn");
   if (loadBtn) loadBtn.addEventListener("click", loadCSources);
+  const batchBtn = $("#batchCSourcesBtn");
+  if (batchBtn) batchBtn.addEventListener("click", batchIdentifyCSources);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") $("#theoryModal").classList.add("hidden");
     if (e.key === " " && state.analysis) {

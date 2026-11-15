@@ -295,6 +295,104 @@ def _should_auto_ingest(result: dict) -> bool:
     return status == "partial" or reason in ("no_cached_field", "catalog_partial", "partial")
 
 
+def normalize_batch(raw: dict, detections: list[dict]) -> dict:
+    """把 B ``/api/v1/catalog/match`` 的多 detection 响应按源映射。
+
+    每个结果保留独立的 ``match_status``（single_candidate/ambiguous/no_match）
+    和规范化后的 catalog 输入；B 失败返回每源 catalog_unavailable。
+    """
+    detections = list(detections or [])
+
+    def fail(reason: str, detail: str | None = None, status="unavailable"):
+        results = []
+        for det in detections:
+            results.append(
+                {
+                    "source_id": det["detection_id"],
+                    "match_status": None,
+                    "catalog": _unavailable(reason, detail=detail),
+                }
+            )
+        return {
+            "ok": False,
+            "catalog_status": status,
+            "release": None,
+            "reason": reason,
+            "detail": detail,
+            "n": len(results),
+            "results": results,
+        }
+
+    if not isinstance(raw, dict):
+        return fail("MALFORMED_RESPONSE", "响应不是 JSON 对象")
+    if raw.get("unavailable"):
+        return fail(
+            str(raw.get("reason") or raw.get("catalog_reason") or "CATALOG_UNAVAILABLE"),
+            detail=raw.get("message"),
+        )
+    matches = raw.get("matches")
+    if not isinstance(matches, list):
+        return fail("MALFORMED_RESPONSE", "响应缺少 matches 数组")
+
+    by_index = {}
+    by_id = {}
+    for pos, match in enumerate(matches):
+        if not isinstance(match, dict):
+            continue
+        idx = match.get("index")
+        if isinstance(idx, int) and 0 <= idx < len(detections):
+            by_index[idx] = match
+        did = match.get("detection_id")
+        if did is not None:
+            by_id[str(did)] = match
+        by_index.setdefault(pos, match)
+
+    top_status = raw.get("catalog_status")
+    results = []
+    seen = set()
+    for i, det in enumerate(detections):
+        match = by_index.get(i) if i not in seen else None
+        if match is None:
+            match = by_id.get(str(det["detection_id"]))
+        if match is not None:
+            seen.add(i)
+        if not isinstance(match, dict):
+            norm = _unavailable("MALFORMED_RESPONSE", detail="缺少该 detection 的 match")
+            match_status = None
+        else:
+            sub = {
+                "matches": [match],
+                "catalog_status": match.get("catalog_status") or top_status,
+                "release": raw.get("release"),
+                "star_schema_version": raw.get("star_schema_version") or raw.get("db_schema_version"),
+                "releases": raw.get("releases"),
+                "persisted": raw.get("persisted"),
+            }
+            norm = normalize_match(sub)
+            match_status = match.get("status")
+        results.append(
+            {
+                "source_id": det["detection_id"],
+                "match_status": match_status,
+                "catalog": norm,
+            }
+        )
+
+    statuses = {r["catalog"].get("catalog_status") for r in results}
+    catalog_status = top_status or (
+        "unavailable" if "unavailable" in statuses else
+        "partial" if "partial" in statuses else
+        "ok"
+    )
+    return {
+        "ok": True,
+        "catalog_status": catalog_status,
+        "release": raw.get("release"),
+        "n": len(results),
+        "results": results,
+    }
+
+
 class CatalogClient:
     """B 星表服务的最小 stdlib HTTP 客户端；任何异常都转成 unavailable。"""
 
@@ -455,6 +553,117 @@ class CatalogClient:
             "complete": raw.get("complete"),
             "warnings": raw.get("warnings") or [],
         }
+
+    def match_batch(
+        self,
+        sources: list[dict],
+        catalogs=("gaia",),
+        radius_arcsec: float = 3.0,
+    ) -> dict:
+        """一次 POST 多个 detection；每源返回规范化 catalog 输入。"""
+        if not isinstance(sources, list) or not sources:
+            return {
+                "ok": False,
+                "catalog_status": "unavailable",
+                "reason": "INVALID_SOURCE_LIST",
+                "detail": "sources 必须是非空数组。",
+                "n": 0,
+                "results": [],
+            }
+        radius = _finite(radius_arcsec)
+        if radius is None or radius <= 0:
+            return {
+                "ok": False,
+                "catalog_status": "unavailable",
+                "reason": "INVALID_RADIUS",
+                "detail": "radius_arcsec 必须是正数。",
+                "n": 0,
+                "results": [],
+            }
+        detections = []
+        for i, src in enumerate(sources):
+            if not isinstance(src, dict):
+                return {
+                    "ok": False,
+                    "catalog_status": "unavailable",
+                    "reason": "INVALID_SOURCE",
+                    "detail": f"sources[{i}] 不是对象。",
+                    "n": 0,
+                    "results": [],
+                }
+            sid = str(src.get("detection_id") or src.get("source_id") or f"source-{i}")[:200]
+            ra = _finite(src.get("ra"))
+            dec = _finite(src.get("dec"))
+            mjd = _finite(src.get("mjd"))
+            sigma = _finite(src.get("sigma_arcsec"))
+            if ra is None or dec is None or mjd is None:
+                return {
+                    "ok": False,
+                    "catalog_status": "unavailable",
+                    "reason": "INVALID_SOURCE",
+                    "detail": f"sources[{i}] 缺少有限 ra/dec/mjd。",
+                    "n": 0,
+                    "results": [],
+                }
+            if sigma is None:
+                sigma = 1.0
+            if sigma <= 0:
+                return {
+                    "ok": False,
+                    "catalog_status": "unavailable",
+                    "reason": "INVALID_SOURCE",
+                    "detail": f"sources[{i}] sigma_arcsec 必须 > 0。",
+                    "n": 0,
+                    "results": [],
+                }
+            detection = {
+                "detection_id": sid,
+                "ra": float(ra),
+                "dec": float(dec),
+                "mjd": float(mjd),
+                "sigma_arcsec": float(sigma),
+            }
+            pmra = _finite(src.get("pmra_mas_yr"))
+            pmdec = _finite(src.get("pmdec_mas_yr"))
+            if pmra is not None and pmdec is not None:
+                detection["pmra_mas_yr"] = float(pmra)
+                detection["pmdec_mas_yr"] = float(pmdec)
+            detections.append(detection)
+        payload = {
+            "detections": detections,
+            "catalogs": list(catalogs or ["gaia"]),
+            "radius_arcsec": float(radius),
+            "persist": False,
+        }
+        try:
+            raw = self._post_json("/api/v1/catalog/match", payload)
+        except urllib.error.HTTPError as exc:
+            status = int(getattr(exc, "code", 0) or 0)
+            body = {}
+            try:
+                body = json.loads(exc.read().decode("utf-8"))
+            except Exception:  # noqa: BLE001
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            reason = str(body.get("reason") or body.get("code") or "HTTP_ERROR")
+            detail = body.get("message")
+            out = normalize_batch(
+                {"unavailable": True, "reason": reason, "message": detail},
+                detections,
+            )
+            out["http_status"] = status
+            return out
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            out = normalize_batch({"unavailable": True, "reason": "CATALOG_UNREACHABLE", "message": str(exc)}, detections)
+            return out
+        except ValueError as exc:
+            out = normalize_batch({"unavailable": True, "reason": "MALFORMED_RESPONSE", "message": str(exc)}, detections)
+            return out
+        except Exception as exc:  # noqa: BLE001
+            out = normalize_batch({"unavailable": True, "reason": "CATALOG_CLIENT_ERROR", "message": str(exc)}, detections)
+            return out
+        return normalize_batch(raw, detections)
 
     def match(
         self,
