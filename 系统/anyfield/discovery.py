@@ -194,10 +194,10 @@ class Discovery:
             ep["slice_url"] = self._slice_url(ep["key"], ra, dec, fov)
 
         if not candidates:
-            # The preflight already established S3 reachability. A reachable
-            # S3 with no candidates is an empty discovery (200), not a 422 and
-            # not a fabricated 503. Per-week transient errors are counted in
-            # weeks_without_candidates for observability.
+            # Re-check S3 after probing: a mid-run outage must be 503, not an
+            # empty 200. If S3 is still reachable, an empty candidate list is
+            # an honest 200 (not 422, not a fabricated epoch).
+            self._preflight()
             result = self._empty(ra, dec, fov, max_weeks_i, "NO_S3_CANDIDATES", "候选周已探测但没有覆盖该天区的历元")
             with self._lock:
                 self._cache[cache_key] = (now + EMPTY_TTL_S, result)
