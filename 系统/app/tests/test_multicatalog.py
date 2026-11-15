@@ -4,10 +4,12 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest import mock
 
 APP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP)
 
+import server  # noqa: E402
 from core import catalog as cat  # noqa: E402
 
 TARGET = {"ra": 269.45, "dec": 4.69, "mjd": 60916.6, "sigma_arcsec": 0.5}
@@ -101,11 +103,32 @@ class MultiCatalogGroupingTest(unittest.TestCase):
         self.assertEqual(result["n_candidates"], 2)
         self.assertTrue(result["ambiguous"])
 
+    def test_single_target_build_identification_uses_three_catalogs(self):
+        result = {
+            "measurements": [{"mjd": 60916.6, "xi_arcsec": 0.0, "eta_arcsec": 0.0, "sigma_arcsec": 0.5}],
+            "moving": False,
+            "n_epochs": 4,
+        }
+        target = {"ra": 269.45, "dec": 4.69}
+        normalized = cat.normalize_match(_response([
+            _cand("g1", "gaia", 0.2, 269.4500, 4.6900),
+            _cand("t1", "2mass", 0.1, 269.45001, 4.69001),
+            _cand("w1", "wise", 0.3, 269.44999, 4.68999),
+        ]))
+        fake = mock.Mock()
+        fake.match.return_value = normalized
+        with mock.patch.object(server, "CATALOG_CLIENT", fake):
+            ident = server.build_identification(result, target)
+        self.assertEqual(ident["status"], "known_star")
+        self.assertEqual(fake.match.call_args.kwargs["catalogs"], ["gaia", "2mass", "wise"])
+        self.assertEqual(len(ident["candidates"][0]["crossmatches"]), 2)
+
     def test_ui_uses_three_catalogs_for_batch_only(self):
         with open(os.path.join(APP, "web", "app.js"), encoding="utf-8") as fh:
             js = fh.read()
         self.assertIn('catalogs: ["gaia", "2mass", "wise"]', js)
         self.assertIn("gaia+2mass+wise", js)
+        self.assertIn("crossmatches", js)
         # 单目标 /api/analyze 不应被批量三目录替换
         self.assertIn("build_identification", js) if False else None
 

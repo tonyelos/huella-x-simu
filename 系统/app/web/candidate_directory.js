@@ -6,7 +6,7 @@
   const COLUMNS = [
     "origin", "source_id", "epoch_id", "frame", "mjd", "ra", "dec",
     "status", "level", "model", "n_epochs", "catalog", "catalog_id",
-    "separation_arcsec", "origins", "caveats", "quality",
+    "separation_arcsec", "origins", "resolution", "raw_statuses", "caveats", "quality",
   ];
 
   function num(v) {
@@ -81,26 +81,49 @@
       catalog_id: catalogId,
       separation_arcsec: result ? num(result.separation_arcsec) : null,
       origins: kind.toUpperCase(),
+      resolution: "single",
+      raw_statuses: status,
       caveats: result ? join(result.caveats) : "no batch identification",
       quality: result ? join(result.quality) : "",
     };
   }
 
   function mergeSourceRows(base, extra) {
-    const statuses = [...new Set([base.status, extra.status])];
+    const rawStatuses = [...new Set(`${base.raw_statuses || base.status};${extra.raw_statuses || extra.status}`.split(";").filter(Boolean))];
     const origins = [...new Set(`${base.origins};${extra.origins}`.split(";").filter(Boolean))].join(";");
-    const catalogConflict = base.catalog_id && extra.catalog_id && base.catalog_id !== extra.catalog_id;
-    const conflict = statuses.length > 1 || catalogConflict;
+    const bothKnown = base.status === "known" && extra.status === "known";
+    const differentKnownId = bothKnown && base.catalog_id && extra.catalog_id && base.catalog_id !== extra.catalog_id;
+    let status;
+    let resolution;
+    if (differentKnownId) {
+      status = "conflict";
+      resolution = "conflict_known_catalog_ids";
+    } else if (rawStatuses.includes("ambiguous")) {
+      status = "ambiguous";
+      resolution = rawStatuses.includes("known") ? "ambiguous_over_known" : "priority_ambiguous";
+    } else if (rawStatuses.includes("known")) {
+      status = "known";
+      resolution = "priority_known";
+    } else if (rawStatuses.includes("insufficient")) {
+      status = "insufficient";
+      resolution = "priority_insufficient";
+    } else if (rawStatuses.includes("no_match")) {
+      status = "no_match";
+      resolution = "priority_no_match";
+    } else {
+      status = "unknown";
+      resolution = "priority_unknown";
+    }
+    const keepCatalog = ["known", "ambiguous"].includes(status) && !differentKnownId;
     return {
       ...base,
       origins,
-      status: conflict ? "conflict" : base.status,
-      statuses: conflict ? statuses : undefined,
-      catalog_id: conflict ? "" : (base.catalog_id || extra.catalog_id || ""),
-      catalog: conflict ? "" : (base.catalog || extra.catalog || ""),
-      caveats: conflict
-        ? `status conflict: ${statuses.join(" vs ")}; ${base.caveats}; ${extra.caveats}`
-        : (base.caveats || extra.caveats),
+      status,
+      resolution,
+      raw_statuses: rawStatuses.join(";"),
+      catalog_id: differentKnownId ? "" : (keepCatalog ? (base.catalog_id || extra.catalog_id || "") : ""),
+      catalog: differentKnownId ? "" : (keepCatalog ? (base.catalog || extra.catalog || "") : ""),
+      caveats: `resolution=${resolution}; raw_statuses=${rawStatuses.join(";")}; ${base.caveats || ""}; ${extra.caveats || ""}`,
       quality: [base.quality, extra.quality].filter(Boolean).join(";"),
     };
   }
