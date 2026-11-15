@@ -20,15 +20,18 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import sqlite3
 import threading
+import urllib.parse
 import uuid
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import pixel_ingest
 from sidecar import Sidecar
 from wcs_footprint import (
     FOOTPRINT_METHOD_CENTER,
@@ -37,8 +40,8 @@ from wcs_footprint import (
     point_in_polygon,
 )
 
-SERVICE_NAME = "anyfield-p0"
-SERVICE_VERSION = "0.2.0"
+SERVICE_NAME = "anyfield-p1a"
+SERVICE_VERSION = "0.3.0"
 SCHEMA_VERSION = "1.0"
 # Legacy C-MVP field name; the authoritative per-epoch field is
 # coverage_method/footprint_method. Kept for the original 18 tests.
@@ -53,6 +56,8 @@ MJD_EPOCH = datetime(1858, 11, 17, tzinfo=timezone.utc)
 SERVICE_ROOT = Path(__file__).resolve().parent
 DEFAULT_SIDECAR = SERVICE_ROOT / "var" / "anyfield.sqlite"
 DEFAULT_BLOB_ROOT = SERVICE_ROOT.parent / "数据库工具" / "var" / "blobs"
+REPO_ROOT = SERVICE_ROOT.parent.parent
+MAX_FIELD_SOURCES = 200
 _VERSION_RE = re.compile(r"_spx_([^/_]+)\.fits$")
 _ALLOWED_FOOTPRINT_METHODS = {FOOTPRINT_METHOD_WCS, FOOTPRINT_METHOD_CENTER}
 
@@ -164,6 +169,24 @@ def _validate_query(ra: Any, dec: Any, fov: Any) -> tuple[float, float, float]:
     return ra_f % 360.0, dec_f, fov_f
 
 
+def _default_ingest_roots() -> list[Path]:
+    env = os.environ.get("ANYFIELD_INGEST_ROOT", "").strip()
+    if env:
+        raw_parts = [p for p in env.split(os.pathsep) if p.strip()]
+    else:
+        raw_parts = [
+            str(SERVICE_ROOT.parent / "app" / "data"),
+            str(SERVICE_ROOT.parent / "参考 资料" / "muestras"),
+        ]
+    roots: list[Path] = []
+    for raw in raw_parts:
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = REPO_ROOT / path
+        roots.append(path.resolve())
+    return roots
+
+
 def _canonical_sha(payload: Any) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -259,11 +282,16 @@ class Store:
         *,
         sidecar_path: str | Path | None = None,
         blob_root: str | Path | None = None,
+        ingest_roots: list[str | Path] | None = None,
         build_footprints: bool = True,
     ) -> None:
         self.db_path = Path(db_path).expanduser().resolve()
         self.sidecar_path = Path(sidecar_path or DEFAULT_SIDECAR).expanduser().resolve()
         self.blob_root = Path(blob_root or DEFAULT_BLOB_ROOT).expanduser().resolve()
+        if ingest_roots is None:
+            self.ingest_roots = _default_ingest_roots()
+        else:
+            self.ingest_roots = [Path(p).expanduser().resolve() for p in ingest_roots]
         self._snapshot_lock = threading.Lock()
         self._ingest_lock = threading.Lock()
         self._snapshot_signature: tuple[Any, ...] | None = None
@@ -417,6 +445,12 @@ class Store:
                 "counts": sidecar_counts,
             },
             "footprints": dict(self.footprint_stats),
+            "ingest": {
+                "pixel_kinds": ["npz", "fits"],
+                "pixel_ingest": True,
+                "allowed_roots": [str(p) for p in self.ingest_roots],
+                "network": False,
+            },
         }
         if db_error:
             body["error"] = {
@@ -650,6 +684,8 @@ class Store:
                     "frame_id": int(row["frame_id"]) if row.get("frame_id") is not None else None,
                     "coverage_method": method,
                     "footprint_method": method,
+                    "epoch_id": str(row["epoch_id"]),
+                    "source_count": int(row.get("source_count") or 0),
                 }
             )
         return out
@@ -726,13 +762,14 @@ class Store:
                 source = "ingest"
             elif side and filtered:
                 source = "mixed"
-            return self._response(
+            body = self._response(
                 query={"ra": round(qra, 6), "dec": round(qdec, 6), "fov": qfov},
                 raw_epochs=raw,
                 target=target,
                 source=source,
                 truncated=truncated,
             )
+            return self._attach_sources(body, qra, qdec, qfov)
 
         region = self.sidecar.complete_region_for(qra, qdec)
         if region is not None:
@@ -888,6 +925,211 @@ class Store:
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
+    # ------------------------------------------------------------------ local file ingest (P1A)
+    @staticmethod
+    def _is_file_manifest(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        if any(key in payload for key in ("path", "file", "filename")):
+            return True
+        value = payload.get("input")
+        return isinstance(value, (str, dict))
+
+    @staticmethod
+    def _extract_file_path(payload: dict[str, Any]) -> str | None:
+        for key in ("path", "file", "filename"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        value = payload.get("input")
+        if isinstance(value, str):
+            return value.strip() or None
+        if isinstance(value, dict):
+            for key in ("path", "file", "filename"):
+                item = value.get(key)
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+        return None
+
+    def _resolve_ingest_path(self, raw: str) -> Path:
+        text = str(raw).strip()
+        low = text.lower()
+        if low.startswith(("http://", "https://", "file://")):
+            raise ApiError(400, "NETWORK_SOURCE_NOT_ALLOWED", "P1A 只接受本地文件路径，不接受 URL")
+        candidate = Path(text).expanduser()
+        if not candidate.is_absolute():
+            candidate = REPO_ROOT / candidate
+        path = candidate.resolve()
+        if not path.is_file():
+            raise ApiError(400, "INGEST_FILE_NOT_FOUND", f"本地文件不存在：{text}")
+        suffix = path.suffix.lower()
+        if suffix not in (".npz", ".fits", ".fit", ".fts"):
+            raise ApiError(400, "UNSUPPORTED_INGEST_FILE", f"只接受 .npz/.fits，收到 {suffix}")
+        if path.stat().st_size > pixel_ingest.MAX_FILE_BYTES:
+            raise ApiError(400, "INGEST_FILE_TOO_LARGE", "本地像素文件超过 256 MB")
+        if not any(path == root or root in path.parents for root in self.ingest_roots):
+            raise ApiError(
+                400,
+                "PATH_NOT_ALLOWED",
+                "本地文件不在允许的 ingest root 内",
+                details={"allowed_roots": [str(p) for p in self.ingest_roots]},
+            )
+        return path
+
+    @staticmethod
+    def _hash_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def validate_file_manifest(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ApiError(400, "INVALID_MANIFEST", "manifest 必须是 JSON 对象")
+        _reject_network_strings(payload)
+        source = payload.get("source")
+        if source is not None:
+            if not isinstance(source, dict):
+                raise ApiError(400, "INVALID_MANIFEST", "source 必须是对象")
+            kind = str(source.get("kind") or "local_file")
+            if kind not in ("local_file", "local_manifest"):
+                raise ApiError(400, "NETWORK_SOURCE_NOT_ALLOWED", "P1A 只接受本地文件/本地 manifest")
+        raw_path = self._extract_file_path(payload)
+        if not raw_path:
+            raise ApiError(400, "INVALID_MANIFEST", "缺 input.path/path/file")
+        path = self._resolve_ingest_path(raw_path)
+        sha = self._hash_file(path)
+        try:
+            meta = pixel_ingest.inspect_file(path, sha)
+        except pixel_ingest.InvalidPixelFile as exc:
+            raise ApiError(400, "INVALID_INGEST_FILE", str(exc)) from exc
+        epoch_id = _epoch_id_for(meta["release"], meta["version"], meta["obsid"], meta["detector"])
+        epoch = {
+            "epoch_id": epoch_id,
+            "obsid": meta["obsid"],
+            "detector": int(meta["detector"]),
+            "release": meta["release"],
+            "version": meta["version"],
+            "week": meta["week"],
+            "mjd": float(meta["mjd"]),
+            "date_obs": meta["date_obs"],
+            "ra": float(meta["ra"]),
+            "dec": float(meta["dec"]),
+            "frame_id": None,
+            "footprint": meta["footprint"],
+            "source": "ingest",
+            "source_count": 0,
+            "ingest_kind": meta["file_kind"],
+            "input_path": str(path),
+            "file_sha256": sha,
+            "image_shape": meta.get("image_shape"),
+        }
+        content_sha = _canonical_sha({"file_sha256": sha, "epoch": epoch})
+        epoch["content_sha256"] = content_sha
+        return {
+            "file": {"path": str(path), "kind": meta["file_kind"], "sha256": sha},
+            "epoch": epoch,
+            "measurements": [],
+            "content_sha256": content_sha,
+        }
+
+    @staticmethod
+    def _source_measurements(epoch: dict[str, Any], sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for src in sources:
+            idx = int(src["source_index"])
+            out.append(
+                {
+                    "measurement_id": _canonical_sha(
+                        {"epoch_id": epoch["epoch_id"], "source_index": idx, "source_origin": "ingested"}
+                    ),
+                    "target_key": f"source:{idx}",
+                    "mjd": epoch["mjd"],
+                    "ra": float(src["ra"]),
+                    "dec": float(src["dec"]),
+                    "flux": src.get("flux"),
+                    "flux_err": src.get("flux_err"),
+                    "snr": src.get("snr"),
+                    "source_index": idx,
+                    "x": src.get("x"),
+                    "y": src.get("y"),
+                    "saturated": bool(src.get("saturated")),
+                    "quality": list(src.get("quality") or []),
+                    "source_origin": "ingested",
+                }
+            )
+        return out
+
+    # ------------------------------------------------------------------ sources API
+    def resolve_sources(
+        self,
+        ra: Any,
+        dec: Any,
+        fov: Any = 0.2,
+        epoch: str | None = None,
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        qra, qdec, qfov = _validate_query(ra, dec, fov)
+        try:
+            limit_i = max(1, min(int(limit), 5000))
+        except (TypeError, ValueError) as exc:
+            raise ApiError(400, "INVALID_QUERY", "limit 必须是整数") from exc
+        sources = self.sidecar.sources(
+            ra=qra,
+            dec=qdec,
+            radius_deg=qfov / 2.0,
+            epoch=epoch or None,
+            limit=limit_i,
+            origin="ingested",
+        )
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "service_version": SERVICE_VERSION,
+            "index_snapshot": self.index_snapshot(),
+            "index_completeness": INDEX_COMPLETENESS,
+            "query": {
+                "ra": round(qra, 6),
+                "dec": round(qdec, 6),
+                "fov": qfov,
+                "radius_deg": round(qfov / 2.0, 6),
+                "epoch": epoch,
+                "limit": limit_i,
+            },
+            "source_origin": "ingested",
+            "provenance": "real",
+            "count": len(sources),
+            "sources": sources,
+            "sources_truncated": len(sources) >= limit_i,
+            "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+
+    def _attach_sources(self, body: dict[str, Any], ra: float, dec: float, fov: float) -> dict[str, Any]:
+        sources = self.sidecar.sources(
+            ra=ra,
+            dec=dec,
+            radius_deg=fov / 2.0,
+            limit=MAX_FIELD_SOURCES,
+            origin="ingested",
+        )
+        body["sources"] = sources
+        body["source_count"] = len(sources)
+        body["source_origin"] = "ingested"
+        body["sources_truncated"] = len(sources) >= MAX_FIELD_SOURCES
+        body["sources_url"] = (
+            "/api/v1/sources?"
+            + urllib.parse.urlencode(
+                {"ra": f"{ra:.6f}", "dec": f"{dec:.6f}", "fov": f"{fov:g}", "limit": MAX_FIELD_SOURCES}
+            )
+        )
+        body.setdefault("coverage", {})["source_count"] = len(sources)
+        epoch_ids = [str(e["epoch_id"]) for e in body.get("epochs", []) if e.get("epoch_id")]
+        counts = self.sidecar.source_counts_for_epochs(epoch_ids)
+        for epoch in body.get("epochs", []):
+            eid = str(epoch.get("epoch_id") or "")
+            epoch["source_count"] = int(counts.get(eid, epoch.get("source_count") or 0))
+        return body
+
     # ------------------------------------------------------------------ ingest
     def validate_manifest(self, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, dict):
@@ -957,7 +1199,12 @@ class Store:
         return {"epoch": epoch, "measurements": measurements, "content_sha256": content_sha}
 
     def submit_ingest(self, payload: Any) -> dict[str, Any]:
-        normalized = self.validate_manifest(payload)
+        if isinstance(payload, str):
+            payload = {"input": {"path": payload}}
+        if self._is_file_manifest(payload):
+            normalized = self.validate_file_manifest(payload)
+        else:
+            normalized = self.validate_manifest(payload)
         epoch = normalized["epoch"]
         epoch_id = epoch["epoch_id"]
         with self._ingest_lock:
@@ -973,12 +1220,15 @@ class Store:
                 return self._job_dto(active, replayed=True)
             job_id = "ing_" + uuid.uuid4().hex[:16]
             request_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            file_info = normalized.get("file") or {}
             self.sidecar.create_job(
                 job_id,
                 epoch_id,
                 normalized["content_sha256"],
                 request_json,
                 state="queued",
+                input_kind=str(file_info.get("kind") or "manifest"),
+                input_path=file_info.get("path") or epoch.get("input_path"),
             )
             thread = threading.Thread(
                 target=self._process_ingest,
@@ -998,6 +1248,7 @@ class Store:
 
     def _replay_job(self, epoch: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
         job_id = "ing_" + uuid.uuid4().hex[:16]
+        file_info = normalized.get("file") or {}
         self.sidecar.create_job(
             job_id,
             epoch["epoch_id"],
@@ -1005,6 +1256,8 @@ class Store:
             json.dumps({"replayed": True}, separators=(",", ":")),
             state="committed",
             replayed=True,
+            input_kind=str(file_info.get("kind") or "manifest"),
+            input_path=file_info.get("path") or epoch.get("input_path"),
         )
         row = self.sidecar.get_job(job_id) or {}
         dto = self._job_dto(row, replayed=True)
@@ -1014,7 +1267,22 @@ class Store:
     def _process_ingest(self, job_id: str, normalized: dict[str, Any]) -> None:
         self.sidecar.mark_running(job_id)
         try:
+            if normalized.get("file"):
+                file_info = normalized["file"]
+                epoch, sources = pixel_ingest.detect_file_sources(
+                    file_info["path"], file_info["sha256"], normalized["epoch"]
+                )
+                measurements = self._source_measurements(epoch, sources)
+                epoch["source_count"] = len(sources)
+                epoch["ingest_kind"] = file_info["kind"]
+                epoch["input_path"] = file_info["path"]
+                epoch["file_sha256"] = file_info["sha256"]
+                normalized = dict(normalized)
+                normalized["epoch"] = epoch
+                normalized["measurements"] = measurements
             self.sidecar.publish_job(job_id, normalized["epoch"], normalized["measurements"])
+        except pixel_ingest.InvalidPixelFile as exc:
+            self.sidecar.fail_job(job_id, "INVALID_INGEST_FILE", str(exc))
         except Exception as exc:  # noqa: BLE001 - job must be marked failed
             self.sidecar.fail_job(job_id, "INGEST_FAILED", str(exc))
 
@@ -1026,6 +1294,8 @@ class Store:
             "state": row.get("state"),
             "replayed": bool(row.get("replayed")) if replayed is None else bool(replayed),
             "measurements_added": int(row.get("measurements_added") or 0),
+            "input_kind": row.get("input_kind"),
+            "input_path": row.get("input_path"),
             "error": (
                 {"code": row.get("error_code"), "message": row.get("error_message")}
                 if row.get("error_code")

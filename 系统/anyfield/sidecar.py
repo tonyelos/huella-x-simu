@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS ingest_job (
     replayed           INTEGER NOT NULL DEFAULT 0,
     request_json       TEXT NOT NULL,
     measurements_added INTEGER NOT NULL DEFAULT 0,
+    input_kind         TEXT NOT NULL DEFAULT 'manifest',
+    input_path         TEXT,
     error_code         TEXT,
     error_message      TEXT,
     created_at         TEXT NOT NULL,
@@ -101,6 +103,10 @@ CREATE TABLE IF NOT EXISTS epoch_extra (
     frame_id          INTEGER,
     footprint_method  TEXT NOT NULL,
     footprint_json    TEXT,
+    ingest_kind       TEXT NOT NULL DEFAULT 'manifest',
+    input_path        TEXT,
+    file_sha256       TEXT,
+    source_count      INTEGER NOT NULL DEFAULT 0,
     content_sha256    TEXT NOT NULL,
     source            TEXT NOT NULL DEFAULT 'ingest',
     visible           INTEGER NOT NULL DEFAULT 0,
@@ -120,6 +126,11 @@ CREATE TABLE IF NOT EXISTS measurement (
     flux           REAL,
     flux_err       REAL,
     snr            REAL,
+    source_index   INTEGER,
+    x              REAL,
+    y              REAL,
+    saturated      INTEGER NOT NULL DEFAULT 0,
+    source_origin  TEXT NOT NULL DEFAULT 'manifest',
     quality_json   TEXT NOT NULL DEFAULT '[]',
     visible        INTEGER NOT NULL DEFAULT 0,
     retracted_at   TEXT,
@@ -172,6 +183,24 @@ class Sidecar:
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (str(SIDECAR_SCHEMA_VERSION),),
                 )
+                # P0 -> P1A additive migrations for existing sidecars.
+                self._ensure_column(conn, "ingest_job", "input_kind", "TEXT NOT NULL DEFAULT 'manifest'")
+                self._ensure_column(conn, "ingest_job", "input_path", "TEXT")
+                self._ensure_column(conn, "epoch_extra", "ingest_kind", "TEXT NOT NULL DEFAULT 'manifest'")
+                self._ensure_column(conn, "epoch_extra", "input_path", "TEXT")
+                self._ensure_column(conn, "epoch_extra", "file_sha256", "TEXT")
+                self._ensure_column(conn, "epoch_extra", "source_count", "INTEGER NOT NULL DEFAULT 0")
+                self._ensure_column(conn, "measurement", "source_index", "INTEGER")
+                self._ensure_column(conn, "measurement", "x", "REAL")
+                self._ensure_column(conn, "measurement", "y", "REAL")
+                self._ensure_column(conn, "measurement", "saturated", "INTEGER NOT NULL DEFAULT 0")
+                self._ensure_column(conn, "measurement", "source_origin", "TEXT NOT NULL DEFAULT 'manifest'")
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+        columns = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     # ------------------------------------------------------------------ footprints
     def sync_footprints(self, catalog_db: str | Path, blob_root: str | Path) -> dict[str, Any]:
@@ -400,6 +429,8 @@ class Sidecar:
         replayed: bool = False,
         error_code: str | None = None,
         error_message: str | None = None,
+        input_kind: str = "manifest",
+        input_path: str | None = None,
     ) -> None:
         now = _utcnow()
         with self._lock, closing(self._connect(write=True)) as conn:
@@ -407,9 +438,9 @@ class Sidecar:
                 """
                 INSERT INTO ingest_job(
                     job_id, epoch_id, content_sha256, state, replayed, request_json,
-                    measurements_added, error_code, error_message, created_at,
-                    started_at, finished_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    measurements_added, input_kind, input_path, error_code, error_message,
+                    created_at, started_at, finished_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     job_id,
@@ -419,6 +450,8 @@ class Sidecar:
                     1 if replayed else 0,
                     request_json,
                     0,
+                    input_kind,
+                    input_path,
                     error_code,
                     error_message,
                     now,
@@ -458,9 +491,10 @@ class Sidecar:
                     INSERT INTO epoch_extra(
                         epoch_id, obs_id, detector, release, version, week, mjd,
                         ra, dec, frame_id, footprint_method, footprint_json,
+                        ingest_kind, input_path, file_sha256, source_count,
                         content_sha256, source, visible, retracted_at, job_id,
                         created_at, updated_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         epoch["epoch_id"],
@@ -475,6 +509,10 @@ class Sidecar:
                         epoch.get("frame_id"),
                         epoch["footprint"]["method"],
                         json.dumps(epoch.get("footprint"), separators=(",", ":")),
+                        epoch.get("ingest_kind", "manifest"),
+                        epoch.get("input_path"),
+                        epoch.get("file_sha256"),
+                        int(epoch.get("source_count") or 0),
                         epoch["content_sha256"],
                         epoch.get("source", "ingest"),
                         1,
@@ -489,9 +527,10 @@ class Sidecar:
                         """
                         INSERT INTO measurement(
                             measurement_id, epoch_id, target_key, mjd, ra, dec,
-                            flux, flux_err, snr, quality_json, visible, retracted_at,
+                            flux, flux_err, snr, source_index, x, y, saturated,
+                            source_origin, quality_json, visible, retracted_at,
                             job_id, created_at
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             m["measurement_id"],
@@ -503,6 +542,11 @@ class Sidecar:
                             m.get("flux"),
                             m.get("flux_err"),
                             m.get("snr"),
+                            m.get("source_index"),
+                            m.get("x"),
+                            m.get("y"),
+                            1 if m.get("saturated") else 0,
+                            m.get("source_origin", "manifest"),
                             json.dumps(m.get("quality") or [], separators=(",", ":")),
                             1,
                             None,
@@ -551,6 +595,92 @@ class Sidecar:
                 raise
         return self.get_job(job_id) or {}
 
+    # ------------------------------------------------------------------ sources
+    def sources(
+        self,
+        *,
+        ra: float | None = None,
+        dec: float | None = None,
+        radius_deg: float | None = None,
+        epoch: str | None = None,
+        limit: int = 1000,
+        origin: str = "ingested",
+    ) -> list[dict[str, Any]]:
+        """Return visible ingested sources, optionally filtered by sky/epoch."""
+        limit = max(1, min(int(limit), 5000))
+        with self._lock, closing(self._connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT m.measurement_id, m.epoch_id, m.target_key, m.mjd,
+                       m.ra, m.dec, m.flux, m.flux_err, m.snr,
+                       m.source_index, m.x, m.y, m.saturated, m.source_origin,
+                       m.quality_json, e.obs_id, e.detector, e.release,
+                       e.version, e.week, e.ingest_kind, e.input_path
+                FROM measurement m
+                JOIN epoch_extra e ON e.epoch_id = m.epoch_id
+                WHERE m.visible=1 AND e.visible=1 AND m.source_origin=?
+                ORDER BY e.mjd ASC, COALESCE(m.source_index, 9999) ASC
+                """,
+                (origin,),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if epoch and str(row["epoch_id"]) != str(epoch) and str(row["obs_id"]) != str(epoch):
+                continue
+            if ra is not None and dec is not None and radius_deg is not None:
+                sep = angular_sep_deg(ra, dec, row["ra"], row["dec"])
+                if not (sep <= float(radius_deg) + 1e-12):
+                    continue
+            else:
+                sep = None
+            try:
+                quality = json.loads(row["quality_json"] or "[]")
+            except ValueError:
+                quality = []
+            out.append(
+                {
+                    "source_id": row["measurement_id"],
+                    "epoch_id": row["epoch_id"],
+                    "obsid": row["obs_id"],
+                    "detector": int(row["detector"]),
+                    "release": row["release"],
+                    "version": row["version"],
+                    "week": row["week"],
+                    "mjd": row["mjd"],
+                    "source_index": row["source_index"],
+                    "x": row["x"],
+                    "y": row["y"],
+                    "ra": row["ra"],
+                    "dec": row["dec"],
+                    "flux": row["flux"],
+                    "flux_err": row["flux_err"],
+                    "snr": row["snr"],
+                    "saturated": bool(row["saturated"]),
+                    "quality": quality,
+                    "source_origin": row["source_origin"],
+                    "provenance": "real",
+                    "ingest_kind": row["ingest_kind"],
+                    "sep_deg": round(sep, 8) if sep is not None else None,
+                }
+            )
+            if len(out) >= limit:
+                break
+        return out
+
+    def source_counts_for_epochs(self, epoch_ids: list[str]) -> dict[str, int]:
+        ids = [str(x) for x in epoch_ids if x]
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock, closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"SELECT epoch_id, COUNT(*) AS n FROM measurement "
+                f"WHERE visible=1 AND source_origin='ingested' AND epoch_id IN ({placeholders}) "
+                f"GROUP BY epoch_id",
+                ids,
+            ).fetchall()
+        return {str(row["epoch_id"]): int(row["n"]) for row in rows}
+
     # ------------------------------------------------------------------ counts
     def counts(self) -> dict[str, int]:
         with self._lock, closing(self._connect()) as conn:
@@ -561,6 +691,12 @@ class Sidecar:
                 ),
                 "measurements": int(
                     conn.execute("SELECT COUNT(*) FROM measurement WHERE visible=1").fetchone()[0]
+                ),
+                "sources": int(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM measurement WHERE visible=1 "
+                        "AND source_origin='ingested'"
+                    ).fetchone()[0]
                 ),
                 "complete_regions": int(
                     conn.execute("SELECT COUNT(*) FROM coverage_region WHERE complete=1").fetchone()[0]
