@@ -68,8 +68,9 @@ $PY -m unittest discover -s tests -t . -v
 | 真实 TAP 缓存行数 | **17,679**（7 场合计） |
 | 场计数 | barnard 9,603；epsind_b 813；wise0855 1,210；rw_aur 4,684；r_dra 651；m101 458；campo_a 260 |
 | 参考历元 | **J2016.0 = MJD 57388.5** |
-| 派生 2MASS | `2mass-derived-gaia-dr3`：**8,278** unique（输入 8,419 行，141 个跨场重复 ID 折叠） |
-| 派生 WISE | `wise-derived-gaia-dr3`：**7,898** unique（输入 8,052 行，154 个跨场重复 ID 折叠） |
+| 实际 2MASS（IRSA Gator） | `2mass-irsa-gator`：**8,674** 源，7 场，provenance=`irsa_gator` |
+| 实际 WISE（IRSA Gator） | `wise-irsa-gator`：**23,774** 源，7 场，provenance=`irsa_gator` |
+| 派生 fallback | `2mass-derived-gaia-dr3` 8,278 / `wise-derived-gaia-dr3` 7,898 unique（来自 Gaia 交叉证认子集） |
 | 本地缓存文件 | `var/star_catalog.sqlite`（约 7 MB，**不提交**） |
 
 导入器对每个场先执行一次 `SELECT COUNT(*)` 校验，再拉带 2MASS/WISE join 的明细；
@@ -127,8 +128,10 @@ fixture 的 `field_counts` 记录的是当时 TAP 缓存场的完整计数（合
 
 | release | 内容 | provenance | 许可/引用 |
 |---|---|---|---|
-| `2mass-derived-gaia-dr3` | 8,278 个唯一 2MASS ID + J/H/K（来自 Gaia 缓存交叉证认） | `derived_from_gaia_cache` | 2MASS 公共领域；Skrutskie et al. 2006 |
-| `wise-derived-gaia-dr3` | 7,898 个唯一 WISE ID + W1/W2（同上） | `derived_from_gaia_cache` | AllWISE 公共领域；Wright et al. 2010 / Cutri et al. 2021 |
+| `2mass-irsa-gator` | 8,674 个真实 2MASS 源 + J/H/K/quality，7 场 | `irsa_gator` | 2MASS 公共领域；Skrutskie et al. 2006 |
+| `wise-irsa-gator` | 23,774 个真实 AllWISE 源 + W1/W2/quality，7 场 | `irsa_gator` | AllWISE 公共领域；Wright et al. 2010 / Cutri et al. 2021 |
+| `2mass-derived-gaia-dr3` | 8,278 个唯一 2MASS ID + J/H/K（旧 fallback） | `derived_from_gaia_cache` | 2MASS 公共领域；Skrutskie et al. 2006 |
+| `wise-derived-gaia-dr3` | 7,898 个唯一 WISE ID + W1/W2（旧 fallback） | `derived_from_gaia_cache` | AllWISE 公共领域；Wright et al. 2010 / Cutri et al. 2021 |
 | `target_name`（表，不是 release） | 7 个 preset target 名称/别名/SIMBAD ID | `preset_target_names` | 名称是项目元数据；SIMBAD 引用/ODbL 仅在在线查询时适用 |
 
 - 2MASS/WISE 派生目录**不是完整目录**，只含 Gaia 缓存中带交叉证认 ID 与所需星等的源；
@@ -144,7 +147,7 @@ fixture 的 `field_counts` 记录的是当时 TAP 缓存场的完整计数（合
   `source_url`；release 更新时新增版本，不允许隐式漂移。
 - 第三方材料总表：根目录 `THIRD_PARTY_NOTICES.md` §5.1。
 
-SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **4**），
+SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **5**），
 API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 ---
@@ -153,10 +156,11 @@ API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 `var/star_catalog.sqlite` 是**可重建缓存**，不是原始数据归档。删掉后用
 `tools/import_gaia.py --rebuild` 重建（联网 TAP；失败回退 fixture）。
-当前 **star schema v4**：v2 增加 `parallax_error/ruwe/astrometric_excess_noise/
+当前 **star schema v5**：v2 增加 `parallax_error/ruwe/astrometric_excess_noise/
 phot_variable_flag` 与 `catalog_field.photometry_json`；v3 增加
 `catalog_source.field_id`（场级 upsert 的归属键）及 `(release_id, field_id)` 索引；
-v4 增加 `target_name`（7 个 preset target 名称/SIMBAD 状态，名称不是 SIMBAD 场目录）。
+v4 增加 `target_name`（7 个 preset target 名称/SIMBAD 状态）；v5 增加
+`catalog_source.quality`（2MASS/WISE Gator quality flag）。
 旧库用 `apply_star_schema()` 做 `ADD COLUMN` + 最近场心回填迁移（保留已有行），
 也可直接 `--rebuild` 重建；两条路径都有测试。
 
@@ -176,7 +180,7 @@ v4 增加 `target_name`（7 个 preset target 名称/SIMBAD 状态，名称不�
 `source_id`（服务内唯一键，`<release>:<catalog_id>`）、`release_id`、`field_id`、`catalog_id`（Gaia
 `source_id` 字符串）、`ra`、`dec`、`pmra`、`pmdec`、`parallax`、`parallax_error`、
 `ra_error`、`dec_error`、`pmra_error`、`pmdec_error`、`ruwe`、
-`astrometric_excess_noise`、`phot_variable_flag`、`gmag`、`bp_rp`、`jmag`、`hmag`、`kmag`、
+`astrometric_excess_noise`、`phot_variable_flag`、`quality`、`gmag`、`bp_rp`、`jmag`、`hmag`、`kmag`、
 `w1`、`w2`、`twomass_id`、`wise_id`、`epoch_ref`（MJD）、`healpix`（NESTED，nside=64）、
 `object_type`、`provenance`、`created_at`。
 
@@ -218,8 +222,8 @@ v4 增加 `target_name`（7 个 preset target 名称/SIMBAD 状态，名称不�
   "ok": true,
   "service": "star-catalog",
   "schema_version": "1.0",
-  "star_schema_version": 4,
-  "db_schema_version": 4,
+  "star_schema_version": 5,
+  "db_schema_version": 5,
   "counts": {"releases": 1, "sources": 250, "fields": 7, "matches": 0, "import_runs": 1},
   "simbad": "unavailable",
   "releases": [{
@@ -229,7 +233,7 @@ v4 增加 `target_name`（7 个 preset target 名称/SIMBAD 状态，名称不�
     "provenance": "fixture", "n_sources": 250, "n_sources_actual": 250
   }],
   "db": {"path": ".../var/star_catalog.sqlite", "disk_bytes": 7340032,
-         "schema_version": 4, "api_schema_version": "1.0"},
+         "schema_version": 5, "api_schema_version": "1.0"},
   "generated_at": "2026-11-15T01:02:43Z"
 }
 ```
@@ -429,6 +433,8 @@ D-03 建议锥半径 ≥0.3°，B 支持到 5°。
   例：σ=0.05″、sep=0.2163″ 时候选 confidence≈0.688（不是 1）。
 - `pm_residual` 是 PM 大小差 [mas/yr]，`pa_residual` 是 PM 方向差 [deg]（−180..180）；
   检测没给 PM 或星表无 PM 时为 `null`。
+- 2MASS/WISE 实际 Gator 候选额外带 `quality`（2MASS/WISE `ph_qual`）；
+  Gaia 候选/缺失为 null。候选的 `jmag/hmag/kmag/w1/w2` 按目录返回，不适用字段为 null。
 - `coverage` 按目录给；检测点不在任何已缓存场 → **HTTP 503**
   `CATALOG_UNAVAILABLE` / `no_cached_field`，绝不返回 `no_match`。
 - `catalog_status=partial` 表示 fixture/边缘缓存：0 候选不能当“未收录”；
@@ -582,21 +588,36 @@ TAP 失败示例：
 当成“未缓存”，不能把随后 match 的 no_match 当新天体。
 
 
-### 5.10 第二/第三目录：2MASS/WISE 派生 + SIMBAD 名称
+### 5.10 第二/第三目录：IRSA 实际 2MASS/WISE + SIMBAD 名称
 
-**2MASS/WISE 派生**（可复现、不联网）：
+**实际场目录（优先，联网 IRSA Gator）**：
+
+```bash
+$PY tools/import_irsa_catalogs.py --db var/star_catalog.sqlite --rebuild
+```
+
+- 对 7 个预设场各做一次 0.25° IRSA Gator 锥搜索；
+- `2mass-irsa-gator`：**8,674 源 / 7 场**，源字段
+  `catalog_id/ra/dec/jmag/hmag/kmag/quality`；
+- `wise-irsa-gator`：**23,774 源 / 7 场**，源字段
+  `catalog_id/ra/dec/w1/w2/quality`；
+- 坐标是 Gator 原始 RA/Dec；`epoch_ref=J2000.0`，PM=null（不伪造自行）；
+- `provenance=irsa_gator`，`coverage.complete=true`（场级实际目录，不是全球目录）；
+- 2MASS/WISE 为公共领域数据；AllWISE 坐标原生约 2010，本服务按契约存 J2000
+  且无 PM，D 不能把它当 2025–2026 位置锚点；
+- `--rebuild` 只删/重建 `2mass-irsa-gator` / `wise-irsa-gator`，不碰 `gaia-dr3`；
+- 某场失败：该场 skip 并写 `errors`，不写伪数据；实际 release 可能只有 6/7 场。
+
+**旧派生 fallback（不联网）**：
 
 ```bash
 $PY tools/derive_secondary_catalogs.py --db var/star_catalog.sqlite
 ```
 
-- 从 `gaia-dr3` 缓存中抽 `twomass_id + jmag/hmag/kmag` → `2mass` release；
-  抽 `wise_id + w1/w2` → `wise` release；
-- 真实缓存：2MASS 输入 8,419 行、唯一 8,278（141 个跨场重复 ID 折叠）；
-  WISE 输入 8,052、唯一 7,898（154 折叠）；
-- 7 个 `catalog_field` 全部复制，`provenance=derived_from_gaia_cache`；
-- 坐标/PM 沿用 Gaia J2016.0；**不是**完整 2MASS/WISE，也不是原始 survey 历元位置；
-- 派生场的 `coverage.complete=false`，match 顶层 `catalog_status=partial`。
+- 从 Gaia 缓存抽 `twomass_id + JHK` / `wise_id + W1W2`，建 `*-derived-gaia-dr3`；
+- 计数 2MASS 8,278、WISE 7,898 unique；坐标/PM 沿用 Gaia J2016.0；
+- `provenance=derived_from_gaia_cache`，`coverage.complete=false`、`catalog_status=partial`；
+- 没有实际 Gator release 时作为 fallback；实际 release 更新后 `get_release` 选最新。
 
 查询：
 
@@ -609,8 +630,9 @@ curl -X POST 'http://127.0.0.1:8799/api/v1/catalog/match' \
        "catalogs":["gaia","2mass","wise"],"radius_arcsec":1.0}'
 ```
 
-每个候选带 `catalog/catalog_id` 与真实星等；2MASS 候选有 `jmag/hmag/kmag`、W1/W2 为 null；
-WISE 候选相反；Gaia 候选保留自己的全部列。
+每个候选带 `catalog/catalog_id/quality` 与真实星等；2MASS 候选 W1/W2=null，
+WISE 候选 J/H/K=null；缺失值保持 null。实际 Gator 源无 PM，高自行源用 2026
+检测位置直接匹配 2MASS/WISE 可能落空，这是物理边界，D 不应强配。
 
 **SIMBAD 名称 enrichment**：
 
@@ -699,8 +721,9 @@ B 的 `catalog_status` 与 D 的 `catalog_status` 对齐：
 - 单写者：SQLite WAL 支持多读；同一时刻只建议一个导入进程。
 - 重建：`tools/import_gaia.py --rebuild`；只重建一个场：`--fields barnard --rebuild`；
   只导出可提交样本：`--export-sample`。
-- 派生：`tools/derive_secondary_catalogs.py --db var/star_catalog.sqlite`；
-  名称：`tools/import_simbad.py --db var/star_catalog.sqlite [--offline]`。
+- 实际 2MASS/WISE：`tools/import_irsa_catalogs.py --db var/star_catalog.sqlite --rebuild`；
+- 派生 fallback：`tools/derive_secondary_catalogs.py --db var/star_catalog.sqlite`；
+- 名称：`tools/import_simbad.py --db var/star_catalog.sqlite [--offline]`。
 - release 更新：当前导入器对同名 `catalog+version` 做 replace。冻结演示应改用新
   `version`/`release_key`，不要覆盖旧快照（D 设计要求旧结果可复现）。见 §10。
 
@@ -715,7 +738,7 @@ $PY -m unittest discover -s tests -t . -v
 
 覆盖：
 
-- schema/列/视图/外键、`schema_version=4`、release 的 epoch/license/citation/source_url；
+- schema/列/视图/外键、`schema_version=5`、release 的 epoch/license/citation/source_url；
 - v1/v2/v3→v4 迁移：旧库缺 `ruwe/astrometric_excess_noise/phot_variable_flag/parallax_error/
   field_id/photometry_json` 时 `ADD COLUMN` 安全迁移，并按最近场心回填 `field_id`；
   v4 新增 `target_name` 表并 seed 7 个 preset 名称；
@@ -740,7 +763,9 @@ $PY -m unittest discover -s tests -t . -v
   TAP 失败 502 且计数不变、非法参数 400、photometry partial 不阻塞 Gaia 落库；
 - `upsert_field` 新场/重入/相邻场保留/追加模式；UPSERT 不删仍在新列表的 source，
   `catalog_match` 不被级联清空；
-- 2MASS/WISE 派生：fixture 2MASS 167 唯一 / WISE 146 唯一；7 场复制；
+- IRSA Gator 实际目录（fake Gator，离线）：7 场 × 2 目录落库、quality/epoch/JHK/W1W2、
+  PM=null；`--rebuild` 不删 Gaia/旧派生；某场失败只 skip 不写伪数据；
+- 2MASS/WISE 派生 fallback：fixture 2MASS 167 唯一 / WISE 146 唯一；7 场复制；
   只含 JHK/W1W2 完整行；重复 ID 折叠；重复 derive 幂等；
 - 多目录 match：`catalogs=["gaia","2mass","wise"]` 返回三类候选，
   2MASS 候选 W1/W2=null、WISE 候选 J/H/K=null，派生目录 `catalog_status=partial`；
@@ -766,11 +791,11 @@ PY
 
 ## 10. 未完成/已知限制（交给 lead/D 决策）
 
-1. **2MASS/WISE 是派生交叉证认子集，不是完整目录。** J/H/K/W1/W2 通过 IRSA Gator
-   对回 Gaia 交叉证认 ID；真实 7 场缓存覆盖 2MASS 8,419/17,679、WISE 8,052/17,679；
-   派生 release 去重后 2MASS 8,278、WISE 7,898 唯一 ID。坐标/PM 用 Gaia J2016.0，
-   **不是 2MASS J2000 / AllWISE 2010 原始位置**。没有 2MASS/WISE 自身误差列/质量标志；
-   缺失交叉证认/星等的源不进派生目录，不能声称全量。
+1. **2MASS/WISE 实际目录只覆盖 7 个 0.25° 场，不是全球目录。** `2mass-irsa-gator`
+   8,674 源、`wise-irsa-gator` 23,774 源，坐标是 Gator 原始 RA/Dec；2MASS 为 J2000，
+   AllWISE 原生约 2010（本服务按契约存 `epoch_ref=J2000.0` 且不写 PM，D 不能把它当
+   2025–2026 位置锚点）。旧 `*-derived-gaia-dr3` 是可离线重建的交叉证认 fallback
+   （2MASS 8,278 / WISE 7,898 unique），不是完整目录。未覆盖天区/源不能声称全量。
 2. **RUWE/astrometric_excess_noise/phot_variable_flag 已接入；仍缺**
    `visibility_periods_used`、`astrometric_excess_noise_sig`、2MASS/WISE 误差列。
    D 可以用 `ruwe` 做降级，但不能把 `phot_variable_flag` 当成 D 的变星结论。

@@ -68,6 +68,7 @@ SOURCE_COLUMNS = (
     "ruwe",
     "astrometric_excess_noise",
     "phot_variable_flag",
+    "quality",
     "gmag",
     "bp_rp",
     "jmag",
@@ -208,6 +209,7 @@ def _source_dict(
         "ruwe": _row_get(row, "ruwe"),
         "astrometric_excess_noise": _row_get(row, "astrometric_excess_noise"),
         "phot_variable_flag": _row_get(row, "phot_variable_flag"),
+        "quality": _row_get(row, "quality"),
         "gmag": row["gmag"],
         "bp_rp": row["bp_rp"],
         "2mass": row["twomass_id"],
@@ -512,7 +514,18 @@ class StarCatalog:
             "n_cached_sources": int(best.get("n_sources") or 0),
         }
         prov = best.get("provenance")
-        if prov == "derived_from_gaia_cache":
+        if prov in ("tap", "irsa_gator"):
+            if not complete:
+                if best_margin < 0:
+                    cov["warning"] = (
+                        "查询中心在缓存场边界外，返回的是与缓存场重叠部分的源；"
+                        "缓存未覆盖整个查询圆，结果不完整。"
+                    )
+                else:
+                    cov["warning"] = (
+                        "查询半径超出该场缓存半径；返回缓存内源，外圈可能缺少星表源。"
+                    )
+        elif prov == "derived_from_gaia_cache":
             # 派生目录只含 Gaia 缓存中带交叉证认 ID+星等的子集，不是完整目录。
             cov["complete"] = False
             cov["warning"] = (
@@ -529,16 +542,6 @@ class StarCatalog:
         elif prov != "tap":
             cov["complete"] = False
             cov["warning"] = f"该场 provenance={prov}，不是完整 TAP 缓存；complete=false。"
-        elif not complete:
-            if best_margin < 0:
-                cov["warning"] = (
-                    "查询中心在缓存场边界外，返回的是与缓存场重叠部分的源；"
-                    "缓存未覆盖整个查询圆，结果不完整。"
-                )
-            else:
-                cov["warning"] = (
-                    "查询半径超出该场缓存半径；返回缓存内源，外圈可能缺少星表源。"
-                )
         return cov
 
     def _query_rows(
@@ -1072,6 +1075,7 @@ class StarCatalog:
             _optional_float(src.get("ruwe")),
             _optional_float(src.get("astrometric_excess_noise")),
             src.get("phot_variable_flag"),
+            src.get("quality"),
             _optional_float(src.get("gmag")),
             _optional_float(src.get("bp_rp")),
             _optional_float(src.get("jmag")),
@@ -1089,6 +1093,17 @@ class StarCatalog:
         )
         return catalog_id, source_id, row
 
+    def delete_release(self, catalog: str, version: str) -> int:
+        """删除一个 catalog+version release（仅该 release，不碰 Gaia）。"""
+        if self.readonly:
+            raise CatalogError("只读连接不能删除 release")
+        with transaction(self.conn):
+            cur = self.conn.execute(
+                "DELETE FROM catalog_release WHERE catalog=? AND version=?",
+                (str(catalog), str(version)),
+            )
+        return int(cur.rowcount or 0)
+
     def upsert_field(
         self,
         *,
@@ -1099,7 +1114,7 @@ class StarCatalog:
         ra: float,
         dec: float,
         radius_deg: float,
-        mag_limit: float,
+        mag_limit: float | None = None,
         sources: Iterable[dict],
         provenance: str = "tap",
         license: str,
@@ -1136,13 +1151,16 @@ class StarCatalog:
         if not (-90.0 <= dec <= 90.0):
             raise CatalogValidationError("dec 必须在 [-90, 90]")
         radius_deg = _finite(radius_deg, "radius_deg")
-        mag_limit = _finite(mag_limit, "mag_limit")
         if not (0.0 < radius_deg <= 5.0):
             raise CatalogValidationError("radius_deg 必须在 (0, 5]")
-        if not (0.0 < mag_limit <= 30.0):
-            raise CatalogValidationError("mag_limit 必须在 (0, 30]")
-        if provenance not in ("tap", "fixture", "mixed", "import"):
-            raise CatalogValidationError("provenance 必须是 tap/fixture/mixed/import")
+        if mag_limit is not None:
+            mag_limit = _finite(mag_limit, "mag_limit")
+            if not (0.0 < mag_limit <= 30.0):
+                raise CatalogValidationError("mag_limit 必须在 (0, 30]")
+        if provenance not in (
+            "tap", "fixture", "mixed", "import", "irsa_gator", "derived_from_gaia_cache"
+        ):
+            raise CatalogValidationError("provenance 不合法")
 
         # 写连接上先补 schema 迁移；旧库没有 field_id 时自动回填。
         apply_star_schema(self.conn)
@@ -1339,7 +1357,7 @@ class StarCatalog:
             "n_release_sources": total_sources,
             "provenance": provenance,
             "release_provenance": release_prov,
-            "complete": provenance == "tap",
+            "complete": provenance in ("tap", "irsa_gator"),
             "radius_deg": radius_deg,
             "mag_limit": mag_limit,
             "fetched_at": now,

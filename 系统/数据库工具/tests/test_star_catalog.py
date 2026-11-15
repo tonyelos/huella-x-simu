@@ -142,7 +142,7 @@ class StarCatalogDataTest(unittest.TestCase):
                 "source_id", "release_id", "field_id", "catalog_id", "ra", "dec",
                 "pmra", "pmdec", "parallax", "ra_error", "dec_error",
                 "pmra_error", "pmdec_error", "parallax_error", "ruwe",
-                "astrometric_excess_noise", "phot_variable_flag",
+                "astrometric_excess_noise", "phot_variable_flag", "quality",
                 "gmag", "bp_rp", "jmag", "hmag",
                 "kmag", "w1", "w2", "twomass_id", "wise_id", "epoch_ref",
                 "healpix", "object_type", "provenance", "created_at",
@@ -473,6 +473,7 @@ class StarCatalogDataTest(unittest.TestCase):
                     "astrometric_excess_noise",
                     "phot_variable_flag",
                     "field_id",
+                    "quality",
                 ):
                     conn.execute(f"ALTER TABLE catalog_source DROP COLUMN {col}")
                 conn.execute("ALTER TABLE catalog_field DROP COLUMN photometry_json")

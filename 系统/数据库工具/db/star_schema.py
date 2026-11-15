@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS catalog_source (
     ruwe            REAL,
     astrometric_excess_noise REAL,
     phot_variable_flag TEXT,
+    quality         TEXT,
     gmag            REAL,
     bp_rp           REAL,
     jmag            REAL,
@@ -172,6 +173,7 @@ SELECT
     s.ruwe,
     s.astrometric_excess_noise,
     s.phot_variable_flag,
+    s.quality,
     s.gmag,
     s.bp_rp,
     s.jmag,
@@ -227,6 +229,7 @@ def migrate_star_schema(conn: sqlite3.Connection) -> None:
         ("astrometric_excess_noise", "REAL"),
         ("phot_variable_flag", "TEXT"),
         ("field_id", "TEXT"),
+        ("quality", "TEXT"),
     ):
         if name not in source_cols:
             conn.execute(f"ALTER TABLE catalog_source ADD COLUMN {name} {typ}")

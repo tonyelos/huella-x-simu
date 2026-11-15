@@ -21,7 +21,7 @@ CATALOG_DOC = TOOL_ROOT / "docs" / "CATALOG.md"
 
 SERVICE_NAME = "star-catalog"
 CATALOG_API_VERSION = "1.0"
-STAR_SCHEMA_VERSION = 4
+STAR_SCHEMA_VERSION = 5
 CATALOG_PORT = 8799
 
 # 每个预设场的缓存半径。0.25° 覆盖 app 默认 0.25° 视场（半对角线约 0.177°），
