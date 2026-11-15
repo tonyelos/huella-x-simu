@@ -226,6 +226,7 @@ L0 数据源  IRSA 静态切片 · S3 公开桶 · SIMBAD 参考
 | [架构/16_官方案例基准与机制优化.md](架构/16_官方案例基准与机制优化.md) | 以 5 个官方实例为只读基准；修正 Barnard 的 S 过度结论（星表 PM 先验） |
 | [架构/17_数据接收接口与自动缓存.md](架构/17_数据接收接口与自动缓存.md) | Gaia TAP → SQL ingest → app 自动重试；场级 upsert 与 502 语义 |
 | [架构/18_批量星表识别.md](架构/18_批量星表识别.md) | A/C 源表批量 known/ambiguous/no_match；UI 徽标与 47 源验证 |
+| [架构/19_A源表批量识别.md](架构/19_A源表批量识别.md) | A 源表折叠列表 + 分 200 批识别；Barnard 215 源验证 |
 | [验收/GUI链路测试.md](验收/GUI链路测试.md) | Ego GUI 链路 + `/cascade` + `/tracks` 页验收 |
 | [验收/STATUS.md](验收/STATUS.md) | T1 状态：WIP / BLOCKED |
 | [冻结/STATUS.md](冻结/STATUS.md) | T3 状态：PASS |
