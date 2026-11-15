@@ -77,6 +77,8 @@ $PY catalog_server.py --port 8799             # 只绑 127.0.0.1
 # → http://127.0.0.1:8799/api/docs        (docs/CATALOG.md)
 ```
 
+- **场级接收**：`POST /api/v1/catalog/ingest` 可从 Gaia TAP 接收一个新场并写 SQL；
+  TAP 失败 502 `UPSTREAM_TAP_ERROR` 且不写部分数据。详见 `docs/CATALOG.md` §5.9。
 - **数据范围**：Gaia DR3，7 个预设场 × 0.25° × G≤20，合计 **17,679 源**。
   这是**按场缓存，不是 Gaia 全量**，也不是全天可按需查询的服务；缓存外查询返回
   `CATALOG_UNAVAILABLE`。真实 TAP 抓取/导入时间见 release 的 `imported_at` 与
@@ -368,7 +370,7 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 118 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 34 个、时间窗 8 个）
+├── tests/                 126 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 42 个、时间窗 8 个）
 ├── tests/fixtures/        gaia_dr3_sample.csv（250 行真实 Gaia 子集，仅测试）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/

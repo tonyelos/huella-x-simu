@@ -33,6 +33,7 @@ from .star_config import (
     GAIA_EPOCH_MJD,
     GAIA_EPOCH_REF,
     HEALPIX_NSIDE,
+    INGEST_MAX_FIELD_ID_LEN,
     JULIAN_YEAR_DAYS,
     MAS_PER_DEG,
     MAX_CONE_LIMIT,
@@ -45,6 +46,41 @@ from .star_config import (
 from .star_schema import apply_star_schema, check_star_schema
 
 MAX_SOURCES = 200_000
+
+# catalog_source 的列顺序；import_release / upsert_field 共用，避免两套 SQL 漂移。
+SOURCE_COLUMNS = (
+    "source_id",
+    "release_id",
+    "field_id",
+    "catalog_id",
+    "ra",
+    "dec",
+    "pmra",
+    "pmdec",
+    "parallax",
+    "ra_error",
+    "dec_error",
+    "pmra_error",
+    "pmdec_error",
+    "parallax_error",
+    "ruwe",
+    "astrometric_excess_noise",
+    "phot_variable_flag",
+    "gmag",
+    "bp_rp",
+    "jmag",
+    "hmag",
+    "kmag",
+    "w1",
+    "w2",
+    "twomass_id",
+    "wise_id",
+    "epoch_ref",
+    "healpix",
+    "object_type",
+    "provenance",
+    "created_at",
+)
 
 
 class CatalogError(Exception):
@@ -152,6 +188,7 @@ def _source_dict(
 ) -> dict:
     src = {
         "source_id": row["source_id"],
+        "field_id": _row_get(row, "field_id"),
         "catalog": release["catalog"],
         "catalog_id": row["catalog_id"],
         "release": release["release"],
@@ -908,6 +945,322 @@ class StarCatalog:
         return len(rows)
 
     # ------------------------------------------------------------------ 导入
+    def _build_source_row(
+        self,
+        src: dict,
+        release_id: int,
+        release_key: str,
+        now: str,
+        default_provenance: str,
+    ) -> tuple[str, str, tuple]:
+        """校验/规范化一个星表源，返回 (catalog_id, source_id, row)。"""
+        catalog_id = str(src.get("catalog_id") or src.get("source_id") or "").strip()
+        if not catalog_id:
+            raise CatalogValidationError("source 缺少 catalog_id")
+        ra = _finite(src.get("ra"), f"source {catalog_id} ra")
+        dec = _finite(src.get("dec"), f"source {catalog_id} dec")
+        if not (-90.0 <= dec <= 90.0):
+            raise CatalogValidationError(f"source {catalog_id} dec 越界")
+        source_id = str(src.get("source_id") or f"{release_key}:{catalog_id}")
+        hp = src.get("healpix")
+        if hp is None:
+            hp = ang2pix_nest(HEALPIX_NSIDE, ra, dec)
+        field_id = str(src.get("field_id") or "").strip() or None
+        row = (
+            source_id,
+            release_id,
+            field_id,
+            catalog_id,
+            ra,
+            dec,
+            _optional_float(src.get("pmra")),
+            _optional_float(src.get("pmdec")),
+            _optional_float(src.get("parallax")),
+            _optional_float(src.get("ra_error")),
+            _optional_float(src.get("dec_error")),
+            _optional_float(src.get("pmra_error")),
+            _optional_float(src.get("pmdec_error")),
+            _optional_float(src.get("parallax_error")),
+            _optional_float(src.get("ruwe")),
+            _optional_float(src.get("astrometric_excess_noise")),
+            src.get("phot_variable_flag"),
+            _optional_float(src.get("gmag")),
+            _optional_float(src.get("bp_rp")),
+            _optional_float(src.get("jmag")),
+            _optional_float(src.get("hmag")),
+            _optional_float(src.get("kmag")),
+            _optional_float(src.get("w1")),
+            _optional_float(src.get("w2")),
+            src.get("twomass_id"),
+            src.get("wise_id"),
+            _optional_float(src.get("epoch_ref")),
+            int(hp),
+            src.get("object_type"),
+            str(src.get("provenance") or default_provenance),
+            now,
+        )
+        return catalog_id, source_id, row
+
+    def upsert_field(
+        self,
+        *,
+        catalog: str,
+        version: str,
+        field_id: str,
+        field_name: str | None,
+        ra: float,
+        dec: float,
+        radius_deg: float,
+        mag_limit: float,
+        sources: Iterable[dict],
+        provenance: str = "tap",
+        license: str,
+        citation: str | None = None,
+        source_url: str,
+        epoch_ref: str = GAIA_EPOCH_REF,
+        epoch_mjd: float = GAIA_EPOCH_MJD,
+        replace_field: bool = True,
+        photometry: dict | None = None,
+        run_mode: str | None = None,
+    ) -> dict:
+        """场级 upsert：新增/替换一个场，保留同一 release 的其它场。
+
+        - 已有 release 不删除；按 source_id UPSERT（避免 REPLACE 级联删 catalog_match）；
+        - `replace_field=True` 时先删该 field_id 的旧源，再写新源；
+        - `replace_field=False` 时只追加/更新，不删旧源；
+        - 事务内更新 catalog_field/catalog_release/import_run/star_meta。
+        """
+        if self.readonly:
+            raise CatalogError("只读连接不能写入星表")
+        catalog = str(catalog).strip()
+        version = str(version).strip()
+        field_id = str(field_id).strip()
+        if not catalog or not version:
+            raise CatalogValidationError("catalog/version 不能为空")
+        if not field_id:
+            raise CatalogValidationError("field_id 不能为空")
+        if len(field_id) > INGEST_MAX_FIELD_ID_LEN:
+            raise CatalogValidationError(
+                f"field_id 不能超过 {INGEST_MAX_FIELD_ID_LEN} 字符"
+            )
+        ra = _finite(ra, "ra")
+        dec = _finite(dec, "dec")
+        if not (-90.0 <= dec <= 90.0):
+            raise CatalogValidationError("dec 必须在 [-90, 90]")
+        radius_deg = _finite(radius_deg, "radius_deg")
+        mag_limit = _finite(mag_limit, "mag_limit")
+        if not (0.0 < radius_deg <= 5.0):
+            raise CatalogValidationError("radius_deg 必须在 (0, 5]")
+        if not (0.0 < mag_limit <= 30.0):
+            raise CatalogValidationError("mag_limit 必须在 (0, 30]")
+        if provenance not in ("tap", "fixture", "mixed", "import"):
+            raise CatalogValidationError("provenance 必须是 tap/fixture/mixed/import")
+
+        # 写连接上先补 schema 迁移；旧库没有 field_id 时自动回填。
+        apply_star_schema(self.conn)
+        started = utcnow()
+        now = started
+        release_key = f"{catalog}-{version}"
+        warnings: list[str] = []
+        with transaction(self.conn):
+            run = self.conn.execute(
+                "INSERT INTO catalog_import_run(started_at, status, mode) VALUES(?, 'running', ?)",
+                (started, run_mode or provenance),
+            )
+            run_id = int(run.lastrowid)
+            release_row = self.conn.execute(
+                "SELECT * FROM catalog_release WHERE catalog=? AND version=?",
+                (catalog, version),
+            ).fetchone()
+            if release_row is None:
+                self.conn.execute(
+                    """INSERT INTO catalog_release(
+                           release_key, catalog, version, epoch_ref, epoch_mjd, imported_at,
+                           license, citation, source_url, provenance, cache_radius_deg,
+                           mag_limit, n_sources, notes)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        release_key,
+                        catalog,
+                        version,
+                        str(epoch_ref),
+                        float(epoch_mjd),
+                        now,
+                        license,
+                        citation,
+                        source_url,
+                        provenance,
+                        radius_deg,
+                        mag_limit,
+                        0,
+                        f"field-level ingest: {field_id}",
+                    ),
+                )
+                release_id = int(self.conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+            else:
+                release_id = int(release_row["release_id"])
+
+            existing_ids = {
+                r[0]
+                for r in self.conn.execute(
+                    "SELECT source_id FROM catalog_source WHERE release_id=?", (release_id,)
+                )
+            }
+            existing_field_ids = {
+                r[0]
+                for r in self.conn.execute(
+                    "SELECT source_id FROM catalog_source WHERE release_id=? AND field_id=?",
+                    (release_id, field_id),
+                )
+            }
+
+            batch: list[tuple] = []
+            seen: set[str] = set()
+            incoming_ids: set[str] = set()
+            n_new = 0
+            for src in sources:
+                item = dict(src)
+                item["field_id"] = field_id
+                catalog_id, source_id, row = self._build_source_row(
+                    item, release_id, release_key, now, provenance
+                )
+                if catalog_id in seen:
+                    continue
+                seen.add(catalog_id)
+                incoming_ids.add(source_id)
+                if source_id not in existing_ids:
+                    n_new += 1
+                batch.append(row)
+
+            # replace_field：只删不在新列表中的 stale source。
+            # 仍在新列表的 source_id 不做 DELETE，避免 catalog_match 的 FK 级联删除。
+            if replace_field:
+                stale = existing_field_ids - incoming_ids
+                stale_list = list(stale)
+                for i in range(0, len(stale_list), 300):
+                    chunk = stale_list[i : i + 300]
+                    marks = ",".join("?" for _ in chunk)
+                    self.conn.execute(
+                        f"DELETE FROM catalog_source WHERE source_id IN ({marks})", chunk
+                    )
+            for i in range(0, len(batch), 1000):
+                self._upsert_sources(batch[i : i + 1000])
+
+            field_sources = int(
+                self.conn.execute(
+                    "SELECT COUNT(*) FROM catalog_source WHERE release_id=? AND field_id=?",
+                    (release_id, field_id),
+                ).fetchone()[0]
+            )
+            self.conn.execute(
+                """INSERT INTO catalog_field(
+                       release_id, field_id, field_name, ra, dec, radius_deg,
+                       n_sources, provenance, photometry_json, imported_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(release_id, field_id) DO UPDATE SET
+                       field_name=excluded.field_name,
+                       ra=excluded.ra,
+                       dec=excluded.dec,
+                       radius_deg=excluded.radius_deg,
+                       n_sources=excluded.n_sources,
+                       provenance=excluded.provenance,
+                       photometry_json=excluded.photometry_json,
+                       imported_at=excluded.imported_at""",
+                (
+                    release_id,
+                    field_id,
+                    field_name,
+                    ra,
+                    dec,
+                    radius_deg,
+                    field_sources,
+                    provenance,
+                    json.dumps(photometry, ensure_ascii=False)
+                    if photometry is not None
+                    else None,
+                    now,
+                ),
+            )
+            n_fields = int(
+                self.conn.execute(
+                    "SELECT COUNT(*) FROM catalog_field WHERE release_id=?", (release_id,)
+                ).fetchone()[0]
+            )
+            total_sources = int(
+                self.conn.execute(
+                    "SELECT COUNT(*) FROM catalog_source WHERE release_id=?", (release_id,)
+                ).fetchone()[0]
+            )
+            provs = {
+                r[0]
+                for r in self.conn.execute(
+                    "SELECT DISTINCT provenance FROM catalog_field WHERE release_id=?",
+                    (release_id,),
+                )
+                if r[0]
+            }
+            release_prov = next(iter(provs)) if len(provs) == 1 else "mixed"
+            self.conn.execute(
+                """UPDATE catalog_release
+                   SET n_sources=?, provenance=?,
+                       cache_radius_deg=COALESCE(cache_radius_deg, ?),
+                       mag_limit=COALESCE(mag_limit, ?)
+                   WHERE release_id=?""",
+                (total_sources, release_prov, radius_deg, mag_limit, release_id),
+            )
+            self.conn.execute(
+                """UPDATE catalog_import_run
+                   SET finished_at=?, status='ok', release_id=?, n_fields=?, n_sources=?
+                   WHERE run_id=?""",
+                (utcnow(), release_id, n_fields, total_sources, run_id),
+            )
+            self.conn.execute(
+                "INSERT INTO star_meta(key,value) VALUES('last_import_at', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (now,),
+            )
+            self.conn.execute(
+                "INSERT INTO star_meta(key,value) VALUES('catalog_snapshot', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (utcnow(),),
+            )
+            row = self.conn.execute(
+                "SELECT * FROM catalog_release WHERE release_id=?", (release_id,)
+            ).fetchone()
+
+        release = _release_dict(row)
+        release["n_sources_actual"] = total_sources
+        release["n_fields"] = n_fields
+        if release_prov == "mixed":
+            warnings.append("release provenance is mixed; field provenance is " + provenance)
+        if photometry and photometry.get("status") == "partial":
+            warnings.append(
+                "2MASS/WISE photometry partial; missing values remain null (see fields.photometry)"
+            )
+        return {
+            "ok": True,
+            "release": release["release"],
+            "release_id": release_id,
+            "catalog": catalog,
+            "version": version,
+            "field_id": field_id,
+            "field_name": field_name,
+            "n_sources": field_sources,
+            "n_new": n_new,
+            "n_fields": n_fields,
+            "n_release_sources": total_sources,
+            "provenance": provenance,
+            "release_provenance": release_prov,
+            "complete": provenance == "tap",
+            "radius_deg": radius_deg,
+            "mag_limit": mag_limit,
+            "fetched_at": now,
+            "license": release.get("license"),
+            "citation": release.get("citation"),
+            "source_url": release.get("source_url"),
+            "warnings": warnings,
+        }
+
     def import_release(
         self,
         *,
@@ -983,56 +1336,15 @@ class StarCatalog:
             n = 0
             seen_catalog_ids: set[str] = set()
             for src in sources:
-                catalog_id = str(src.get("catalog_id") or src.get("source_id") or "").strip()
-                if not catalog_id:
-                    raise CatalogValidationError("source 缺少 catalog_id")
+                catalog_id, _source_id, row = self._build_source_row(
+                    src, release_id, release_key, now, provenance
+                )
                 if catalog_id in seen_catalog_ids:
                     # TAP 的 best-neighbour join 可能返回重复行；保持一行一源。
                     continue
                 seen_catalog_ids.add(catalog_id)
-                ra = _finite(src.get("ra"), f"source {catalog_id} ra")
-                dec = _finite(src.get("dec"), f"source {catalog_id} dec")
-                if not (-90.0 <= dec <= 90.0):
-                    raise CatalogValidationError(f"source {catalog_id} dec 越界")
-                source_id = str(src.get("source_id") or f"{release_key}:{catalog_id}")
-                hp = src.get("healpix")
-                if hp is None:
-                    hp = ang2pix_nest(HEALPIX_NSIDE, ra, dec)
-                batch.append(
-                    (
-                        source_id,
-                        release_id,
-                        catalog_id,
-                        ra,
-                        dec,
-                        _optional_float(src.get("pmra")),
-                        _optional_float(src.get("pmdec")),
-                        _optional_float(src.get("parallax")),
-                        _optional_float(src.get("ra_error")),
-                        _optional_float(src.get("dec_error")),
-                        _optional_float(src.get("pmra_error")),
-                        _optional_float(src.get("pmdec_error")),
-                        _optional_float(src.get("parallax_error")),
-                        _optional_float(src.get("ruwe")),
-                        _optional_float(src.get("astrometric_excess_noise")),
-                        src.get("phot_variable_flag"),
-                        _optional_float(src.get("gmag")),
-                        _optional_float(src.get("bp_rp")),
-                        _optional_float(src.get("jmag")),
-                        _optional_float(src.get("hmag")),
-                        _optional_float(src.get("kmag")),
-                        _optional_float(src.get("w1")),
-                        _optional_float(src.get("w2")),
-                        src.get("twomass_id"),
-                        src.get("wise_id"),
-                        _optional_float(src.get("epoch_ref")),
-                        int(hp),
-                        src.get("object_type"),
-                        str(src.get("provenance") or provenance),
-                        now,
-                    )
-                )
-                fld = src.get("field_id")
+                batch.append(row)
+                fld = row[2]
                 if fld:
                     field_counts[str(fld)] = field_counts.get(str(fld), 0) + 1
                 n += 1
@@ -1090,18 +1402,24 @@ class StarCatalog:
         result["n_fields"] = len(fields)
         return result
 
+    @staticmethod
+    def _source_insert_sql(*, upsert: bool = False) -> str:
+        cols = ", ".join(SOURCE_COLUMNS)
+        marks = ",".join("?" for _ in SOURCE_COLUMNS)
+        sql = f"INSERT INTO catalog_source({cols}) VALUES({marks})"
+        if upsert:
+            # 不用 INSERT OR REPLACE：REPLACE 会删除旧行并级联影响 catalog_match。
+            updates = ", ".join(
+                f"{c}=excluded.{c}" for c in SOURCE_COLUMNS if c != "source_id"
+            )
+            sql += f" ON CONFLICT(source_id) DO UPDATE SET {updates}"
+        return sql
+
     def _insert_sources(self, batch: Sequence[tuple]) -> None:
-        self.conn.executemany(
-            """INSERT INTO catalog_source(
-                   source_id, release_id, catalog_id, ra, dec, pmra, pmdec, parallax,
-                   ra_error, dec_error, pmra_error, pmdec_error,
-                   parallax_error, ruwe, astrometric_excess_noise, phot_variable_flag,
-                   gmag, bp_rp, jmag, hmag, kmag, w1, w2,
-                   twomass_id, wise_id, epoch_ref, healpix, object_type,
-                   provenance, created_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            batch,
-        )
+        self.conn.executemany(self._source_insert_sql(), batch)
+
+    def _upsert_sources(self, batch: Sequence[tuple]) -> None:
+        self.conn.executemany(self._source_insert_sql(upsert=True), batch)
 
     def init(self, *, replace: bool = False) -> None:
         if self.readonly:

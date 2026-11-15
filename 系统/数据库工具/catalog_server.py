@@ -4,13 +4,14 @@
     python3 catalog_server.py                 # 127.0.0.1:8799
     python3 catalog_server.py --port 8799 --db var/star_catalog.sqlite
 
-只读接口：
+接口：
     GET  /api/v1/catalog/cone?ra=&dec=&radius_deg=&epoch=&catalog=gaia
     GET  /api/v1/catalog/releases
     GET  /api/v1/catalog/fields
     GET  /api/v1/catalog/stats
     GET  /api/v1/health
     POST /api/v1/catalog/match
+    POST /api/v1/catalog/ingest      # Gaia TAP 场级接收（写 SQL）
 
 失败语义：星表未导入/数据库不可读/查询天区未缓存 → HTTP 503，
 `code=CATALOG_UNAVAILABLE`。不会把空结果说成“新星”或“无此源”。
@@ -22,6 +23,7 @@ import gzip
 import html
 import json
 import math
+import re
 import sqlite3
 import sys
 import threading
@@ -31,6 +33,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from db.connection import utcnow
+from db.gaia_tap import (
+    GAIA_DR3_CITATION,
+    GAIA_DR3_LICENSE,
+    GAIA_DR3_VERSION,
+    GAIA_TAP_SYNC,
+    GaiaTAPError,
+    fetch_gaia_cone,
+)
+from db.irsa_gator import enrich_gaia_rows, fetch_field_photometry, photometry_summary
 from db.star_catalog import (
     CatalogError,
     CatalogUnavailable,
@@ -42,6 +53,13 @@ from db.star_config import (
     CATALOG_DOC,
     CATALOG_PORT,
     DEFAULT_STAR_DB,
+    INGEST_MAX_FIELD_ID_LEN,
+    INGEST_MAX_MAG_LIMIT,
+    INGEST_MAX_RADIUS_DEG,
+    INGEST_MIN_MAG_LIMIT,
+    INGEST_MIN_RADIUS_DEG,
+    INGEST_TAP_RETRIES,
+    INGEST_TAP_TIMEOUT_SECONDS,
     MAX_CONE_LIMIT,
     MAX_MATCH_DETECTIONS,
     SERVICE_NAME,
@@ -53,6 +71,7 @@ _local = threading.local()
 ENDPOINTS = [
     ("GET", "/api/v1/catalog/cone?ra=&dec=&radius_deg=&epoch=&catalog=gaia", "星表锥搜索（带 release/version/许可）"),
     ("POST", "/api/v1/catalog/match", "检测源位置/误差 → 星表候选 + ambiguous"),
+    ("POST", "/api/v1/catalog/ingest", "Gaia TAP 按场接收并缓存（写 SQL）"),
     ("GET", "/api/v1/catalog/releases", "已导入星表版本、许可、来源"),
     ("GET", "/api/v1/catalog/fields", "已缓存的预设场与半径"),
     ("GET", "/api/v1/catalog/stats", "计数/存储/schema"),
@@ -203,6 +222,8 @@ class CatalogHandler(BaseHTTPRequestHandler):
                 return self._api_cone(q)
             if path == "/api/v1/catalog/match":
                 return self._error(405, "METHOD_NOT_ALLOWED", "match 只接受 POST JSON")
+            if path == "/api/v1/catalog/ingest":
+                return self._error(405, "METHOD_NOT_ALLOWED", "ingest 只接受 POST JSON")
             if path == "/api/docs":
                 doc = Path(self.server.docs_path)  # type: ignore[attr-defined]
                 if doc.exists():
@@ -236,6 +257,8 @@ class CatalogHandler(BaseHTTPRequestHandler):
         try:
             if path == "/api/v1/catalog/match":
                 return self._api_match()
+            if path == "/api/v1/catalog/ingest":
+                return self._api_ingest()
             return self._error(404, "NOT_FOUND", f"未知路径: {path}")
         except CatalogUnavailable as exc:
             return self._error(
@@ -352,6 +375,180 @@ class CatalogHandler(BaseHTTPRequestHandler):
             out["persisted"] = 0
         self._json(out)
 
+    # ------------------------------------------------------------------ 场级接收
+    @staticmethod
+    def _body_float(data: dict, name: str, *, required: bool = False, default=None):
+        if name not in data or data[name] is None or data[name] == "":
+            if required:
+                raise CatalogValidationError(f"需要 {name}")
+            return default
+        try:
+            value = float(data[name])
+        except (TypeError, ValueError) as exc:
+            raise CatalogValidationError(f"{name} 必须是数字") from exc
+        if not math.isfinite(value):
+            raise CatalogValidationError(f"{name} 必须是有限数字")
+        return value
+
+    @staticmethod
+    def _body_bool(data: dict, name: str, default: bool = False) -> bool:
+        if name not in data or data[name] is None:
+            return default
+        value = data[name]
+        if not isinstance(value, bool):
+            raise CatalogValidationError(f"{name} 必须是布尔值")
+        return value
+
+    def _api_ingest(self) -> None:
+        data = self._read_json_body()
+        catalog = str(data.get("catalog") or "gaia").strip().lower()
+        if catalog != "gaia":
+            raise CatalogValidationError("MVP 只支持 catalog=gaia")
+        ra = self._body_float(data, "ra", required=True)
+        dec = self._body_float(data, "dec", required=True)
+        if not (-90.0 <= dec <= 90.0):
+            raise CatalogValidationError("dec 必须在 [-90, 90]")
+        radius = self._body_float(data, "radius_deg", default=0.25)
+        mag_limit = self._body_float(data, "mag_limit", default=20.0)
+        if not (INGEST_MIN_RADIUS_DEG <= radius <= INGEST_MAX_RADIUS_DEG):
+            raise CatalogValidationError(
+                f"radius_deg 必须在 [{INGEST_MIN_RADIUS_DEG:g}, {INGEST_MAX_RADIUS_DEG:g}]"
+            )
+        if not (INGEST_MIN_MAG_LIMIT <= mag_limit <= INGEST_MAX_MAG_LIMIT):
+            raise CatalogValidationError(
+                f"mag_limit 必须在 [{INGEST_MIN_MAG_LIMIT:g}, {INGEST_MAX_MAG_LIMIT:g}]"
+            )
+
+        raw_field_id = data.get("field_id")
+        if raw_field_id is None or raw_field_id == "":
+            field_id = f"auto-{ra:.4f}-{dec:.4f}-r{radius:g}"
+        elif isinstance(raw_field_id, str):
+            field_id = raw_field_id.strip()
+        else:
+            raise CatalogValidationError("field_id 必须是字符串")
+        if not field_id or len(field_id) > INGEST_MAX_FIELD_ID_LEN:
+            raise CatalogValidationError(
+                f"field_id 长度必须在 1..{INGEST_MAX_FIELD_ID_LEN}"
+            )
+        if not re.fullmatch(r"[A-Za-z0-9._:-]+", field_id):
+            raise CatalogValidationError("field_id 只允许字母/数字/._:-")
+        field_name = data.get("field_name")
+        if field_name is not None and not isinstance(field_name, str):
+            raise CatalogValidationError("field_name 必须是字符串")
+        if field_name:
+            field_name = field_name.strip()[:200]
+        else:
+            field_name = f"auto field RA {ra:.4f} Dec {dec:.4f}"
+
+        include_photometry = self._body_bool(data, "include_photometry", False)
+        replace_field = self._body_bool(data, "replace_field", True)
+        warnings: list[str] = []
+
+        try:
+            rows, _raw_csv, _query = fetch_gaia_cone(
+                ra,
+                dec,
+                radius,
+                mag_limit=mag_limit,
+                timeout=INGEST_TAP_TIMEOUT_SECONDS,
+                retries=INGEST_TAP_RETRIES,
+            )
+        except GaiaTAPError as exc:
+            return self._error(
+                502,
+                "UPSTREAM_TAP_ERROR",
+                f"Gaia TAP 失败，未写入任何数据: {exc}",
+                ok=False,
+                catalog="gaia",
+                field_id=field_id,
+            )
+        for row in rows:
+            row["field_id"] = field_id
+            row["provenance"] = "tap"
+
+        photometry = None
+        if include_photometry:
+            try:
+                phot = fetch_field_photometry(
+                    ra,
+                    dec,
+                    radius,
+                    timeout=INGEST_TAP_TIMEOUT_SECONDS,
+                    retries=INGEST_TAP_RETRIES,
+                )
+                stats = enrich_gaia_rows(rows, phot)
+                photometry = photometry_summary(phot, stats)
+                if phot.get("errors"):
+                    warnings.append(
+                        "2MASS/WISE partial: " + "; ".join(
+                            f"{k}: {v}" for k, v in phot["errors"].items()
+                        )
+                    )
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"2MASS/WISE unavailable: {exc}; columns stay null")
+                photometry = {
+                    "status": "unavailable",
+                    "source": "IRSA Gator 2MASS PSC + AllWISE",
+                    "error": str(exc),
+                }
+
+        writer = StarCatalog(self.server.db_path, readonly=False)  # type: ignore[attr-defined]
+        try:
+            lock = getattr(self.server, "write_lock", None) or threading.Lock()
+            with lock:
+                result = writer.upsert_field(
+                    catalog="gaia",
+                    version=GAIA_DR3_VERSION,
+                    field_id=field_id,
+                    field_name=field_name,
+                    ra=ra,
+                    dec=dec,
+                    radius_deg=radius,
+                    mag_limit=mag_limit,
+                    sources=rows,
+                    provenance="tap",
+                    license=GAIA_DR3_LICENSE,
+                    citation=GAIA_DR3_CITATION,
+                    source_url=GAIA_TAP_SYNC,
+                    replace_field=replace_field,
+                    photometry=photometry,
+                    run_mode="tap",
+                )
+        finally:
+            writer.close()
+
+        warnings.extend(result.get("warnings") or [])
+        out = {
+            "schema_version": CATALOG_API_VERSION,
+            "service": SERVICE_NAME,
+            "ok": True,
+            "catalog": "gaia",
+            "release": result["release"],
+            "version": result["version"],
+            "field_id": result["field_id"],
+            "field_name": result.get("field_name"),
+            "counts": {
+                "n_sources": result["n_sources"],
+                "n_new": result["n_new"],
+                "n_fields": result["n_fields"],
+            },
+            "provenance": "tap",
+            "release_provenance": result.get("release_provenance"),
+            "complete": bool(result.get("complete")),
+            "radius_deg": radius,
+            "mag_limit": mag_limit,
+            "fetched_at": result["fetched_at"],
+            "license": GAIA_DR3_LICENSE,
+            "citation": GAIA_DR3_CITATION,
+            "source_url": GAIA_TAP_SYNC,
+            "n_release_sources": result.get("n_release_sources"),
+            "replace_field": replace_field,
+            "include_photometry": include_photometry,
+            "photometry": photometry,
+            "warnings": warnings,
+        }
+        self._json(out)
+
     # ------------------------------------------------------------------ 首页
     def _landing(self) -> None:
         schema_version = "?"
@@ -395,7 +592,7 @@ th{{color:#8fa3b8;font-weight:600}} code{{color:#bae6fd}}
 a{{color:#7dd3fc}} .foot{{color:#64748b;font-size:12px;margin-top:28px}}
 </style></head><body><main>
 <h1>星表服务 · Gaia DR3</h1>
-<div class="sub">阶段 B/D1：星表锥搜索与候选匹配。只读、按场缓存；独立端口 8799，不占 SPHEREx 的 8797。</div>
+<div class="sub">阶段 B/D1：星表锥搜索、候选匹配与 Gaia TAP 场级接收。独立端口 8799，不占 SPHEREx 的 8797。</div>
 <div class="grid">
 <div class="card"><b>{n_sources:,}</b><span>缓存星表源</span></div>
 <div class="card"><b>{len(releases)}</b><span>release</span></div>
@@ -428,6 +625,7 @@ def make_server(
     httpd = ThreadingHTTPServer((host, port), CatalogHandler)
     httpd.db_path = str(db)  # type: ignore[attr-defined]
     httpd.docs_path = str(docs)  # type: ignore[attr-defined]
+    httpd.write_lock = threading.Lock()  # 场级 ingest 写入串行化
     return httpd
 
 
