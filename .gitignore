@@ -23,3 +23,6 @@ __pycache__/
 
 # 星表服务临时 HEALPix 依赖（51 MB，可重建；不提交）
 /.tmp_hp/
+
+# Local DB backups (runtime, not committed)
+系统/数据库工具/var/backup/
