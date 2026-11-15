@@ -64,7 +64,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 | 组件 | 命令 | 结果 |
 |---|---|---|
 | app | `cd 系统/app && $PY -m unittest discover -s tests` | **125 tests OK** |
-| DB | `cd 系统/数据库工具 && $PY -m unittest discover -s tests -t .` | **76 tests OK** |
+| DB | `cd 系统/数据库工具 && $PY -m unittest discover -s tests -t .` | **99 tests OK** |
 | DB 完整性 | `$PY cli.py verify --deep` | quick ok / 0 FK / 0 missing / 0 corrupt |
 | DB 导出对账 | `check_compat.py --root ..` | fields 5,893 / epochs 74 / targets 7 / weeks 151 全过 |
 | view | `$PY tools/smoke.py` | **全部 PASS / 0 warning** |

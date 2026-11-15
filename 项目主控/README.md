@@ -15,7 +15,7 @@
 
 - R1 任意坐标已通：有本地覆盖走真实 DB v1 历元；无覆盖显式 SIM；自定义 Barnard = `REAL/4/L2/S`。
 - R3 五目标可跑，且“手动输入官方坐标 = 点预设”（RW/R Dra 均为 `hybrid/8/L2/V`）。
-- T3 离线 5/5、T5 默认 3/3、T6 0 ERROR、DB 76 tests、app 104 tests、view smoke 全过。
+- T3 离线 5/5、T5 默认 3/3、T6 0 ERROR、DB 99 tests、app 125 tests、view smoke 全过。
 - 详细证据与限制：[验收/FINAL_REPORT.md](验收/FINAL_REPORT.md)。
 - 仓库：<https://github.com/tonyelos/huella-x-simu>；工具分支 `tool/app|db|view|t1-acceptance|t2-bridge|t3-freeze|t4-harvest|t5-launcher|t6-drift`。
 - **许可/引用**：原创 Apache-2.0（`LICENSE`/`NOTICE`）；第三方完整清单 `THIRD_PARTY_NOTICES.md`，提交简版 `REFERENCES.md`；`系统/参考 资料/` 不按 Apache-2.0 再许可。

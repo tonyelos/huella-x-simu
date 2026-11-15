@@ -11,7 +11,7 @@
 | 任务 | 分支 | 工作树 | 负责人 | 交付物 |
 |---|---|---|---|---|
 | A 点选检测源 | `tool/star-pick` | `_worktrees/star-pick` | `star-pick-owner` | ✅ 源列表 API + canvas 点选 + 测试（`10ac26c`，已合并） |
-| B 星表服务 | `tool/catalog` | `_worktrees/catalog` | `catalog-owner` | 独立 `star_catalog.sqlite` + 锥搜索/匹配 API + 测试 |
+| B 星表服务 | `tool/catalog` | `_worktrees/catalog` | `catalog-owner` | ✅ 独立 `star_catalog.sqlite` + 锥搜索/匹配 API + 测试（`4c694f2`，已合并） |
 | C 任意天区设计 | `tool/anyfield` | `_worktrees/anyfield` | `anyfield-owner` | ✅ `06_C_任意天区与增量设计.md`（已合并） |
 | D 数据比对设计 | `tool/identify` | `_worktrees/identify` | `identify-owner` | ✅ `07_已知未知识别与数据比对设计.md`（已合并） |
 
