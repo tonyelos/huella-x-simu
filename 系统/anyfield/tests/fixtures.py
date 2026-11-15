@@ -55,6 +55,15 @@ CREATE TABLE targets (
     official INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE blobs (
+    sha256       TEXT PRIMARY KEY,
+    raw_bytes    INTEGER NOT NULL,
+    stored_bytes INTEGER NOT NULL,
+    codec        TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    rel_path     TEXT NOT NULL
+);
+
 CREATE TABLE target_epochs (
     id          INTEGER PRIMARY KEY,
     target_id   TEXT NOT NULL,

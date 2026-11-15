@@ -1,22 +1,19 @@
-"""C-MVP AnyField: read-only local coverage resolver.
+"""AnyField P0: local footprint coverage + metadata-only ingest.
 
-This module deliberately does **not** fetch pixels, call IRSA/S3/TAP, write the
-database, run detection, or generate synthetic data. It only answers:
+P0 scope:
 
-    "Does the existing local catalog.sqlite know any real epochs around this
-     RA/Dec/FOV?"
+- read the existing ``catalog.sqlite`` read-only;
+- build real WCS footprints in a sidecar for the 74 frames linked to a
+  ``fits-header`` blob;
+- fall back to ``center_approx`` for the 5,819 frames without headers;
+- return 422 only for a query inside an explicitly ``complete=1``
+  ``coverage_region`` with no epochs;
+- return 503 ``INDEX_INCOMPLETE`` otherwise when there is no local evidence;
+- accept a local JSON ingest manifest (metadata + footprint + optional
+  measurements) and publish it atomically into the sidecar.
 
-The answer is intentionally conservative:
-
-- known local coverage -> 200 with real EpochRefs and ``coverage_mode=center_approx``;
-- no local evidence       -> 503 ``INDEX_INCOMPLETE`` (the MVP cannot assert
-  ``NO_LOCAL_COVERAGE`` because it has no complete sky index);
-- DB missing/unreadable   -> 503 ``DB_UNAVAILABLE``.
-
-``center_approx`` means a frame is counted when its **center** is within
-2.47 deg of the query; this is the same legacy approximation used by the DB
-coverage endpoint, not a WCS footprint. The full C design replaces it with
-footprint coverage; this MVP must say so in every response.
+It does not fetch pixels, call IRSA/S3/TAP, run detection/reprojection, or
+generate SIM. The P0 ingest is not the full C ingest pipeline.
 """
 from __future__ import annotations
 
@@ -26,14 +23,25 @@ import math
 import re
 import sqlite3
 import threading
+import uuid
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-SERVICE_NAME = "anyfield-mvp"
-SERVICE_VERSION = "0.1.0"
+from sidecar import Sidecar
+from wcs_footprint import (
+    FOOTPRINT_METHOD_CENTER,
+    FOOTPRINT_METHOD_WCS,
+    angular_sep_deg,
+    point_in_polygon,
+)
+
+SERVICE_NAME = "anyfield-p0"
+SERVICE_VERSION = "0.2.0"
 SCHEMA_VERSION = "1.0"
+# Legacy C-MVP field name; the authoritative per-epoch field is
+# coverage_method/footprint_method. Kept for the original 18 tests.
 COVERAGE_MODE = "center_approx"
 INDEX_COMPLETENESS = "partial"
 CENTER_RADIUS_DEG = 2.47
@@ -42,7 +50,11 @@ FOV_MIN = 0.02
 FOV_MAX = 3.0
 IRSA_BASE = "https://irsa.ipac.caltech.edu/ibe/data/spherex/"
 MJD_EPOCH = datetime(1858, 11, 17, tzinfo=timezone.utc)
+SERVICE_ROOT = Path(__file__).resolve().parent
+DEFAULT_SIDECAR = SERVICE_ROOT / "var" / "anyfield.sqlite"
+DEFAULT_BLOB_ROOT = SERVICE_ROOT.parent / "数据库工具" / "var" / "blobs"
 _VERSION_RE = re.compile(r"_spx_([^/_]+)\.fits$")
+_ALLOWED_FOOTPRINT_METHODS = {FOOTPRINT_METHOD_WCS, FOOTPRINT_METHOD_CENTER}
 
 
 class ApiError(Exception):
@@ -63,19 +75,6 @@ class ApiError(Exception):
         self.message = str(message)
         self.details = details or {}
         self.retryable = bool(retryable)
-
-
-def angular_sep_deg(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
-    """Great-circle separation in degrees; NaN for non-finite inputs."""
-    try:
-        values = (float(ra1), float(dec1), float(ra2), float(dec2))
-    except (TypeError, ValueError):
-        return math.nan
-    if not all(math.isfinite(v) for v in values):
-        return math.nan
-    a1, d1, a2, d2 = (math.radians(v) for v in values)
-    c = math.sin(d1) * math.sin(d2) + math.cos(d1) * math.cos(d2) * math.cos(a1 - a2)
-    return math.degrees(math.acos(max(-1.0, min(1.0, c))))
 
 
 def mjd_to_iso(mjd: float) -> str:
@@ -140,6 +139,16 @@ def _as_float(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+    return result
+
+
 def _validate_query(ra: Any, dec: Any, fov: Any) -> tuple[float, float, float]:
     ra_f = _as_float(ra)
     dec_f = _as_float(dec)
@@ -155,18 +164,132 @@ def _validate_query(ra: Any, dec: Any, fov: Any) -> tuple[float, float, float]:
     return ra_f % 360.0, dec_f, fov_f
 
 
+def _canonical_sha(payload: Any) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _epoch_id_for(release: str, version: str, obsid: str, detector: int) -> str:
+    return _canonical_sha({"release": release, "version": version, "obsid": obsid, "detector": detector})
+
+
+def _reject_network_strings(value: Any, path: str = "manifest") -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_l = str(key).lower()
+            if key_l in {"url", "uri", "access_url", "download_url", "source_url"}:
+                raise ApiError(400, "NETWORK_SOURCE_NOT_ALLOWED", f"{path}.{key} 不允许网络 URL")
+            _reject_network_strings(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for idx, item in enumerate(value):
+            _reject_network_strings(item, f"{path}[{idx}]")
+    elif isinstance(value, str):
+        low = value.strip().lower()
+        if low.startswith(("http://", "https://")):
+            raise ApiError(400, "NETWORK_SOURCE_NOT_ALLOWED", f"{path} 不允许网络 URL")
+
+
+def _validate_footprint(raw: Any, ra: float, dec: float) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ApiError(400, "INVALID_MANIFEST", "epoch.footprint 必须是对象")
+    method = str(raw.get("method") or "").strip()
+    if method not in _ALLOWED_FOOTPRINT_METHODS:
+        raise ApiError(400, "INVALID_MANIFEST", "footprint.method 必须是 wcs_header 或 center_approx")
+    corners_raw = raw.get("corners")
+    corners: list[list[float]] = []
+    if corners_raw is not None:
+        if not isinstance(corners_raw, list):
+            raise ApiError(400, "INVALID_MANIFEST", "footprint.corners 必须是列表")
+        for idx, point in enumerate(corners_raw):
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise ApiError(400, "INVALID_MANIFEST", f"footprint.corners[{idx}] 必须是 [ra,dec]")
+            p_ra = _as_float(point[0]) % 360.0 if _as_float(point[0]) is not None else None
+            p_dec = _as_float(point[1])
+            if p_ra is None or p_dec is None or not (-90 <= p_dec <= 90):
+                raise ApiError(400, "INVALID_MANIFEST", f"footprint.corners[{idx}] 坐标非法")
+            corners.append([round(p_ra, 8), round(p_dec, 8)])
+    if method == FOOTPRINT_METHOD_WCS and len(corners) < 3:
+        raise ApiError(400, "INVALID_MANIFEST", "wcs_header footprint 至少需要 3 个 corners")
+    return {
+        "method": method,
+        "corners": corners,
+        "polygon": corners,
+        "center_ra": round(float(ra), 8),
+        "center_dec": round(float(dec), 8),
+        "sip_applied": False,
+    }
+
+
+def _validate_measurement(raw: Any, idx: int, epoch_id: str, epoch_mjd: float) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ApiError(400, "INVALID_MANIFEST", f"measurements[{idx}] 必须是对象")
+    target_key = str(raw.get("target_key") or "").strip()
+    if not target_key:
+        raise ApiError(400, "INVALID_MANIFEST", f"measurements[{idx}].target_key 不能为空")
+    ra = _as_float(raw.get("ra"))
+    dec = _as_float(raw.get("dec"))
+    if ra is None or dec is None or not (-90 <= dec <= 90):
+        raise ApiError(400, "INVALID_MANIFEST", f"measurements[{idx}] 缺少数值 ra/dec")
+    mjd = _as_float(raw.get("mjd"))
+    if mjd is None:
+        mjd = epoch_mjd
+    quality = raw.get("quality") or []
+    if not isinstance(quality, list):
+        raise ApiError(400, "INVALID_MANIFEST", f"measurements[{idx}].quality 必须是列表")
+    measurement_id = _canonical_sha({"epoch_id": epoch_id, "target_key": target_key})
+    return {
+        "measurement_id": measurement_id,
+        "target_key": target_key,
+        "mjd": float(mjd),
+        "ra": float(ra) % 360.0,
+        "dec": float(dec),
+        "flux": _as_float(raw.get("flux")),
+        "flux_err": _as_float(raw.get("flux_err")),
+        "snr": _as_float(raw.get("snr")),
+        "quality": [str(q) for q in quality],
+    }
+
+
 class Store:
-    """Read-only view of the local catalog.sqlite.
+    """Read-only catalog + sidecar footprint/index."""
 
-    A new SQLite connection is opened per resolution. This is cheap for the
-    MVP (5.9k frames) and avoids sharing a connection across HTTP threads.
-    """
-
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        sidecar_path: str | Path | None = None,
+        blob_root: str | Path | None = None,
+        build_footprints: bool = True,
+    ) -> None:
         self.db_path = Path(db_path).expanduser().resolve()
+        self.sidecar_path = Path(sidecar_path or DEFAULT_SIDECAR).expanduser().resolve()
+        self.blob_root = Path(blob_root or DEFAULT_BLOB_ROOT).expanduser().resolve()
         self._snapshot_lock = threading.Lock()
-        self._snapshot_signature: tuple[int, int] | None = None
+        self._ingest_lock = threading.Lock()
+        self._snapshot_signature: tuple[Any, ...] | None = None
         self._snapshot_value: str | None = None
+        self.sidecar = Sidecar(self.sidecar_path)
+        self.footprint_stats: dict[str, Any] = {
+            "headers": 0,
+            "built": 0,
+            "failed": 0,
+            "blob_root": str(self.blob_root),
+        }
+        if build_footprints:
+            self.refresh_footprints()
+
+    def refresh_footprints(self) -> dict[str, Any]:
+        try:
+            self.footprint_stats = self.sidecar.sync_footprints(self.db_path, self.blob_root)
+        except Exception as exc:  # noqa: BLE001 - service must stay up
+            self.footprint_stats = {
+                "headers": 0,
+                "built": 0,
+                "failed": 0,
+                "error": str(exc),
+                "blob_root": str(self.blob_root),
+            }
+        return self.footprint_stats
 
     # ------------------------------------------------------------------ db
     def _connect(self) -> sqlite3.Connection:
@@ -175,7 +298,12 @@ class Store:
                 503,
                 "DB_UNAVAILABLE",
                 f"本地数据库不存在：{self.db_path}",
-                details={"db_path": str(self.db_path), "read_only": True},
+                details={
+                    "db_path": str(self.db_path),
+                    "read_only": True,
+                    "strong_assertion": False,
+                    "no_local_coverage": False,
+                },
                 retryable=True,
             )
         try:
@@ -189,7 +317,12 @@ class Store:
                 503,
                 "DB_UNAVAILABLE",
                 f"本地数据库不可读：{exc}",
-                details={"db_path": str(self.db_path), "read_only": True},
+                details={
+                    "db_path": str(self.db_path),
+                    "read_only": True,
+                    "strong_assertion": False,
+                    "no_local_coverage": False,
+                },
                 retryable=True,
             ) from exc
 
@@ -201,14 +334,20 @@ class Store:
         return (stat.st_mtime_ns, stat.st_size)
 
     def index_snapshot(self) -> str:
-        """Stable local snapshot id derived from DB metadata.
+        """Stable id from catalog metadata + sidecar footprint/ingest counts.
 
-        The id changes when the DB changes. The MVP is read-only and does not
-        maintain a separate immutable index, so the id is explicitly local.
+        The cache key includes sidecar counts so an ingest/rollback/complete
+        region insertion changes the snapshot even when catalog.sqlite is
+        untouched.
         """
-        signature = self._signature()
-        if signature is None:
+        db_signature = self._signature()
+        if db_signature is None:
             return "local-unavailable"
+        try:
+            sidecar_counts = self.sidecar.counts()
+        except Exception:
+            sidecar_counts = {}
+        signature = (db_signature[0], db_signature[1], tuple(sorted(sidecar_counts.items())))
         with self._snapshot_lock:
             if self._snapshot_value and self._snapshot_signature == signature:
                 return self._snapshot_value
@@ -225,9 +364,10 @@ class Store:
                     counts["max_mjd"] = row[1]
                     meta_row = conn.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
                     payload = {
-                        "kind": "local-catalog",
+                        "kind": "local-catalog+sidecar",
                         "db_schema": meta_row[0] if meta_row else "unknown",
                         "counts": counts,
+                        "sidecar": sidecar_counts,
                     }
             except (sqlite3.Error, ApiError):
                 self._snapshot_value = "local-unavailable"
@@ -252,21 +392,31 @@ class Store:
         except sqlite3.Error as exc:
             db_ok = False
             db_error = str(exc)
+        sidecar_counts = self.sidecar.counts()
         body: dict[str, Any] = {
             "status": "ok" if db_ok else "degraded",
             "service": SERVICE_NAME,
             "service_version": SERVICE_VERSION,
             "schema_version": SCHEMA_VERSION,
+            # Legacy C-MVP field; authoritative values are coverage_method /
+            # footprint_method in the field response.
             "coverage_mode": COVERAGE_MODE,
             "index_completeness": INDEX_COMPLETENESS,
             "index_snapshot": self.index_snapshot() if db_ok else "local-unavailable",
             "network": "none",
-            "writes": "none",
+            "writes": "none",  # catalog DB only; sidecar writes are separate
+            "catalog_writes": "none",
+            "sidecar_writes": "enabled",
             "db": {
                 "path": str(self.db_path),
                 "readable": db_ok,
                 "read_only": True,
             },
+            "sidecar": {
+                "path": str(self.sidecar_path),
+                "counts": sidecar_counts,
+            },
+            "footprints": dict(self.footprint_stats),
         }
         if db_error:
             body["error"] = {
@@ -462,48 +612,162 @@ class Store:
             "frame_id": int(row["frame_id"]) if row["frame_id"] is not None else None,
         }
 
+    # ------------------------------------------------------------------ sidecar epochs
+    def _sidecar_epochs(self, qra: float, qdec: float, qfov: float) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for row in self.sidecar.visible_epochs():
+            ra = _as_float(row.get("ra"))
+            dec = _as_float(row.get("dec"))
+            mjd = _as_float(row.get("mjd"))
+            detector = _as_int(row.get("detector"))
+            if ra is None or dec is None or mjd is None or detector is None:
+                continue
+            sep = angular_sep_deg(qra, qdec, ra, dec)
+            footprint = row.get("footprint") if isinstance(row.get("footprint"), dict) else None
+            method = str(row.get("footprint_method") or FOOTPRINT_METHOD_CENTER)
+            if method == FOOTPRINT_METHOD_WCS and footprint:
+                corners = footprint.get("corners") or []
+                if not point_in_polygon(qra, qdec, corners):
+                    continue
+            elif sep > CENTER_RADIUS_DEG:
+                continue
+            key = build_fits_key(row.get("release"), row.get("week"), row.get("version"), row["obs_id"], detector)
+            if not key:
+                continue
+            out.append(
+                {
+                    "obsid": str(row["obs_id"]),
+                    "detector": detector,
+                    "release": str(row.get("release") or ""),
+                    "week": str(row.get("week") or ""),
+                    "version": str(row.get("version") or ""),
+                    "mjd": float(mjd),
+                    "date_obs": mjd_to_iso(mjd),
+                    "sep_deg": round(float(sep), 6),
+                    "key": key,
+                    "slice_url": build_slice_url(key, qra, qdec, qfov),
+                    "provenance": "real",
+                    "frame_id": int(row["frame_id"]) if row.get("frame_id") is not None else None,
+                    "coverage_method": method,
+                    "footprint_method": method,
+                }
+            )
+        return out
+
+    # ------------------------------------------------------------------ filtering
+    @staticmethod
+    def _apply_footprint(
+        epoch: dict[str, Any],
+        footprints: dict[str, Any],
+        qra: float,
+        qdec: float,
+    ) -> dict[str, Any] | None:
+        frame_id = epoch.get("frame_id")
+        fp = footprints["by_frame"].get(int(frame_id)) if frame_id is not None else None
+        if fp is None:
+            fp = footprints["by_obs_det"].get((str(epoch["obsid"]), int(epoch["detector"])))
+        if fp is not None and fp.get("method") == FOOTPRINT_METHOD_WCS:
+            if not point_in_polygon(qra, qdec, fp.get("corners") or []):
+                return None
+            epoch["coverage_method"] = FOOTPRINT_METHOD_WCS
+            epoch["footprint_method"] = FOOTPRINT_METHOD_WCS
+            return epoch
+        if float(epoch.get("sep_deg") or 0.0) > CENTER_RADIUS_DEG:
+            return None
+        epoch["coverage_method"] = FOOTPRINT_METHOD_CENTER
+        epoch["footprint_method"] = FOOTPRINT_METHOD_CENTER
+        return epoch
+
     @staticmethod
     def _dedupe_epochs(epochs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """One EpochRef per obsid; keep the detector closest to the query."""
+        """One EpochRef per obsid; prefer a real footprint then nearest detector."""
         by_obs: dict[str, dict[str, Any]] = {}
-        for epoch in sorted(epochs, key=lambda e: (e["mjd"], e["sep_deg"], e["detector"])):
+        for epoch in sorted(
+            epochs,
+            key=lambda e: (
+                0 if e.get("coverage_method") == FOOTPRINT_METHOD_WCS else 1,
+                e["mjd"],
+                e.get("sep_deg", 9.0),
+                e["detector"],
+            ),
+        ):
             cur = by_obs.get(epoch["obsid"])
-            if cur is None or epoch["sep_deg"] < cur["sep_deg"]:
+            if cur is None or epoch.get("sep_deg", 9.0) < cur.get("sep_deg", 9.0):
                 by_obs[epoch["obsid"]] = epoch
         return sorted(by_obs.values(), key=lambda e: (e["mjd"], e["detector"]))
 
     # ------------------------------------------------------------------ public resolver
     def resolve_field(self, ra: Any, dec: Any, fov: Any) -> dict[str, Any]:
         qra, qdec, qfov = _validate_query(ra, dec, fov)
+        footprints = self.sidecar.footprint_map()
+        target: dict[str, Any] | None = None
+        base: list[dict[str, Any]] = []
+        truncated = False
+        source = "frames"
         with closing(self._connect()) as conn:
             target = self._match_target(conn, qra, qdec)
             if target is not None:
-                raw = self._target_epochs(conn, target["id"], qra, qdec, qfov)
-                if raw:
-                    return self._response(
-                        query={"ra": round(qra, 6), "dec": round(qdec, 6), "fov": qfov},
-                        raw_epochs=raw,
-                        target=target,
-                        source="target_epochs",
-                        truncated=False,
-                    )
-            raw, truncated = self._frames(conn, qra, qdec, qfov)
-            if raw:
-                return self._response(
-                    query={"ra": round(qra, 6), "dec": round(qdec, 6), "fov": qfov},
-                    raw_epochs=raw,
-                    target=None,
-                    source="frames",
-                    truncated=truncated,
-                )
+                base = self._target_epochs(conn, target["id"], qra, qdec, qfov)
+                source = "target_epochs"
+            if not base:
+                frames, truncated = self._frames(conn, qra, qdec, qfov)
+                base = frames
+                source = "frames"
+
+        filtered: list[dict[str, Any]] = []
+        for epoch in base:
+            kept = self._apply_footprint(epoch, footprints, qra, qdec)
+            if kept is not None:
+                filtered.append(kept)
+        side = self._sidecar_epochs(qra, qdec, qfov)
+        raw = filtered + side
+        if raw:
+            if side and not filtered:
+                source = "ingest"
+            elif side and filtered:
+                source = "mixed"
+            return self._response(
+                query={"ra": round(qra, 6), "dec": round(qdec, 6), "fov": qfov},
+                raw_epochs=raw,
+                target=target,
+                source=source,
+                truncated=truncated,
+            )
+
+        region = self.sidecar.complete_region_for(qra, qdec)
+        if region is not None:
+            raise ApiError(
+                422,
+                "NO_LOCAL_COVERAGE",
+                "该查询落在显式 complete=1 的 coverage_region 内，且没有本地历元；"
+                "这是 P0 唯一允许的 NO_LOCAL_COVERAGE 强断言。",
+                details={
+                    "coverage_mode": COVERAGE_MODE,
+                    "coverage_method": "complete_region",
+                    "index_completeness": "complete",
+                    "index_snapshot": self.index_snapshot(),
+                    "strong_assertion": True,
+                    "no_local_coverage": True,
+                    "sim_allowed": True,
+                    "region": {
+                        "region_id": region.get("region_id"),
+                        "ra": region.get("ra"),
+                        "dec": region.get("dec"),
+                        "radius_deg": region.get("radius_deg"),
+                        "sep_deg": round(float(region.get("sep_deg") or 0.0), 6),
+                    },
+                },
+                retryable=False,
+            )
 
         raise ApiError(
             503,
             "INDEX_INCOMPLETE",
-            "C-MVP 只有本地已有帧/预设历元的局部索引；该天区没有本地证据，"
-            "但不能据此断言 NO_LOCAL_COVERAGE（完整索引未实现）。",
+            "C-P0 只有本地帧/74 条 header 足迹/已 ingest 的元数据；该天区没有本地证据，"
+            "且不在 complete=1 的 coverage_region 内，不能断言 NO_LOCAL_COVERAGE。",
             details={
                 "coverage_mode": COVERAGE_MODE,
+                "coverage_method": "unknown",
                 "coverage_state": "unknown",
                 "index_completeness": INDEX_COMPLETENESS,
                 "index_snapshot": self.index_snapshot(),
@@ -514,17 +778,12 @@ class Store:
         )
 
     def resolve_epochs(self, ra: Any, dec: Any, fov: Any) -> dict[str, Any]:
-        """1.0-compatible epoch view over the same local resolver.
-
-        Known coverage -> 200 EpochRefs; unknown/incomplete -> 503
-        INDEX_INCOMPLETE (never 422, never an empty 200 that could be mistaken
-        for NO_LOCAL_COVERAGE).
-        """
         field = self.resolve_field(ra, dec, fov)
         return {
             "schema_version": SCHEMA_VERSION,
             "service_version": SERVICE_VERSION,
             "index_snapshot": field["index_snapshot"],
+            "index_completeness": field.get("index_completeness", INDEX_COMPLETENESS),
             "coverage_mode": COVERAGE_MODE,
             "query": field["query"],
             "coverage": field["coverage"],
@@ -553,12 +812,31 @@ class Store:
         detectors = sorted({e["detector"] for e in raw_epochs})
         releases = sorted({e["release"] for e in raw_epochs if e["release"]})
         target_id = target["id"] if target else None
+        methods = {str(e.get("coverage_method")) for e in epochs if e.get("coverage_method")}
+        if methods == {FOOTPRINT_METHOD_WCS}:
+            coverage_method = FOOTPRINT_METHOD_WCS
+        elif methods == {FOOTPRINT_METHOD_CENTER}:
+            coverage_method = FOOTPRINT_METHOD_CENTER
+        elif methods:
+            coverage_method = "mixed"
+        else:
+            coverage_method = "none"
+        n_wcs = sum(1 for e in epochs if e.get("coverage_method") == FOOTPRINT_METHOD_WCS)
+        n_center = sum(1 for e in epochs if e.get("coverage_method") == FOOTPRINT_METHOD_CENTER)
         coverage = {
             "state": "covered",
+            # Legacy C-MVP fields. They describe the candidate-search mode, not
+            # the authoritative per-epoch method.
             "coverage_mode": COVERAGE_MODE,
             "method": "center_radius_2.47",
+            "method_deprecated": True,
             "radius_deg": CENTER_RADIUS_DEG,
             "search_radius_deg": CENTER_RADIUS_DEG,
+            # P0 authoritative fields.
+            "coverage_method": coverage_method,
+            "footprint_method": coverage_method,
+            "n_wcs_header": n_wcs,
+            "n_center_approx": n_center,
             "n_frames": len(raw_epochs),
             "n_epochs": n_epochs,
             "n_observations": n_epochs,
@@ -576,20 +854,30 @@ class Store:
             "target_sep_deg": round(float(target["sep_deg"]), 6) if target else None,
         }
         warnings = [
-            "CENTER_APPROX_COVERAGE: 2.47° center radius, not a WCS footprint",
-            "LOCAL_INDEX_PARTIAL: only existing local frames/target_epochs; no complete sky index",
+            "CENTER_APPROX_COVERAGE_LEGACY_FIELD: coverage.method/radius are kept for C-MVP compatibility; "
+            "use coverage.coverage_method/footprint_method and per-epoch coverage_method",
+            "LOCAL_INDEX_PARTIAL: only 74 linked FITS-header footprints + 5,819 center-approx frames; "
+            "no complete sky index",
         ]
+        if n_wcs:
+            warnings.append(
+                "WCS_HEADER_FOOTPRINT: real four-corner footprints for frames with linked fits-header; SIP not applied"
+            )
+        if n_center:
+            warnings.append("CENTER_APPROX_EPOCHS: frames without linked header use center_approx, not a real footprint")
         if target:
             warnings.append(f"TARGET_MATCHED: {target_id} within {TARGET_MATCH_TOL_DEG}°")
         else:
-            warnings.append("NO_PRESET_TARGET_MATCH: center-approx frame query")
+            warnings.append("NO_PRESET_TARGET_MATCH: frame/footprint query")
         if truncated:
             warnings.append("FRAME_QUERY_TRUNCATED_AT_5000: narrow the field or add an index")
         return {
             "schema_version": SCHEMA_VERSION,
             "service_version": SERVICE_VERSION,
             "index_snapshot": self.index_snapshot(),
+            "index_completeness": INDEX_COMPLETENESS,
             "coverage_mode": COVERAGE_MODE,
+            "footprint_method": coverage_method,
             "query": query,
             "coverage": coverage,
             "epochs": epochs,
@@ -599,6 +887,169 @@ class Store:
             "warnings": warnings,
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
+
+    # ------------------------------------------------------------------ ingest
+    def validate_manifest(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ApiError(400, "INVALID_MANIFEST", "manifest 必须是 JSON 对象")
+        _reject_network_strings(payload)
+        source = payload.get("source")
+        if source is not None:
+            if not isinstance(source, dict):
+                raise ApiError(400, "INVALID_MANIFEST", "source 必须是对象")
+            if str(source.get("kind") or "") != "local_manifest":
+                raise ApiError(400, "NETWORK_SOURCE_NOT_ALLOWED", "P0 只接受 source.kind=local_manifest")
+        epoch_raw = payload.get("epoch")
+        if not isinstance(epoch_raw, dict):
+            raise ApiError(400, "INVALID_MANIFEST", "缺 epoch 对象")
+        obsid = str(epoch_raw.get("obsid") or "").strip()
+        detector = _as_int(epoch_raw.get("detector"))
+        release = str(epoch_raw.get("release") or "").strip()
+        version = str(epoch_raw.get("version") or "").strip()
+        mjd = _as_float(epoch_raw.get("mjd"))
+        ra = _as_float(epoch_raw.get("ra"))
+        dec = _as_float(epoch_raw.get("dec"))
+        if not obsid or detector is None or detector < 1 or detector > 6:
+            raise ApiError(400, "INVALID_MANIFEST", "epoch.obsid/detector 非法")
+        if not release or not version:
+            raise ApiError(400, "INVALID_MANIFEST", "epoch.release/version 不能为空")
+        if mjd is None or ra is None or dec is None or not (-90 <= dec <= 90):
+            raise ApiError(400, "INVALID_MANIFEST", "epoch.mjd/ra/dec 非法")
+        week = str(epoch_raw.get("week") or "").strip()
+        if not week:
+            parts = obsid.rsplit("_", 2)
+            if len(parts) != 3:
+                raise ApiError(400, "INVALID_MANIFEST", "无法从 epoch.obsid 推断 week")
+            week = parts[0]
+        epoch_id = _epoch_id_for(release, version, obsid, int(detector))
+        declared_id = epoch_raw.get("epoch_id")
+        if declared_id is not None and str(declared_id) != epoch_id:
+            raise ApiError(400, "INVALID_MANIFEST", "epoch.epoch_id 与派生 id 不一致")
+        footprint = _validate_footprint(epoch_raw.get("footprint"), ra % 360.0, dec)
+        frame_id = _as_int(epoch_raw.get("frame_id"))
+        measurements_raw = payload.get("measurements") or []
+        if not isinstance(measurements_raw, list):
+            raise ApiError(400, "INVALID_MANIFEST", "measurements 必须是列表")
+        measurements = []
+        seen_targets: set[str] = set()
+        for idx, raw in enumerate(measurements_raw):
+            m = _validate_measurement(raw, idx, epoch_id, float(mjd))
+            if m["target_key"] in seen_targets:
+                raise ApiError(400, "INVALID_MANIFEST", f"measurements 重复 target_key={m['target_key']}")
+            seen_targets.add(m["target_key"])
+            measurements.append(m)
+        epoch = {
+            "epoch_id": epoch_id,
+            "obsid": obsid,
+            "detector": int(detector),
+            "release": release,
+            "version": version,
+            "week": week,
+            "mjd": float(mjd),
+            "ra": float(ra) % 360.0,
+            "dec": float(dec),
+            "frame_id": frame_id,
+            "footprint": footprint,
+            "source": "ingest",
+        }
+        content_sha = _canonical_sha({"epoch": epoch, "measurements": measurements})
+        epoch["content_sha256"] = content_sha
+        return {"epoch": epoch, "measurements": measurements, "content_sha256": content_sha}
+
+    def submit_ingest(self, payload: Any) -> dict[str, Any]:
+        normalized = self.validate_manifest(payload)
+        epoch = normalized["epoch"]
+        epoch_id = epoch["epoch_id"]
+        with self._ingest_lock:
+            existing = self.sidecar.epoch_by_id(epoch_id)
+            if existing is not None:
+                if int(existing.get("visible") or 0) == 1 and existing.get("content_sha256") == normalized["content_sha256"]:
+                    return self._replay_job(epoch, normalized)
+                if int(existing.get("visible") or 0) == 1:
+                    raise ApiError(409, "INGEST_CONFLICT", "同一 epoch_id 已存在不同内容")
+                raise ApiError(409, "EPOCH_RETRACTED", "同一 epoch_id 已存在但已软回滚；P0 不允许直接复用")
+            active = self.sidecar.active_job_for_epoch(epoch_id)
+            if active is not None:
+                return self._job_dto(active, replayed=True)
+            job_id = "ing_" + uuid.uuid4().hex[:16]
+            request_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            self.sidecar.create_job(
+                job_id,
+                epoch_id,
+                normalized["content_sha256"],
+                request_json,
+                state="queued",
+            )
+            thread = threading.Thread(
+                target=self._process_ingest,
+                args=(job_id, normalized),
+                name=f"anyfield-ingest-{job_id}",
+                daemon=True,
+            )
+            thread.start()
+            return {
+                "schema_version": SCHEMA_VERSION,
+                "job_id": job_id,
+                "epoch_id": epoch_id,
+                "state": "queued",
+                "replayed": False,
+                "poll": f"/api/v1/ingest/{job_id}",
+            }
+
+    def _replay_job(self, epoch: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
+        job_id = "ing_" + uuid.uuid4().hex[:16]
+        self.sidecar.create_job(
+            job_id,
+            epoch["epoch_id"],
+            normalized["content_sha256"],
+            json.dumps({"replayed": True}, separators=(",", ":")),
+            state="committed",
+            replayed=True,
+        )
+        row = self.sidecar.get_job(job_id) or {}
+        dto = self._job_dto(row, replayed=True)
+        dto["measurements_added"] = 0
+        return dto
+
+    def _process_ingest(self, job_id: str, normalized: dict[str, Any]) -> None:
+        self.sidecar.mark_running(job_id)
+        try:
+            self.sidecar.publish_job(job_id, normalized["epoch"], normalized["measurements"])
+        except Exception as exc:  # noqa: BLE001 - job must be marked failed
+            self.sidecar.fail_job(job_id, "INGEST_FAILED", str(exc))
+
+    def _job_dto(self, row: dict[str, Any], *, replayed: bool | None = None) -> dict[str, Any]:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "job_id": row.get("job_id"),
+            "epoch_id": row.get("epoch_id"),
+            "state": row.get("state"),
+            "replayed": bool(row.get("replayed")) if replayed is None else bool(replayed),
+            "measurements_added": int(row.get("measurements_added") or 0),
+            "error": (
+                {"code": row.get("error_code"), "message": row.get("error_message")}
+                if row.get("error_code")
+                else None
+            ),
+            "created_at": row.get("created_at"),
+            "started_at": row.get("started_at"),
+            "finished_at": row.get("finished_at"),
+        }
+
+    def job_status(self, job_id: str) -> dict[str, Any]:
+        row = self.sidecar.get_job(job_id)
+        if row is None:
+            raise ApiError(404, "JOB_NOT_FOUND", f"未知 job_id：{job_id}")
+        return self._job_dto(row)
+
+    def rollback_job(self, job_id: str) -> dict[str, Any]:
+        try:
+            row = self.sidecar.rollback_job(job_id)
+        except KeyError as exc:
+            raise ApiError(404, "JOB_NOT_FOUND", f"未知 job_id：{job_id}") from exc
+        except ValueError as exc:
+            raise ApiError(409, "JOB_NOT_COMMITTED", str(exc)) from exc
+        return self._job_dto(row)
 
 
 def error_payload(exc: ApiError, *, index_snapshot: str | None = None, request_id: str | None = None) -> dict[str, Any]:
@@ -616,10 +1067,25 @@ def error_payload(exc: ApiError, *, index_snapshot: str | None = None, request_i
     }
     if index_snapshot is not None:
         body["index_snapshot"] = index_snapshot
-    if exc.code == "INDEX_INCOMPLETE":
+    if exc.code == "NO_LOCAL_COVERAGE":
+        body["index_completeness"] = "complete"
+        body["coverage"] = {
+            "state": "none",
+            "coverage_mode": COVERAGE_MODE,
+            "coverage_method": "complete_region",
+            "footprint_method": "none",
+            "index_completeness": "complete",
+            "strong_assertion": True,
+            "no_local_coverage": True,
+            "sim_allowed": True,
+        }
+    elif exc.code in ("INDEX_INCOMPLETE", "DB_UNAVAILABLE"):
+        body["index_completeness"] = INDEX_COMPLETENESS
         body["coverage"] = {
             "state": "unknown",
             "coverage_mode": COVERAGE_MODE,
+            "coverage_method": "unknown",
+            "footprint_method": "unknown",
             "index_completeness": INDEX_COMPLETENESS,
             "strong_assertion": False,
             "no_local_coverage": False,

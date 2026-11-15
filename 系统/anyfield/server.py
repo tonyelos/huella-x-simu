@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""C-MVP AnyField HTTP service (port 8798 by default).
+"""AnyField P0 HTTP service (port 8798 by default).
 
-Read-only local coverage skeleton:
-  GET /api/v1/health
-  GET /api/v1/field?ra=&dec=&fov=
-  GET /api/v1/epochs?ra=&dec=&fov=   (1.0-compatible, optional convenience)
+Endpoints:
+  GET  /api/v1/health
+  GET  /api/v1/field?ra=&dec=&fov=
+  GET  /api/v1/epochs?ra=&dec=&fov=   (1.0-compatible)
+  POST /api/v1/ingest                 (local JSON manifest, metadata only)
+  GET  /api/v1/ingest/{job_id}
+  POST /api/v1/ingest/{job_id}/rollback
 
-No network access, no database writes, no ingest, no pixel download, no SIM.
-Unknown / not-yet-indexed fields return 503 INDEX_INCOMPLETE; this MVP never
-returns 422 NO_LOCAL_COVERAGE.
+The catalog DB is read-only. The sidecar is the only writable store. There is
+no outbound network access, no pixel download, no detection/reprojection, and
+no SIM generation. The P0 ingest is metadata/measurement only.
 """
 from __future__ import annotations
 
@@ -30,6 +33,7 @@ try:  # package import
     from .core import (  # type: ignore[import-not-found]
         ApiError,
         COVERAGE_MODE,
+        DEFAULT_SIDECAR,
         INDEX_COMPLETENESS,
         SCHEMA_VERSION,
         SERVICE_NAME,
@@ -41,6 +45,7 @@ except ImportError:  # script/direct test import
     from core import (  # type: ignore[no-redef]
         ApiError,
         COVERAGE_MODE,
+        DEFAULT_SIDECAR,
         INDEX_COMPLETENESS,
         SCHEMA_VERSION,
         SERVICE_NAME,
@@ -50,8 +55,10 @@ except ImportError:  # script/direct test import
     )
 
 DEFAULT_DB = HERE.parent / "数据库工具" / "var" / "catalog.sqlite"
+DEFAULT_BLOB_ROOT = HERE.parent / "数据库工具" / "var" / "blobs"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8798
+MAX_INGEST_BYTES = 1_000_000
 
 
 def _json_bytes(payload: dict[str, Any]) -> bytes:
@@ -59,7 +66,7 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
 
 
 class AnyFieldHandler(BaseHTTPRequestHandler):
-    server_version = "AnyFieldMVP/0.1"
+    server_version = "AnyFieldP0/0.2"
     sys_version = ""
 
     # ------------------------------------------------------------------ helpers
@@ -107,6 +114,24 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
             raise ApiError(400, "INVALID_QUERY", "需要同时提供 ra、dec（度）")
         return ra, dec, fov  # type: ignore[return-value]
 
+    def _read_json_body(self) -> Any:
+        content_type = str(self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if content_type not in ("application/json", "text/json", ""):
+            raise ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "POST /ingest 需要 application/json")
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise ApiError(400, "BAD_JSON", "Content-Length 非法") from exc
+        if length <= 0:
+            raise ApiError(400, "BAD_JSON", "请求体为空")
+        if length > MAX_INGEST_BYTES:
+            raise ApiError(413, "PAYLOAD_TOO_LARGE", f"manifest 最大 {MAX_INGEST_BYTES} 字节")
+        raw = self.rfile.read(length)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ApiError(400, "BAD_JSON", "请求体不是合法 JSON") from exc
+
     # ------------------------------------------------------------------ routes
     def do_GET(self) -> None:  # noqa: N802 - stdlib API
         request_id = self._request_id()
@@ -131,6 +156,13 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                 body["request_id"] = request_id
                 self._send_json(200, body)
                 return
+            if path.startswith("/api/v1/ingest/"):
+                parts = [p for p in path.split("/") if p]
+                if len(parts) == 4 and parts[:3] == ["api", "v1", "ingest"]:
+                    body = self.server.store.job_status(parts[3])  # type: ignore[attr-defined]
+                    body["request_id"] = request_id
+                    self._send_json(200, body)
+                    return
             if path == "/api/v1/capabilities":
                 self._send_json(
                     200,
@@ -140,10 +172,19 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                         "service_version": SERVICE_VERSION,
                         "coverage_mode": COVERAGE_MODE,
                         "index_completeness": INDEX_COMPLETENESS,
-                        "endpoints": ["/api/v1/health", "/api/v1/field", "/api/v1/epochs"],
+                        "endpoints": [
+                            "/api/v1/health",
+                            "/api/v1/field",
+                            "/api/v1/epochs",
+                            "/api/v1/ingest",
+                            "/api/v1/ingest/{job_id}",
+                            "/api/v1/ingest/{job_id}/rollback",
+                        ],
                         "network": "none",
-                        "writes": "none",
-                        "ingest": False,
+                        "catalog_writes": "none",
+                        "sidecar_writes": "enabled",
+                        "ingest": "metadata_only",
+                        "pixel_ingest": False,
                         "sim": False,
                     },
                 )
@@ -158,10 +199,38 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                 request_id=request_id,
             )
 
+    def do_POST(self) -> None:  # noqa: N802 - stdlib API
+        request_id = self._request_id()
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        try:
+            if path == "/api/v1/ingest":
+                payload = self._read_json_body()
+                body = self.server.store.submit_ingest(payload)  # type: ignore[attr-defined]
+                body["request_id"] = request_id
+                self._send_json(202, body)
+                return
+            if path.startswith("/api/v1/ingest/"):
+                parts = [p for p in path.split("/") if p]
+                if len(parts) == 5 and parts[:3] == ["api", "v1", "ingest"] and parts[4] == "rollback":
+                    body = self.server.store.rollback_job(parts[3])  # type: ignore[attr-defined]
+                    body["request_id"] = request_id
+                    self._send_json(200, body)
+                    return
+            raise ApiError(404, "NOT_FOUND", f"未知路径：{parsed.path}")
+        except ApiError as exc:
+            self._send_error_body(exc, request_id=request_id)
+        except Exception as exc:  # noqa: BLE001 - HTTP boundary
+            traceback.print_exc()
+            self._send_error_body(
+                ApiError(500, "INTERNAL", f"服务内部错误：{exc}", retryable=True),
+                request_id=request_id,
+            )
+
     def do_OPTIONS(self) -> None:  # noqa: N802 - stdlib API
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
@@ -188,22 +257,45 @@ def build_server(
     db_path: str | Path = DEFAULT_DB,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    *,
+    sidecar_path: str | Path | None = None,
+    blob_root: str | Path | None = None,
+    build_footprints: bool = True,
 ) -> AnyFieldHTTPServer:
-    return AnyFieldHTTPServer((host, int(port)), Store(db_path))
+    store = Store(
+        db_path,
+        sidecar_path=sidecar_path,
+        blob_root=blob_root,
+        build_footprints=build_footprints,
+    )
+    return AnyFieldHTTPServer((host, int(port)), store)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="C-MVP AnyField read-only service")
-    parser.add_argument("--db", default=str(DEFAULT_DB), help="本地 catalog.sqlite（只读）")
+    parser = argparse.ArgumentParser(description="AnyField P0 local footprint service")
+    parser.add_argument("--db", default=str(DEFAULT_DB), help="catalog.sqlite（只读）")
+    parser.add_argument("--sidecar", default=str(DEFAULT_SIDECAR), help="anyfield.sqlite（可写）")
+    parser.add_argument("--blob-root", default=str(DEFAULT_BLOB_ROOT), help="fits-header blob 根目录")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--no-build-footprints", action="store_true", help="不重建 header 足迹")
     args = parser.parse_args(argv)
 
-    store = Store(args.db)
+    store = Store(
+        args.db,
+        sidecar_path=args.sidecar,
+        blob_root=args.blob_root,
+        build_footprints=not args.no_build_footprints,
+    )
     server = AnyFieldHTTPServer((args.host, args.port), store)
     host, port = server.server_address[:2]
     print(f"{SERVICE_NAME} {SERVICE_VERSION} listening on http://{host}:{port}", flush=True)
-    print(f"db={store.db_path} mode=read-only network=none coverage_mode={COVERAGE_MODE}", flush=True)
+    print(
+        f"db={store.db_path} mode=read-only sidecar={store.sidecar_path} "
+        f"blob_root={store.blob_root} network=none",
+        flush=True,
+    )
+    print(f"footprints={store.footprint_stats}", flush=True)
     try:
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:
