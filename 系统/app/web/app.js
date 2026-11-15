@@ -16,6 +16,9 @@ const state = {
   loading: false,
   sources: [],
   locked: null, // 已锁定的检测源（含 ra/dec/snr/quality）
+  lockedIdentification: null, // 锁定源单独的 /api/identify 结果
+  lockedIdentificationKey: null,
+  lockedIdentifying: false,
   hover: null, // { source, frame } 当前 hover 的源
   hoverKey: null,
   lockRequest: null, // URL 带 lock=1 时，分析完成后按坐标重新锁定
@@ -30,6 +33,54 @@ const CLASS_META = {
   O: { letter: "O", label: "轨道运动", sub: "束缚双星/伴星" },
   U: { letter: "U", label: "不可判定", sub: "数据不足以判断" },
 };
+
+/* 星表识别（阶段 D MVP）：只陈述“能否被星表解释”，不做发现声明。 */
+const CATALOG_TEXT = {
+  known_star: "Gaia DR3 已知",
+  ambiguous: "多候选 ambiguous",
+  uncatalogued_candidate: "未收录候选（未经确认）",
+  catalog_unavailable: "星表不可用",
+  insufficient_data: "数据不足",
+};
+
+const CATALOG_REASON_TEXT = {
+  CATALOG_UNAVAILABLE: "星表服务不可达或返回 503",
+  TARGET_NOT_DETECTED: "目标没有被探测到",
+  FETCH_FAILED: "真实切片取数失败",
+  CATALOG_PARTIAL: "星表覆盖不完整，0 候选不能当“未收录”",
+  NO_CACHED_FIELD: "查询点不在已缓存的星表场覆盖内",
+  CATALOG_UNREACHABLE: "星表服务不可达",
+  MALFORMED_RESPONSE: "星表响应格式异常",
+  SINGLE_EPOCH: "仅单期，无法核对自行",
+  NO_CATALOG_MATCH: "星表查询成功，但没有候选",
+  MULTIPLE_CANDIDATES: "匹配半径内有多颗星表源",
+  PM_INCONSISTENT: "位置匹配但自行不一致",
+  CATALOG_ID_MISSING: "候选缺少 catalog_id",
+  IDENTIFICATION_ERROR: "识别过程出现内部错误，已降级",
+  NO_TARGET_MEASUREMENT: "没有目标实测位置",
+  SINGLE_CATALOG_MATCH: "位置匹配，星表 ID 已确认",
+  NO_PM_CHECK: "未核对自行（无可用 PM）",
+  HIGH_PM: "高自行目标",
+};
+
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function catalogText(ident) {
+  if (!ident) return "未识别";
+  return ident.label_zh || CATALOG_TEXT[ident.status] || ident.status || "未识别";
+}
+
+function catalogReasonText(ident) {
+  if (!ident) return "";
+  const key = ident.reason === "CATALOG_UNAVAILABLE" ? (ident.catalog_reason || ident.reason) : ident.reason;
+  return CATALOG_REASON_TEXT[key] || CATALOG_REASON_TEXT[ident.reason] || key || "";
+}
+
+function fmtArcsec(value, digits = 3) {
+  return value == null || !Number.isFinite(Number(value)) ? "—" : `${Number(value).toFixed(digits)}″`;
+}
 
 /* ------------------------------------------------------------------ 启动 */
 
@@ -306,6 +357,7 @@ function renderAll(d, dt) {
   pt.textContent = r.public_text;
 
   renderMetrics(r);
+  renderIdentification(d.identification);
   renderModels(r);
   renderEpochList(d);
   renderMatchStats(r);
@@ -357,6 +409,68 @@ function renderMetrics(r) {
   $("#metrics").innerHTML = cards
     .map(([k, v, hl]) => `<div class="metric ${hl ? "hl" : ""}"><span>${k}</span><b>${v}</b></div>`)
     .join("");
+}
+
+function renderIdentification(ident) {
+  const card = $("#catalogCard");
+  const badge = $("#catalogBadge");
+  const body = $("#catalogBody");
+  const disclaimer = $("#catalogDisclaimer");
+  if (!card || !badge || !body) return;
+  if (!ident || !ident.status) {
+    card.classList.add("hidden");
+    return;
+  }
+  const status = ident.status;
+  card.classList.remove("hidden");
+  card.dataset.status = status;
+  badge.className = "catalog-badge " + status;
+  badge.textContent = catalogText(ident);
+
+  const n = Number(ident.n_candidates || 0);
+  const releaseName = ident.catalog_release || ident.release;
+  const release = releaseName ? `<span>${esc(releaseName)}</span>` : "";
+  const quality = (ident.quality || []).filter(Boolean);
+  let html = "";
+
+  if (status === "known_star") {
+    const pm = ident.pm_consistent === true ? "一致" : ident.pm_consistent === false ? "不一致" : "未判";
+    const obj = ident.object_type ? `<span class="catalog-chip">${esc(ident.object_type)}</span>` : "";
+    html = `
+      <div class="catalog-id">${esc(ident.source_id || ident.catalog_id || "—")}${release}</div>
+      <div class="catalog-metrics">
+        <span class="catalog-chip">角距 ${fmtArcsec(ident.separation_arcsec)}</span>
+        <span class="catalog-chip">自行 ${pm}</span>
+        <span class="catalog-chip">候选 ${n}</span>
+        ${obj}
+        ${quality.map((q) => `<span class="catalog-chip">${esc(q)}</span>`).join("")}
+      </div>`;
+  } else if (status === "ambiguous") {
+    const cands = (ident.candidates || []).slice(0, 5);
+    const rows = cands
+      .map(
+        (c) => `<div class="catalog-candidate"><code>${esc(c.catalog_id || "—")}</code><span>${fmtArcsec(c.separation_arcsec)}</span><em>${esc(c.release || ident.release || "")}</em></div>`
+      )
+      .join("");
+    html = `
+      <div>匹配半径内有 <b>${n || cands.length}</b> 个星表源；系统<b>不自动选择</b>最亮或最近的候选。</div>
+      <div class="catalog-candidates">${rows || '<span class="muted">候选明细缺失</span>'}</div>
+      <div class="catalog-note">${esc(catalogReasonText(ident))}。请人工核对候选；ambiguous 不是“已确认”。</div>`;
+  } else if (status === "uncatalogued_candidate") {
+    html = `
+      <div>星表查询成功，<b>0 个候选</b>。这只是“未收录候选（未经确认）”，不是发现。</div>
+      <div class="catalog-note">可能是星表遗漏、星系/QSO、伪源或 6.15″/px 下的混合；未匹配不等于新天体。</div>`;
+  } else if (status === "catalog_unavailable") {
+    html = `
+      <div><b>星表不可用，无法判断已知/未知。</b></div>
+      <div class="catalog-note">${esc(catalogReasonText(ident))}；本次运动分析结果不受影响，也未把空结果当成“未收录”。</div>`;
+  } else {
+    html = `
+      <div>暂不能给出星表结论：<b>${esc(catalogReasonText(ident))}</b>。</div>
+      <div class="catalog-note">需要目标实测位置与可用的星表查询；这里不猜测，也不输出“新天体”。</div>`;
+  }
+  body.innerHTML = html;
+  disclaimer.textContent = ident.disclaimer || "未匹配不等于新天体；本工具只做已知/未知比对，不做发现声明。";
 }
 
 function renderModels(r) {
@@ -772,6 +886,8 @@ function hideTip() {
 function selectSource(src) {
   if (!src || !SourcePick.isSelectable(src)) return;
   state.locked = src;
+  state.lockedIdentification = null;
+  state.lockedIdentificationKey = null;
   state.lockRequest = null;
   state.selected = "custom";
   $("#ra").value = Number(src.ra).toFixed(6);
@@ -791,12 +907,82 @@ function selectSource(src) {
     `已锁定源：RA ${Number(src.ra).toFixed(6)}° · Dec ${Number(src.dec).toFixed(6)}° · S/N ${Number(src.snr).toFixed(1)}；正在以该坐标重新分析…`
   );
   renderFrame();
+  identifyLockedSource(src);
   analyze();
+}
+
+function lockKey(src) {
+  if (!src) return null;
+  const ra = Number(src.ra);
+  const dec = Number(src.dec);
+  if (!Number.isFinite(ra) || !Number.isFinite(dec)) return null;
+  return `${ra.toFixed(8)}|${dec.toFixed(8)}`;
+}
+
+/** A 锁定源后单独调用 /api/identify；失败必须显示“星表不可用”，不能当成未匹配。 */
+async function identifyLockedSource(src) {
+  const d = state.analysis;
+  if (!d || !src) return;
+  const key = lockKey(src);
+  const ep = (d.epochs || [])[Number(src.frame)] || (d.epochs || [])[0] || {};
+  const mjd = Number(ep.mjd);
+  const scale = Number(d.common_wcs && d.common_wcs.scale_arcsec) || 6.15;
+  const sx = Number(src.sigma_x);
+  const sy = Number(src.sigma_y);
+  const sigmaPx = Math.max(0.03, Math.hypot(Number.isFinite(sx) ? sx : 0.5, Number.isFinite(sy) ? sy : 0.5)) + 0.05;
+  const sigma = Math.max(0.3, sigmaPx * scale);
+  if (!Number.isFinite(mjd) || !Number.isFinite(Number(src.ra)) || !Number.isFinite(Number(src.dec))) return;
+  state.lockedIdentifying = true;
+  state.lockedIdentificationKey = key;
+  renderLockInfo();
+  const payload = {
+    ra: Number(src.ra),
+    dec: Number(src.dec),
+    mjd,
+    sigma_arcsec: sigma,
+    detection_id: `${src.epoch_id || "epoch"}:${Number(src.x).toFixed(2)}:${Number(src.y).toFixed(2)}`,
+  };
+  try {
+    const r = await fetch("/api/identify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const ident = await r.json();
+    if (!r.ok || ident.error) {
+      const e = ident.error;
+      const msg = typeof e === "string" ? e : (e && (e.message || e.code)) || "识别接口返回错误";
+      throw new Error(msg);
+    }
+    if (state.lockedIdentificationKey !== key) return;
+    state.lockedIdentification = ident;
+  } catch (e) {
+    if (state.lockedIdentificationKey !== key) return;
+    state.lockedIdentification = {
+      status: "catalog_unavailable",
+      label_zh: "星表不可用",
+      catalog_release: null,
+      source_id: null,
+      sep_arcsec: null,
+      confidence: 0,
+      caveats: ["星表识别请求失败：" + e.message],
+      discovery_claim: false,
+      disclaimer: "未匹配不等于新天体；星表不可用不代表“未收录”。",
+    };
+  } finally {
+    if (state.lockedIdentificationKey === key) {
+      state.lockedIdentifying = false;
+      renderLockInfo();
+    }
+  }
 }
 
 function clearLock(showNote = true) {
   const had = !!state.locked;
   state.locked = null;
+  state.lockedIdentification = null;
+  state.lockedIdentificationKey = null;
+  state.lockedIdentifying = false;
   state.lockRequest = null;
   const u = new URL(location.href);
   if (u.searchParams.has("lock")) {
@@ -817,16 +1003,40 @@ function resolveLock(d) {
     } else {
       // 新一次分析有自己的源对象：用最新测量刷新 x/y/snr（高亮按 RA/Dec 匹配）
       const near = SourcePick.nearestSourceByRaDec(state.sources, state.locked.ra, state.locked.dec, 0.0015);
-      if (near) state.locked = near.source;
+      if (near) {
+        const changed = lockKey(state.locked) !== lockKey(near.source);
+        state.locked = near.source;
+        if (changed) {
+          state.lockedIdentification = null;
+          state.lockedIdentificationKey = null;
+        }
+      }
     }
   }
   if (!state.locked && state.lockRequest) {
     // URL 带 lock=1：分析完成后按坐标找回源，恢复高亮（可复现）
     const hit = SourcePick.nearestSourceByRaDec(state.sources, state.lockRequest.ra, state.lockRequest.dec, 0.0015);
-    if (hit) state.locked = hit.source;
+    if (hit) {
+      state.locked = hit.source;
+      if (!state.lockedIdentification) identifyLockedSource(hit.source);
+    }
     state.lockRequest = null;
   }
   renderLockInfo();
+}
+
+function lockedIdentification() {
+  const s = state.locked;
+  if (!s) return null;
+  const key = lockKey(s);
+  if (state.lockedIdentification && state.lockedIdentificationKey === key) {
+    return state.lockedIdentification;
+  }
+  // 兼容旧路径：锁定源就是分析目标时，/api/analyze 的 identification 仍可用。
+  const d = state.analysis;
+  if (!d || !d.identification || !d.target) return null;
+  const sep = SourcePick.angularSepDeg(d.target.ra, d.target.dec, s.ra, s.dec);
+  return Number.isFinite(sep) && sep <= 1e-5 ? d.identification : null;
 }
 
 function renderLockInfo() {
@@ -837,11 +1047,26 @@ function renderLockInfo() {
     el.innerHTML = "";
     return;
   }
+  const ident = lockedIdentification();
+  const sourceId = ident && (ident.source_id || ident.catalog_id);
+  const release = ident && (ident.catalog_release || ident.release);
+  const caveats = ident && Array.isArray(ident.caveats) ? ident.caveats.slice(0, 2) : [];
+  const catLine = state.lockedIdentifying
+    ? `<div class="lock-catalog"><span class="catalog-badge">识别中</span><em>正在查询 Gaia DR3 星表…</em></div>`
+    : ident
+      ? `<div class="lock-catalog"><span class="catalog-badge ${esc(ident.status)}">${esc(catalogText(ident))}</span>
+          ${sourceId ? `<code>${esc(sourceId)}</code>` : ""}
+          ${release ? `<span class="catalog-chip">${esc(release)}</span>` : ""}
+          <em>${esc(catalogReasonText(ident))}</em>
+          ${caveats.map((c) => `<div class="catalog-note">${esc(c)}</div>`).join("")}
+        </div>`
+      : "";
   el.classList.remove("hidden");
   el.innerHTML = `
     <div class="lock-head"><span class="lock-dot"></span>已锁定源<button id="unlockBtn" class="ghost small" type="button">解除</button></div>
     <div class="lock-line">RA <b>${Number(s.ra).toFixed(6)}°</b> · Dec <b>${Number(s.dec).toFixed(6)}°</b></div>
     <div class="lock-line">S/N <b>${Number(s.snr).toFixed(1)}</b> · flux ${Number(s.flux).toFixed(2)} ± ${Number(s.flux_err).toFixed(2)} · 第 ${Number(s.frame) + 1} 期 · ${SourcePick.qualityText(s)}</div>
+    ${catLine}
     <div class="lock-hint">坐标已填入上方并用于分析；画布上为琥珀色锁定环。</div>`;
 }
 

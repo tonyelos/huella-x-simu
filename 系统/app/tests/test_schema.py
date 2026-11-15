@@ -97,6 +97,8 @@ class AnalysisSchemaTest(unittest.TestCase):
                 self.assertIn("real_epochs", out["data"])
                 self.assertEqual(out["data"]["mode"], mode)
                 self.assertIn("quality", out["result"])
+                self.assertIn("identification", out)
+                self.assertIsInstance(out["identification"], dict)
 
 
 if __name__ == "__main__":
