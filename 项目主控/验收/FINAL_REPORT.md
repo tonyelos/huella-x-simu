@@ -127,6 +127,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 三模块联动：[../架构/13_三模块联动计划.md](../架构/13_三模块联动计划.md)（View 时间窗口 → App `/cascade`/`/tracks` 过滤 → DB epochs/coverage）。见 [GUI链路测试.md](GUI链路测试.md) §7。
 
+模式化重构：[../架构/14_模式化重构计划.md](../架构/14_模式化重构计划.md)（View 只选区域/时间；MoveScope 同画布切换普通/级联/轨迹）。
+
 跨历元轨迹实施计划：[../架构/12_跨历元轨迹发现计划.md](../架构/12_跨历元轨迹发现计划.md)（T1 tracklet → T2 UI → T3 验证）。
 
 跨历元轨迹页已实现：`/tracks`（Barnard 4 期：D0 45 / D1 0 / D3 10 / D4 195；D1=0 因 B fixture partial；轨迹候选 ≠ 新天体）。见 [GUI链路测试.md](GUI链路测试.md) §6。
