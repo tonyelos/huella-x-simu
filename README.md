@@ -43,6 +43,11 @@ cd /Users/yiao/Documents/huellaX
 PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
 $PY 系统/app/server.py --port 8790
 cd 系统/数据库工具 && $PY cli.py serve --port 8797
+
+# 可选：星表服务（D-MVP；离线 fixture 234 行，足够验证 known/ambiguous）
+cd 系统/数据库工具
+$PY tools/import_gaia.py --rebuild --offline
+$PY catalog_server.py --port 8799
 ```
 
 首次分析某个真实目标时，会从 IRSA 静态切片接口取数（每期约 4 MB，带本地缓存）；
@@ -50,6 +55,8 @@ cd 系统/数据库工具 && $PY cli.py serve --port 8797
 
 **参数边界**：FOV 合法范围 **0.02–3.0°**；非法值返回 400 + 可读错误码
 （`INVALID_FOV` / `FOV_TOO_LARGE` / `INVALID_COORDINATE` / `TARGET_COORD_CONFLICT`），不再是 500。
+
+**已知/未知识别（D-MVP）**：锁定检测源后，app 会调用独立星表服务（默认 8799）做 Gaia DR3 匹配，显示“已知恒星 / 多候选 ambiguous / 未收录候选 / 星表不可用”；未匹配不等于新天体，不做发现声明。
 
 **当前数据通路**：5 个预设目标走本地真实历元目录；**任意 RA/Dec 先查数据库 `/api/v1/epochs`**
 （本地索引 151 周，其中 23 周有帧、共 5,893 帧 / 5,562 曝光），有 ≥2 期真实历元就走真实切片；本地无覆盖时显式
@@ -111,7 +118,7 @@ http://127.0.0.1:8790/?target=barnard&ra=269.452077&dec=4.693365&fov=0.2
 - **真实数据（饱和案例）**：Barnard's Star 4 期，目标饱和（峰值 755–1782 MJy/sr，核心 NaN），
   位移约 5.3″（真值 5.8″）但质心误差 0.4 px，工具诚实判为「未检测到显著位移」并标记 `SATURATED_SOURCE`。
 - **弱目标**：WISE 0855 在可用波段只探测到 1 期，判 U；这是坐标歧义/深度问题，已写入限制。
-- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（125 项，覆盖 sample、FOV、quality 合并、
+- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（171 项，覆盖 sample、FOV、quality 合并、
   缓存版本键/损坏恢复、LRU、target 冲突、越界像素、schema 契约）。
 
 报告：`系统/docs/validation_report.json`。
