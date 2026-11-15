@@ -64,6 +64,21 @@ def finite_radec(ra: float, dec: float) -> tuple[float, float]:
     return ra % 360.0, dec
 
 
+def normalize_mjd_range(mjd_min, mjd_max) -> tuple[float | None, float | None]:
+    """校验可选 MJD 窗口；非有限值、或 min>max 直接 ValueError（HTTP 层转 400）。
+
+    MJD 是连续量（负值也有定义），所以不做“合理年代”硬限制：窗口落在目录外
+    时返回 0 条，而不是报错。这里只拒绝无法计算或自相矛盾的输入。
+    """
+    if mjd_min is not None:
+        mjd_min = finite_scalar(mjd_min, "mjd_min")
+    if mjd_max is not None:
+        mjd_max = finite_scalar(mjd_max, "mjd_max")
+    if mjd_min is not None and mjd_max is not None and mjd_min > mjd_max:
+        raise ValueError("mjd_min 不能大于 mjd_max")
+    return mjd_min, mjd_max
+
+
 def zone_of(dec: float) -> int:
     z = int(math.floor((dec + 90.0) / ZONE_HEIGHT_DEG))
     return max(0, min(359, z))
@@ -321,9 +336,26 @@ class Catalog:
         }
 
     # ------------------------------------------------------------------ 覆盖
-    def coverage(self, ra: float, dec: float, radius_deg: float = COVERAGE_RADIUS_DEG, *, size_deg: float = 0.2) -> dict:
-        """天区覆盖 + 数据就绪度（按 0.02 天去重同一曝光的多探测器）。"""
-        res = self.cone(ra, dec, radius_deg, limit=MAX_PAGE_SIZE, order="mjd", size_deg=size_deg)
+    def coverage(
+        self,
+        ra: float,
+        dec: float,
+        radius_deg: float = COVERAGE_RADIUS_DEG,
+        *,
+        size_deg: float = 0.2,
+        mjd_min: float | None = None,
+        mjd_max: float | None = None,
+    ) -> dict:
+        """天区覆盖 + 数据就绪度（按 0.02 天去重同一曝光的多探测器）。
+
+        `mjd_min/mjd_max` 可选：只统计窗口内的 frames/epochs。默认（都不给）与
+        旧行为完全一致；窗口是闭区间，超出目录范围时返回 0 期而不是报错。
+        """
+        mjd_min, mjd_max = normalize_mjd_range(mjd_min, mjd_max)
+        res = self.cone(
+            ra, dec, radius_deg, limit=MAX_PAGE_SIZE, order="mjd", size_deg=size_deg,
+            mjd_min=mjd_min, mjd_max=mjd_max,
+        )
         frames = list(res["frames"])
         # cone 有单页上限；覆盖统计需要全部候选，按页取完（最多 20 页，防病态查询）。
         offset = len(frames)
@@ -331,7 +363,8 @@ class Catalog:
             if offset >= res["total"]:
                 break
             part = self.cone(
-                ra, dec, radius_deg, limit=MAX_PAGE_SIZE, offset=offset, order="mjd", size_deg=size_deg
+                ra, dec, radius_deg, limit=MAX_PAGE_SIZE, offset=offset, order="mjd", size_deg=size_deg,
+                mjd_min=mjd_min, mjd_max=mjd_max,
             )
             if not part["frames"]:
                 break
@@ -354,8 +387,19 @@ class Catalog:
         analysis_level = readiness_level(n_epochs, baseline)
 
         return {
-            "query": {"ra": round(float(ra) % 360.0, 6), "dec": float(dec), "radius_deg": float(radius_deg)},
+            "query": {
+                "ra": round(float(ra) % 360.0, 6),
+                "dec": float(dec),
+                "radius_deg": float(radius_deg),
+                "mjd_min": mjd_min,
+                "mjd_max": mjd_max,
+            },
             "radius_deg": float(radius_deg),
+            "time_filter": {
+                "mjd_min": mjd_min,
+                "mjd_max": mjd_max,
+                "applied": mjd_min is not None or mjd_max is not None,
+            },
             "n_frames": len(frames),
             "n_epochs": n_epochs,
             "n_observations": len({f["obs_id"] for f in dedup}),
@@ -485,7 +529,15 @@ class Catalog:
             "header_sha256": f.get("header_sha256"),
         }
 
-    def _curated_epochs(self, target: dict, fov: float, release: str | None) -> list[dict]:
+    def _curated_epochs(
+        self,
+        target: dict,
+        fov: float,
+        release: str | None,
+        *,
+        mjd_min: float | None = None,
+        mjd_max: float | None = None,
+    ) -> list[dict]:
         sql = """
             SELECT e.*, w.version, f.header_sha256,
                    f.ra AS frame_ra, f.dec AS frame_dec
@@ -498,6 +550,12 @@ class Catalog:
         if release:
             sql += " AND e.release=?"
             args.append(release)
+        if mjd_min is not None:
+            sql += " AND e.mjd >= ?"
+            args.append(float(mjd_min))
+        if mjd_max is not None:
+            sql += " AND e.mjd <= ?"
+            args.append(float(mjd_max))
         sql += " ORDER BY e.mjd ASC, e.detector ASC"
         refs: list[dict] = []
         for r in self.conn.execute(sql, args):
@@ -529,13 +587,24 @@ class Catalog:
             )
         return refs
 
-    def _cone_epochs(self, ra: float, dec: float, radius: float, fov: float, release: str | None) -> list[dict]:
+    def _cone_epochs(
+        self,
+        ra: float,
+        dec: float,
+        radius: float,
+        fov: float,
+        release: str | None,
+        *,
+        mjd_min: float | None = None,
+        mjd_max: float | None = None,
+    ) -> list[dict]:
         frames: list[dict] = []
         offset = 0
         for _ in range(20):
             part = self.cone(
                 ra, dec, radius, limit=MAX_PAGE_SIZE, offset=offset,
                 order="mjd", release=release, size_deg=fov,
+                mjd_min=mjd_min, mjd_max=mjd_max,
             )
             frames.extend(part["frames"])
             offset += len(part["frames"])
@@ -616,12 +685,20 @@ class Catalog:
         release: str | None = None,
         limit: int = 500,
         offset: int = 0,
+        mjd_min: float | None = None,
+        mjd_max: float | None = None,
     ) -> dict:
-        """契约 v1：target_id 与 ra/dec 两入口返回同一组 EpochRef。"""
+        """契约 v1：target_id 与 ra/dec 两入口返回同一组 EpochRef。
+
+        `mjd_min/mjd_max` 可选：curated `target_epochs` 直接按 `e.mjd` 过滤；
+        未命中目标时按同一窗口过滤 frames 锥搜索。默认不传时结果与旧行为一致。
+        """
         fov = finite_scalar(fov, "fov")
         radius = finite_scalar(radius, "radius")
         if fov <= 0:
             raise ValueError("fov 必须是正数")
+        mjd_min, mjd_max = normalize_mjd_range(mjd_min, mjd_max)
+        filtered = mjd_min is not None or mjd_max is not None
         if ra is not None or dec is not None:
             if ra is None or dec is None:
                 raise ValueError("ra 与 dec 必须同时给")
@@ -651,15 +728,21 @@ class Catalog:
         refs_all: list[dict]
         source: str
         if matched:
-            refs_all = self._curated_epochs(matched, fov, release)
+            refs_all = self._curated_epochs(
+                matched, fov, release, mjd_min=mjd_min, mjd_max=mjd_max
+            )
             refs_unique = self.dedupe_epoch_refs(refs_all)
             source = "curated"
         else:
             refs_all = []
             refs_unique = []
             source = "frames"
-        if not refs_unique:
-            refs_all = self._cone_epochs(qra, qdec, radius, fov, release)
+        # curated 为空时兜底 frames；但“命中目标 + 显式时间窗”应如实返回 0 期，
+        # 不能悄悄换成另一套数据源，否则窗口过滤看起来像没生效。
+        if not refs_unique and not (matched and filtered):
+            refs_all = self._cone_epochs(
+                qra, qdec, radius, fov, release, mjd_min=mjd_min, mjd_max=mjd_max
+            )
             refs_unique = self.dedupe_epoch_refs(refs_all)
             source = "frames"
         cov = self._coverage_from_refs(refs_all, refs_unique, qra, qdec, radius, source)
@@ -675,6 +758,13 @@ class Catalog:
                 "release": release,
                 "limit": int(limit),
                 "offset": int(offset),
+                "mjd_min": mjd_min,
+                "mjd_max": mjd_max,
+            },
+            "time_filter": {
+                "mjd_min": mjd_min,
+                "mjd_max": mjd_max,
+                "applied": filtered,
             },
             "matched_target_id": matched["id"] if matched else None,
             "coverage": cov,

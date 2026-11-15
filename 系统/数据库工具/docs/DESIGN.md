@@ -139,9 +139,12 @@ T4 采集头文件后 `frames` 会增加 D2–D6 帧，如果直接从 `frames` 
   候选上限 200,000，超出标 `truncated`。
 - `coverage()`：默认按 **2.47°**（单片半对角线）搜索；`n_epochs` 按 obsid 去重，
   给出 `coverage_level`（C0–C3）。旧 `readiness`（L0–L3）保留但标 deprecated。
+  可选 `mjd_min/mjd_max` 闭区间，只统计窗口内 frames/epochs（`time_filter` 回显）。
 - `epochs_v1()`：契约 v1；`target_id` 与 `ra/dec` 两个入口同形；0.05° 内自动匹配目标，
   优先 curated `target_epochs`，否则按 radius 锥搜索 frames 兜底；每 obsid 一条 DTO，
-  `date_obs` 缺失时由 MJD 反推，`slice_url.size=fov`。
+  `date_obs` 缺失时由 MJD 反推，`slice_url.size=fov`。可选 `mjd_min/mjd_max`：
+  curated 直接按 `e.mjd` 过滤（命中目标 + 空窗口时如实返回 0 条，不回退 frames），
+  未命中时把同一窗口传给 frames 锥搜索。
 - `epochs_for_target()`：旧内部方法，保留给 CLI/导出；优先 `target_epochs`。
 - `stats()`：计数、时间范围、release/detector 分布、Blob 压缩率、最近导入；
   额外给出 `header_frames`、`frames_with_cutouts`。

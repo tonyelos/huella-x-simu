@@ -170,6 +170,92 @@ class V1ContractTest(unittest.TestCase):
             self.assertTrue(e["date_obs"])
 
     @unittest.skipUnless(APP_TARGETS.exists(), f"需要 app targets: {APP_TARGETS}")
+    def test_epochs_mjd_window(self):
+        """时间窗口：Barnard 全窗口 4 期；2025-08-29–2025-09-05（MJD 60916–60923）2 期。"""
+        full = self.cat.epochs_v1(target_id="barnard")
+        self.assertEqual(full["count"], 4)
+        self.assertFalse(full["time_filter"]["applied"])
+
+        window = self.cat.epochs_v1(target_id="barnard", mjd_min=60916, mjd_max=60923)
+        self.assertEqual(window["count"], 2)
+        self.assertTrue(window["time_filter"]["applied"])
+        self.assertEqual(
+            window["time_filter"], {"mjd_min": 60916.0, "mjd_max": 60923.0, "applied": True}
+        )
+        self.assertEqual(
+            [e["obsid"] for e in window["epochs"]],
+            ["2025W35_2A_0221_1", "2025W35_2A_0233_1"],
+        )
+        self.assertTrue(all(60916.0 <= e["mjd"] <= 60923.0 for e in window["epochs"]))
+        self.assertEqual(window["coverage"]["n_epochs"], 2)
+
+        # ra/dec 入口与 target_id 入口在窗口下仍然同形
+        coords = self.cat.epochs_v1(ra=269.452077, dec=4.693365, mjd_min=60916, mjd_max=60923)
+        self.assertEqual(coords["matched_target_id"], "barnard")
+        self.assertEqual(_epoch_keys(coords), _epoch_keys(window))
+
+        # 单边窗口：只要 2026W12 那条 204 天历元
+        late = self.cat.epochs_v1(target_id="barnard", mjd_min=61000)
+        self.assertEqual(late["count"], 1)
+        self.assertEqual(late["epochs"][0]["week"], "2026W12_2A")
+        self.assertEqual(late["coverage"]["baseline_days"], 0.0)
+
+        # 空窗口：命中目标时如实返回 0 条，不能悄悄回退到 frames
+        empty = self.cat.epochs_v1(target_id="barnard", mjd_min=60917, mjd_max=60922)
+        self.assertEqual(empty["count"], 0)
+        self.assertEqual(empty["coverage"]["source"], "curated")
+        self.assertEqual(empty["coverage"]["coverage_level"], "C0")
+
+    def test_epochs_mjd_invalid(self):
+        bad = (
+            {"mjd_min": "abc"},
+            {"mjd_max": "2025-08-29"},
+            {"mjd_min": float("nan")},
+            {"mjd_max": float("inf")},
+            {"mjd_min": 60923, "mjd_max": 60916},
+        )
+        for kwargs in bad:
+            with self.assertRaises(ValueError, msg=str(kwargs)):
+                self.cat.epochs_v1(target_id="barnard", **kwargs)
+            with self.assertRaises(ValueError, msg=str(kwargs)):
+                self.cat.coverage(
+                    269.452077,
+                    4.693365,
+                    mjd_min=kwargs.get("mjd_min"),
+                    mjd_max=kwargs.get("mjd_max"),
+                )
+
+    def test_coverage_mjd_window(self):
+        full = self.cat.coverage(269.452077, 4.693365)
+        self.assertFalse(full["time_filter"]["applied"])
+        self.assertEqual(full["radius_deg"], COVERAGE_RADIUS_DEG)
+
+        window = self.cat.coverage(269.452077, 4.693365, mjd_min=60916, mjd_max=60923)
+        self.assertTrue(window["time_filter"]["applied"])
+        self.assertEqual(window["time_filter"]["mjd_min"], 60916.0)
+        self.assertLess(window["n_frames"], full["n_frames"])
+        self.assertLessEqual(window["n_epochs"], full["n_epochs"])
+        self.assertGreaterEqual(window["mjd_min"], 60916.0)
+        self.assertLessEqual(window["mjd_max"], 60923.0)
+        self.assertEqual(window["query"]["mjd_min"], 60916.0)
+        # 旧字段齐全，且不返回 readiness
+        for key in (
+            "radius_deg", "coverage_level", "coverage_label", "header_available",
+            "n_local_cutouts", "n_observations", "n_weeks", "n_releases",
+            "releases", "detectors", "baseline_days",
+        ):
+            self.assertIn(key, window)
+        # Catalog.coverage() 是旧接口：仍带 deprecated readiness（v1 HTTP 层会剥离）。
+        self.assertTrue(window["readiness"]["deprecated"])
+
+        # 目录外窗口：0 期 / C0，而不是报错
+        empty = self.cat.coverage(269.452077, 4.693365, mjd_min=62000, mjd_max=62001)
+        self.assertEqual(empty["n_frames"], 0)
+        self.assertEqual(empty["n_epochs"], 0)
+        self.assertEqual(empty["coverage_level"], "C0")
+        self.assertIsNone(empty["mjd_min"])
+        self.assertIsNone(empty["mjd_max"])
+
     def test_target_truth_matches_app_json(self):
         """T1 A.targets.app_db：7 个目标 8 字段（含 truth）与 app 逐字段一致。"""
         app = _app_targets()
@@ -209,8 +295,8 @@ class V1ContractTest(unittest.TestCase):
 @unittest.skipUnless(
     DEFAULT_DB.exists() and APP_TARGETS.exists(), "需要生产库与 app/data/targets.json"
 )
-class V1TargetsHttpTest(unittest.TestCase):
-    """HTTP 层回归：T1 的 A.targets.db 会先取 /api/v1/targets，404 才回退 /api/targets。"""
+class V1HttpContractTest(unittest.TestCase):
+    """HTTP 层回归：targets 对账（T1 A 组）与 epochs/coverage 时间窗。"""
 
     @classmethod
     def setUpClass(cls):
@@ -270,6 +356,44 @@ class V1TargetsHttpTest(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertFalse(data["include_truth"])
         self.assertTrue(all("truth" not in t for t in data["targets"]))
+
+    def test_v1_epochs_mjd_window_http(self):
+        code, data = self.get_json(
+            "/api/v1/epochs?target_id=barnard&mjd_min=60916&mjd_max=60923"
+        )
+        self.assertEqual(code, 200)
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(
+            data["time_filter"], {"mjd_min": 60916.0, "mjd_max": 60923.0, "applied": True}
+        )
+        code, full = self.get_json("/api/v1/epochs?target_id=barnard")
+        self.assertEqual(code, 200)
+        self.assertEqual(full["count"], 4)
+        self.assertFalse(full["time_filter"]["applied"])
+        for path in (
+            "/api/v1/epochs?target_id=barnard&mjd_min=abc",
+            "/api/v1/epochs?target_id=barnard&mjd_min=nan",
+            "/api/v1/epochs?target_id=barnard&mjd_min=60923&mjd_max=60916",
+            "/api/v1/coverage?ra=269.452077&dec=4.693365&mjd_min=abc",
+        ):
+            self.assertEqual(self.get_json(path)[0], 400, path)
+
+    def test_v1_coverage_mjd_window_http(self):
+        code, full = self.get_json("/api/v1/coverage?ra=269.452077&dec=4.693365")
+        self.assertEqual(code, 200)
+        code, win = self.get_json(
+            "/api/v1/coverage?ra=269.452077&dec=4.693365&mjd_min=60916&mjd_max=60923"
+        )
+        self.assertEqual(code, 200)
+        self.assertLess(win["n_frames"], full["n_frames"])
+        self.assertTrue(win["time_filter"]["applied"])
+        self.assertEqual(win["time_filter"]["mjd_min"], 60916.0)
+        for key in (
+            "n_frames", "n_epochs", "baseline_days", "coverage_level",
+            "header_available", "n_local_cutouts", "radius_deg",
+        ):
+            self.assertIn(key, win)
+        self.assertNotIn("readiness", win)
 
 
 if __name__ == "__main__":

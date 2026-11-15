@@ -51,6 +51,9 @@ python3 cli.py serve --port 8797
   且要求坐标在 0.05° 内，否则 400）。
 - `fov=<deg>`（0.02–3.5，默认 **0.25**）；只影响 `slice_url` 的 `size`。
 - `radius=<deg>`（0.2–5，默认 **2.47**）；只影响覆盖统计/兜底锥搜索。
+- `mjd_min` / `mjd_max`（可选，MJD）：只返回 **闭区间** `[mjd_min, mjd_max]` 内的历元。
+  命中目标时直接过滤 curated `target_epochs`；未命中时把同一窗口传给 frames 锥搜索。
+  非数字 / NaN / Inf / `mjd_min > mjd_max` → **400**；窗口落在目录外 → `count=0`（不是错误）。
 - `release=dr1|qr3`（可选）。
 - `limit/offset`（默认 500/0，最大 2000）。
 - `format=v1|movescope`（默认 v1；movescope 返回旧形状，便于过渡）。
@@ -71,12 +74,18 @@ python3 cli.py serve --port 8797
 - 没有 curated 或没有 frames 时，按 `radius` 锥搜索 `frames` 兜底。
   `radius` 只影响兜底锥搜索与覆盖统计，不过滤 curated 历元。
 - `count` 是去重后的总条数；`returned` 是本页条数（`limit/offset` 分页）。
+- 时间窗：响应顶层 `time_filter: {mjd_min, mjd_max, applied}` 回显过滤条件，`query`
+  里的 `mjd_min/mjd_max` 与之一致；`count`/`coverage` 都只统计窗口内的历元。
+  命中目标但窗口内没有 curated 历元时，如实返回 `count=0`（`coverage.source=curated`），
+  不会为了凑数切换到 frames 数据源。
 
 ### 示例
 
 ```bash
 curl 'http://127.0.0.1:8797/api/v1/epochs?target_id=barnard'
 curl 'http://127.0.0.1:8797/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.25'
+# 时间窗：Barnard 2025-08-29 → 2025-09-05（MJD 60916–60923）只剩 2 期
+curl 'http://127.0.0.1:8797/api/v1/epochs?target_id=barnard&mjd_min=60916&mjd_max=60923'
 ```
 
 不开服务时的离线等价（同一条 `Catalog.epochs_v1` 代码路径）：
@@ -84,13 +93,16 @@ curl 'http://127.0.0.1:8797/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.25'
 ```bash
 python3 cli.py query epochs --target barnard --v1
 python3 cli.py query epochs --ra 269.452077 --dec 4.693365 --v1 --fov 0.25
+python3 cli.py query epochs --target barnard --v1 --mjd-min 60916 --mjd-max 60923
 ```
 
 ```json
 {
   "schema_version": "1.0",
   "query": {"target_id": "barnard", "ra": 269.452077, "dec": 4.693365,
-            "fov": 0.25, "radius": 2.47, "release": null, "limit": 500, "offset": 0},
+            "fov": 0.25, "radius": 2.47, "release": null, "limit": 500, "offset": 0,
+            "mjd_min": null, "mjd_max": null},
+  "time_filter": {"mjd_min": null, "mjd_max": null, "applied": false},
   "matched_target_id": "barnard",
   "coverage": {
     "radius_deg": 2.47, "n_frames": 8, "n_epochs": 4, "n_observations": 4,
@@ -133,6 +145,9 @@ python3 cli.py query epochs --ra 269.452077 --dec 4.693365 --v1 --fov 0.25
 | r_dra | 3 | 3 | ✅ |
 
 Barnard 包含 2026W12 的 204 天历元（`sep≈1.851°`），说明默认半径 2.47° 生效。
+时间窗下两入口同样一致：`target_id=barnard&mjd_min=60916&mjd_max=60923` 与
+`ra=269.452077&dec=4.693365&mjd_min=60916&mjd_max=60923` 都返回 **2 期**
+（2025-08-29 的两次曝光）；不加窗口仍是 4 期。
 `tests/test_v1_contract.py` 对仓库自带生产库（`var/catalog.sqlite`）回归这张表；
 库不存在时整类跳过，空克隆不会误报。
 
@@ -140,17 +155,22 @@ Barnard 包含 2026W12 的 204 天历元（`sep≈1.851°`），说明默认半�
 
 ## 3. `/api/v1/coverage`
 
-参数：`ra`,`dec` 必填；`radius` 默认 2.47（0.2–5）。
+参数：`ra`,`dec` 必填；`radius` 默认 2.47（0.2–5）；`mjd_min`/`mjd_max` 可选
+（闭区间，只统计窗口内的 frames/epochs，旧字段全部保留）。非法 MJD 同样 400。
 
 ```bash
 curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365'
+# 时间窗：只统计 2025-08-29 → 2025-09-05（MJD 60916–60923）
+curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365&mjd_min=60916&mjd_max=60923'
 ```
 
 返回：
 
 ```json
 {
-  "query": {"ra": 269.452077, "dec": 4.693365, "radius": 2.47},
+  "query": {"ra": 269.452077, "dec": 4.693365, "radius": 2.47,
+            "mjd_min": null, "mjd_max": null},
+  "time_filter": {"mjd_min": null, "mjd_max": null, "applied": false},
   "radius_deg": 2.47,
   "n_frames": 10, "n_epochs": 5, "n_observations": 5, "n_weeks": 3,
   "n_releases": 1, "releases": ["dr1"], "detectors": [1,2,3,5],
@@ -169,6 +189,9 @@ curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365'
 - `n_frames` 是 detector 帧数；`n_epochs` 按曝光去重后的期数。
 - `header_available` 表示该天区是否已有 FITS 头；`n_local_cutouts` 按
   `(obs_id, detector)` 匹配本地 NPZ/FITS 切割。
+- 时间窗：`time_filter.applied=true` 时，`n_frames/n_epochs/baseline_days/
+  coverage_level/n_local_cutouts` 全部只按窗口内 frames 计算；输出的
+  `mjd_min/mjd_max` 是窗口内实际首末帧（空窗口为 `null`、`coverage_level=C0`）。
 
 > **两处 `coverage` 的口径不同，引用时要说清：**
 > `/api/v1/epochs` 里的 `coverage` 统计**本次返回的历元集合**（目标命中时即
@@ -192,16 +215,18 @@ curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365'
   "count": 4,
   "epochs": [{"obsid": "...", "obs_id": "...", "key": "...", "fits_key": "...", "date_obs": "...", "...": "..."}],
   "coverage": {"...": "..."},
+  "time_filter": {"mjd_min": null, "mjd_max": null, "applied": false},
   "deprecated": true,
   "schema_version": "1.0"
 }
 ```
 
-旧字段 `obs_id`、`fits_key`、`frame_present` 仍提供；但新代码请用 v1。
+旧字段 `obs_id`、`fits_key`、`frame_present` 仍提供；`mjd_min/mjd_max` 也照常生效；
+但新代码请用 v1。
 
 ### `/api/coverage`
 
-返回 `Catalog.coverage()` 的旧形状，含 `readiness`，其中：
+返回 `Catalog.coverage()` 的旧形状，含 `readiness` 与 `time_filter`，其中：
 
 ```json
 "readiness": {"level": "L2", "deprecated": true,
@@ -285,6 +310,8 @@ T4 新增的帧不会改变旧文件，但可通过 `/api/cone` / `/api/v1/epoch
 - 参数错误 400；目标/帧/blob/路径不存在 404；内部错误 500。
 - **非有限数值一律 400**：`ra=nan`、`fov=inf` 等不会静默返回 200；否则 NaN 参与
   `min/max` 会让角距计算退化成 0°，把任意非法坐标错配到某个目标。
+- **MJD 窗口**：`mjd_min`/`mjd_max` 非数字、NaN/Inf 或 `mjd_min > mjd_max` → 400；
+  窗口落在目录范围外不是错误，返回 `count=0`（epochs）/ `n_epochs=0`（coverage）。
 - JSON 在 `Accept-Encoding: gzip` 且 ≥1 KB 时 gzip。
 - `ra` 自动对 360 取模；`dec` 必须在 [-90,90]。
 
@@ -299,7 +326,9 @@ db = RemoteCatalog("http://127.0.0.1:8797")
 print(db.health()["counts"])
 print(db.epochs_v1(target_id="barnard", fov=0.25)["count"])
 print(db.epochs_v1(ra=269.452077, dec=4.693365)["matched_target_id"])
+print(db.epochs_v1(target_id="barnard", mjd_min=60916, mjd_max=60923)["count"])  # 2
 print(db.coverage_v1(269.452077, 4.693365)["coverage_level"])
+print(db.coverage_v1(269.452077, 4.693365, mjd_min=60916, mjd_max=60923)["n_epochs"])
 for e in db.epochs_v1(target_id="barnard")["epochs"]:
     print(e["obsid"], e["detector"], e["date_obs"], e["slice_url"])
 ```
