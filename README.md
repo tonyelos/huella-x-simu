@@ -123,10 +123,29 @@ http://127.0.0.1:8790/?target=barnard&ra=269.452077&dec=4.693365&fov=0.2
 - **真实数据（饱和案例）**：Barnard's Star 4 期，目标饱和（峰值 755–1782 MJy/sr，核心 NaN），
   位移约 5.3″（真值 5.8″）但质心误差 0.4 px；SPHEREx 实测未测出显著位移，采用 Gaia PM 先验标为 `L (catalog_prior)`，并保留 `SATURATED_SOURCE` 与“未独立测出”提示。
 - **弱目标**：WISE 0855 在可用波段只探测到 1 期，判 U；这是坐标歧义/深度问题，已写入限制。
-- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（250 项，覆盖 sample、FOV、quality 合并、
+- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（256 项，覆盖 sample、FOV、quality 合并、
   缓存版本键/损坏恢复、LRU、target 冲突、越界像素、schema 契约）。
 
 报告：`系统/docs/validation_report.json`。
+
+### 星表数据接收接口
+
+B 星表服务支持场级接收（需可写 SQLite）：
+
+```bash
+curl -X POST http://127.0.0.1:8799/api/v1/catalog/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"catalog":"gaia","ra":158.578,"dec":9.595,"radius_deg":0.25,"mag_limit":20}'
+```
+
+app 侧自动重试默认关闭；显式设置：
+
+```bash
+export CATALOG_AUTO_INGEST=1
+export MOVESCOPE_CATALOG_INGEST_TIMEOUT=60
+```
+
+边界：TAP 失败返回 502 且不写部分数据；场级 upsert，不删其它场；不是全量 Gaia。
 
 ---
 
