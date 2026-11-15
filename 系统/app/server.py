@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import math
@@ -677,6 +678,17 @@ def build_identification(result: dict, target: dict, *, detection_id: str = "tar
         return catalog_layer.insufficient("IDENTIFICATION_ERROR", catalog=catalog, detail=str(exc))
 
 
+def catalog_persist_enabled() -> bool:
+    """可选持久化开关；默认关闭，避免测试/演示写 B 的 catalog_match。"""
+    return str(os.environ.get("CATALOG_PERSIST", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def stable_analysis_id(detection_id: str, ra: float, dec: float, mjd: float) -> str:
+    """由检测 ID + 坐标 + 历元生成稳定 analysis_id，供 B 幂等持久化。"""
+    seed = f"{detection_id}|{ra:.8f}|{dec:.8f}|{mjd:.5f}"
+    return "d-identify:" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:20]
+
+
 def run_identify(payload: dict) -> dict:
     """D-MVP 单源识别接口：检测位置 + MJD + 误差（+ 可选 PM）→ 星表结论。
 
@@ -734,7 +746,11 @@ def run_identify(payload: dict) -> dict:
             raise ApiError(400, "INVALID_N_EPOCHS", "n_epochs 必须在 [1, 1000]。")
 
     detection_id = str(payload.get("detection_id") or "target")[:200]
-    analysis_id = str(payload.get("analysis_id") or "")[:200] or None
+    persist = catalog_persist_enabled()
+    requested_analysis_id = str(payload.get("analysis_id") or "")[:200] or None
+    analysis_id = requested_analysis_id
+    if persist and not analysis_id:
+        analysis_id = stable_analysis_id(detection_id, ra, dec, mjd)
     target = {
         "ra": ra,
         "dec": dec,
@@ -764,6 +780,7 @@ def run_identify(payload: dict) -> dict:
             sigma_arcsec=sigma,
             detection_id=detection_id,
             analysis_id=analysis_id,
+            persist=persist,
             pmra_mas_yr=pmra,
             pmdec_mas_yr=pmdec,
         )
@@ -780,6 +797,15 @@ def run_identify(payload: dict) -> dict:
         ident = catalog_layer.insufficient("IDENTIFICATION_ERROR", catalog=catalog, detail=str(exc))
 
     ident["detection_id"] = detection_id
+    ident["persist_requested"] = persist
+    ident["analysis_id"] = analysis_id if persist else requested_analysis_id
+    ident["persisted"] = bool(ident.get("persisted"))
+    ident["persisted_rows"] = int(ident.get("persisted_rows") or 0)
+    if persist and not ident["persisted"]:
+        reason = "星表不可用" if ident.get("status") == "catalog_unavailable" else "B 未写入 catalog_match"
+        ident.setdefault("caveats", []).append(
+            f"持久化未完成（{reason}）；本次识别结果仍可用，persisted=false。"
+        )
     ident["input"] = {
         "ra": ra,
         "dec": dec,

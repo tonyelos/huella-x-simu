@@ -510,13 +510,24 @@ function renderIdentification(ident) {
   if (status === "known_star") {
     const pm = ident.pm_consistent === true ? "一致" : ident.pm_consistent === false ? "不一致" : "未判";
     const obj = ident.object_type ? `<span class="catalog-chip">${esc(ident.object_type)}</span>` : "";
+    const ruwe = ident.ruwe != null ? `<span class="catalog-chip">RUWE ${Number(ident.ruwe).toFixed(2)}</span>` : "";
+    const photo = ident.photometry || {};
+    const colors = photo.colors || {};
+    const ir = [
+      colors.j_h != null ? `J−H ${Number(colors.j_h).toFixed(2)}` : "",
+      colors.w1_w2 != null ? `W1−W2 ${Number(colors.w1_w2).toFixed(2)}` : "",
+      photo.twomass_id ? "2MASS" : "",
+      photo.wise_id ? "WISE" : "",
+    ].filter(Boolean).map((x) => `<span class="catalog-chip">${esc(x)}</span>`).join("");
+    const pv = ident.phot_variable_flag && String(ident.phot_variable_flag).toUpperCase() !== "NOT_AVAILABLE"
+      ? `<span class="catalog-chip">${esc(ident.phot_variable_flag)}</span>` : "";
     html = `
       <div class="catalog-id">${esc(ident.source_id || ident.catalog_id || "—")}${release}</div>
       <div class="catalog-metrics">
         <span class="catalog-chip">角距 ${fmtArcsec(ident.separation_arcsec)}</span>
         <span class="catalog-chip">自行 ${pm}</span>
         <span class="catalog-chip">候选 ${n}</span>
-        ${obj}
+        ${obj}${ruwe}${ir}${pv}
         ${quality.map((q) => `<span class="catalog-chip">${esc(q)}</span>`).join("")}
       </div>`;
   } else if (status === "ambiguous") {

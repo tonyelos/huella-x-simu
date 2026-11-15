@@ -41,8 +41,19 @@ def _candidate(cid=BARNARD_ID, sep=0.12):
         "pmra_error": 0.03182,
         "pmdec_error": 0.03607,
         "parallax": 546.97594,
+        "parallax_error": 0.0401,
+        "ruwe": 1.0848505,
+        "astrometric_excess_noise": 0.2048,
+        "phot_variable_flag": "NOT_AVAILABLE",
         "gmag": 8.19397,
         "bp_rp": 2.8337,
+        "jmag": 5.24,
+        "hmag": 4.63,
+        "kmag": 4.39,
+        "w1": 4.10,
+        "w2": 3.90,
+        "2mass": "2MASS J17574849+0441405",
+        "wise": "WISEA J175748.51+044132.9",
         "object_type": "star",
         "confidence": 0.99,
     }
@@ -52,6 +63,7 @@ def _b_response(candidates=None, *, catalog_status="ok"):
     candidates = list(candidates or [])
     return {
         "schema_version": "1.0",
+        "star_schema_version": 2,
         "release": "gaia-dr3",
         "version": "dr3",
         "releases": [{"release": "gaia-dr3"}],
@@ -92,6 +104,17 @@ class FakeCatalogClient:
     def match(self, **kwargs):
         self.calls.append(kwargs)
         return self.normalized
+
+
+class PersistFakeCatalogClient(FakeCatalogClient):
+    """按 persist 参数模拟 B 的 persisted 行数。"""
+
+    def match(self, **kwargs):
+        self.calls.append(kwargs)
+        out = dict(self.normalized)
+        out["persisted"] = bool(kwargs.get("persist"))
+        out["persisted_rows"] = 1 if kwargs.get("persist") else 0
+        return out
 
 
 class _FakeWCS:
@@ -415,6 +438,77 @@ class AnalyzeHTTPIdentificationTest(unittest.TestCase):
         self.assertEqual(status, 400, body)
         self.assertEqual(body["error"]["code"], "INVALID_RA")
 
+    def test_identify_high_ruwe_downgrades(self):
+        cand = _candidate()
+        cand["ruwe"] = 4.29554
+        fake = FakeCatalogClient(cat.normalize_match(_b_response([cand])))
+        with mock.patch.object(server, "CATALOG_CLIENT", fake):
+            status, body = self._post_identify({"ra": 269.446165, "dec": 4.769536, "mjd": 61210.0})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["status"], "ambiguous")
+        self.assertEqual(body["reason"], "RUWE_HIGH")
+        self.assertLessEqual(body["confidence"], 0.4)
+        self.assertIsNone(body["source_id"])
+        self.assertEqual(body["candidates"][0]["ruwe"], 4.29554)
+
+    def test_identify_ir_fields_are_visible(self):
+        fake = FakeCatalogClient(cat.normalize_match(_b_response([_candidate()])))
+        with mock.patch.object(server, "CATALOG_CLIENT", fake):
+            status, body = self._post_identify(
+                {"ra": 269.446165, "dec": 4.769536, "mjd": 61210.0, "pmra_mas_yr": -801.55,
+                 "pmdec_mas_yr": 10362.39, "pm_err_mas_yr": 50.0, "n_epochs": 4}
+            )
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["status"], "known_star")
+        self.assertEqual(body["catalog_schema_version"], 2)
+        self.assertEqual(body["photometry"]["jmag"], 5.24)
+        self.assertEqual(body["photometry"]["w1"], 4.10)
+        self.assertEqual(body["photometry"]["colors"]["j_h"], 0.61)
+        self.assertIn("phot_variable_flag", body)
+        self.assertFalse(body["discovery_claim"])
+        self.assertNotIn("行星", json.dumps(body, ensure_ascii=False))
+
+    def test_persist_off_by_default(self):
+        fake = PersistFakeCatalogClient(cat.normalize_match(_b_response([_candidate()])))
+        with (
+            mock.patch.object(server, "CATALOG_CLIENT", fake),
+            mock.patch.dict(os.environ, {"CATALOG_PERSIST": "0"}, clear=False),
+        ):
+            status, body = self._post_identify({"ra": 269.446165, "dec": 4.769536, "mjd": 61210.0})
+        self.assertEqual(status, 200, body)
+        self.assertIs(fake.calls[0]["persist"], False)
+        self.assertIs(body["persist_requested"], False)
+        self.assertIs(body["persisted"], False)
+        self.assertFalse(any("持久化" in c for c in body["caveats"]))
+
+    def test_persist_on_uses_stable_analysis_id(self):
+        fake = PersistFakeCatalogClient(cat.normalize_match(_b_response([_candidate()])))
+        with (
+            mock.patch.object(server, "CATALOG_CLIENT", fake),
+            mock.patch.dict(os.environ, {"CATALOG_PERSIST": "1"}, clear=False),
+        ):
+            status, body = self._post_identify(
+                {"ra": 269.446165, "dec": 4.769536, "mjd": 61210.0, "detection_id": "barnard-lock"}
+            )
+        self.assertEqual(status, 200, body)
+        self.assertIs(fake.calls[0]["persist"], True)
+        self.assertTrue(str(fake.calls[0]["analysis_id"]).startswith("d-identify:"))
+        self.assertIs(body["persist_requested"], True)
+        self.assertIs(body["persisted"], True)
+        self.assertEqual(body["persisted_rows"], 1)
+
+    def test_persist_failure_does_not_block_ui(self):
+        fake = FakeCatalogClient(cat.normalize_match({"unavailable": True, "reason": "no_cached_field"}))
+        with (
+            mock.patch.object(server, "CATALOG_CLIENT", fake),
+            mock.patch.dict(os.environ, {"CATALOG_PERSIST": "1"}, clear=False),
+        ):
+            status, body = self._post_identify({"ra": 269.446165, "dec": 4.769536, "mjd": 61210.0})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["status"], "catalog_unavailable")
+        self.assertIs(body["persisted"], False)
+        self.assertTrue(any("持久化未完成" in c for c in body["caveats"]))
+
     def test_ui_copy_has_no_positive_discovery_claims(self):
         web = os.path.join(APP, "web")
         with open(os.path.join(web, "app.js"), encoding="utf-8") as fh:
@@ -427,6 +521,10 @@ class AnalyzeHTTPIdentificationTest(unittest.TestCase):
         self.assertIn("未匹配不等于新天体", app_js)
         for status in ("known_star", "ambiguous", "uncatalogued_candidate", "catalog_unavailable"):
             self.assertIn(status, app_js)
+        self.assertIn("RUWE", app_js)
+        self.assertIn("photometry", app_js)
+        self.assertIn("2MASS", app_js)
+        self.assertIn("WISE", app_js)
 
     def test_http_analyze_has_identification_and_200(self):
         fake = FakeCatalogClient(cat.normalize_match(_b_response([_candidate()])))
