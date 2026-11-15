@@ -854,6 +854,153 @@ def run_identify(payload: dict) -> dict:
     return ident
 
 
+def run_identify_batch(payload: dict) -> dict:
+    """批量星表识别：一次 B match，多源映射 known/ambiguous/no_match。"""
+    if not isinstance(payload, dict):
+        raise ApiError(400, "BAD_JSON", "请求体必须是 JSON 对象。")
+    sources = payload.get("sources")
+    if not isinstance(sources, list):
+        raise ApiError(400, "INVALID_SOURCES", "sources 必须是数组。")
+    if len(sources) > 200:
+        raise ApiError(400, "TOO_MANY_SOURCES", "批量识别最多 200 源。")
+    catalogs = payload.get("catalogs", ["gaia"])
+    if not isinstance(catalogs, list) or not catalogs:
+        raise ApiError(400, "INVALID_CATALOGS", "catalogs 必须是非空数组。")
+    catalogs = [str(x) for x in catalogs if str(x).strip()]
+    if not catalogs:
+        raise ApiError(400, "INVALID_CATALOGS", "catalogs 必须是非空数组。")
+    radius_raw = payload.get("radius_arcsec", 3.0)
+    try:
+        radius = float(radius_raw)
+    except (TypeError, ValueError):
+        raise ApiError(400, "INVALID_RADIUS", "radius_arcsec 必须是数字。")
+    if not math.isfinite(radius) or radius <= 0:
+        raise ApiError(400, "INVALID_RADIUS", "radius_arcsec 必须 > 0。")
+
+    clean_sources = []
+    for i, src in enumerate(sources):
+        if not isinstance(src, dict):
+            raise ApiError(400, "INVALID_SOURCE", f"sources[{i}] 不是对象。")
+        sid = str(src.get("source_id") or src.get("detection_id") or f"source-{i}")[:200]
+        try:
+            ra = float(src.get("ra"))
+            dec = float(src.get("dec"))
+            mjd = float(src.get("mjd"))
+            sigma = float(src.get("sigma_arcsec", 1.0))
+        except (TypeError, ValueError):
+            raise ApiError(400, "INVALID_SOURCE", f"sources[{i}] 需要数字 ra/dec/mjd/sigma_arcsec。")
+        if not (math.isfinite(ra) and math.isfinite(dec) and math.isfinite(mjd) and math.isfinite(sigma)):
+            raise ApiError(400, "INVALID_SOURCE", f"sources[{i}] 含非有限数字。")
+        if not (0.0 <= ra < 360.0) or not (-90.0 <= dec <= 90.0):
+            raise ApiError(400, "INVALID_COORDINATE", f"sources[{i}] 坐标越界。")
+        if not (0.0 < sigma <= 60.0):
+            raise ApiError(400, "INVALID_SIGMA", f"sources[{i}] sigma_arcsec 必须在 (0, 60]。")
+        clean_sources.append(
+            {
+                "source_id": sid,
+                "detection_id": sid,
+                "ra": ra,
+                "dec": dec,
+                "mjd": mjd,
+                "sigma_arcsec": sigma,
+            }
+        )
+
+    if not clean_sources:
+        return {
+            "schema_version": "1.0",
+            "n": 0,
+            "counts": {
+                "known_star": 0,
+                "ambiguous": 0,
+                "uncatalogued_candidate": 0,
+                "insufficient_data": 0,
+                "catalog_unavailable": 0,
+                "no_match": 0,
+            },
+            "results": [],
+            "catalog_status": "unavailable",
+            "discovery_claim": False,
+            "disclaimer": catalog_layer.DISCLAIMER,
+        }
+
+    try:
+        batch = CATALOG_CLIENT.match_batch(
+            clean_sources,
+            catalogs=catalogs,
+            radius_arcsec=radius,
+        )
+    except Exception as exc:  # noqa: BLE001
+        batch = {
+            "ok": False,
+            "catalog_status": "unavailable",
+            "reason": "CATALOG_CLIENT_ERROR",
+            "detail": str(exc),
+            "results": [],
+        }
+
+    entries = list(batch.get("results") or [])
+    by_source = {str(e.get("source_id")): e for e in entries if isinstance(e, dict)}
+    results = []
+    counts = {
+        "known_star": 0,
+        "ambiguous": 0,
+        "uncatalogued_candidate": 0,
+        "insufficient_data": 0,
+        "catalog_unavailable": 0,
+        "no_match": 0,
+    }
+    for src in clean_sources:
+        entry = by_source.get(src["source_id"])
+        catalog = (entry or {}).get("catalog")
+        if not isinstance(catalog, dict):
+            catalog = {
+                "ok": False,
+                "catalog_status": "unavailable",
+                "catalog_reason": "CATALOG_CLIENT_ERROR",
+                "detail": "批量响应缺少该源的 match",
+            }
+        target = {
+            "ra": src["ra"],
+            "dec": src["dec"],
+            "mjd": src["mjd"],
+            "sigma_arcsec": src["sigma_arcsec"],
+            "n_epochs": 1,
+        }
+        motion = {"moving": False, "n_epochs": 1, "detected_epochs": 1}
+        try:
+            ident = catalog_layer.identify(catalog, target=target, motion=motion)
+        except Exception as exc:  # noqa: BLE001
+            ident = catalog_layer.insufficient("IDENTIFICATION_ERROR", catalog=catalog, detail=str(exc))
+        ident["detection_id"] = src["source_id"]
+        ident["source_id"] = src["source_id"]
+        ident["input"] = {
+            "ra": src["ra"],
+            "dec": src["dec"],
+            "mjd": src["mjd"],
+            "sigma_arcsec": src["sigma_arcsec"],
+        }
+        results.append(ident)
+        match_status = (entry or {}).get("match_status")
+        status = ident.get("status")
+        if match_status == "no_match":
+            counts["no_match"] += 1
+        elif status in counts:
+            counts[status] += 1
+        else:
+            counts["insufficient_data"] += 1
+
+    return {
+        "schema_version": "1.0",
+        "n": len(results),
+        "counts": counts,
+        "results": results,
+        "catalog_status": batch.get("catalog_status") or "unavailable",
+        "discovery_claim": False,
+        "disclaimer": catalog_layer.DISCLAIMER,
+    }
+
+
 def _parse_time_window(q: dict):
     """解析 t0/t1 或 mjd_min/mjd_max；返回 (t0,t1,requested)。无过滤返回 (None,None,False)。"""
     def first(*names):
@@ -1551,6 +1698,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/identify/batch":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                try:
+                    payload = json.loads(self.rfile.read(n) or b"{}")
+                except json.JSONDecodeError:
+                    raise ApiError(400, "BAD_JSON", "请求体不是合法 JSON。")
+                return self._json(run_identify_batch(payload))
+            except ApiError as exc:
+                return self._api_error(exc)
+            except Exception as exc:  # noqa: BLE001
+                import traceback
+
+                traceback.print_exc()
+                return self._json({"error": {"code": "INTERNAL", "message": str(exc)}}, 500)
         if u.path == "/api/identify":
             try:
                 n = int(self.headers.get("Content-Length", 0))
