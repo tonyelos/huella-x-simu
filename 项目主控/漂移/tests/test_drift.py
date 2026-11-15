@@ -616,6 +616,32 @@ class DriftTests(unittest.TestCase):
         self.assertEqual(len(docs_errors), 1, docs_errors)
         self.assertIn("5857", docs_errors[0]["message"])
 
+    def test_catalog_fixture_row_counts_do_not_trigger_fields_drift(self) -> None:
+        """星表 fixture/缓存行数不是 fields 行数；合法与错误的 fields 声明仍检查。"""
+        self.fixture.write(
+            "系统/数据库工具/README.md",
+            "# Fixture DB\n\n"
+            "当前库：4 帧 / 2 次曝光 / 3 条目标历元 / 2 个目标 / 2 个周 / schema v6。\n\n"
+            "- 离线导入：234 行 Gaia fixture（仅测试样本）。\n"
+            "- catalog 星表缓存：17,679 行（仅星表源）。\n"
+            "- 当前 fields 4 行。\n"
+            "- 错误声明：fields 5,893 行。\n",
+        )
+        proc = self.fixture.run(out_name="catalog-rows")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        report = self.fixture.report("catalog-rows")
+        docs = next(check for check in report["checks"] if check["id"] == "docs")
+        self.assertEqual(docs["status"], "FAIL")
+        claims = docs["stats"]["claims"]
+        self.assertEqual(claims["checked"]["fields_rows"], 2, claims)
+        self.assertEqual(claims["mismatches"]["fields_rows"], 1, claims)
+        docs_errors = [f for f in report["findings"] if f["check"] == "docs" and f["severity"] == "error"]
+        self.assertEqual(len(docs_errors), 1, docs_errors)
+        self.assertEqual(docs_errors[0]["line"], 8)
+        self.assertIn("5893", docs_errors[0]["message"])
+        self.assertNotIn("234", docs_errors[0]["message"])
+        self.assertNotIn("17679", docs_errors[0]["message"])
+
 
 if __name__ == "__main__":
     unittest.main()
