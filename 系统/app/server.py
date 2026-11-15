@@ -36,6 +36,7 @@ sys.path.insert(0, HERE)
 
 from core import anyfield as anyfield_layer  # noqa: E402
 from core import catalog as catalog_layer  # noqa: E402
+from core import tracks as tracks_layer  # noqa: E402
 from core import data as data_layer  # noqa: E402
 from core import epoch_source  # noqa: E402
 from core import pipeline  # noqa: E402
@@ -888,6 +889,7 @@ def run_cascade(q: dict) -> dict:
                 "band": ep.band,
                 "obsid": ep.obsid,
                 "provenance": ep.provenance,
+                "pixel_scale_arcsec": float(ep.wcs.pixel_scale_arcsec()),
                 "shape": list(np.asarray(ep.image).shape),
                 "counts": {k: int(counts.get(k) or 0) for k in ("l1", "masked", "residual")},
                 "l1": layers.get("l1") or [],
@@ -924,6 +926,101 @@ def run_cascade(q: dict) -> dict:
         },
         "epochs": epoch_rows,
         "disclaimer": "残差候选不是新天体；未匹配不等于新星。级联只展示检测/残差层，不做发现声明。",
+    }
+
+
+def run_tracks(q: dict) -> dict:
+    """跨历元 tracklet：复用 /api/cascade 的 L1+residual，再关联成 D0–D4。"""
+    cascade = run_cascade(q)
+    epochs = []
+    for row in cascade.get("epochs", []):
+        nodes = list(row.get("l1") or []) + list(row.get("residual") or [])
+        epochs.append(
+            {
+                "epoch_id": row.get("epoch_id"),
+                "mjd": row.get("mjd"),
+                "pixel_scale_arcsec": row.get("pixel_scale_arcsec", 6.15),
+                "nodes": nodes,
+            }
+        )
+
+    catalog_state = {"down": False, "partial": False}
+
+    def lookup(track):
+        node = max(track.get("nodes") or [], key=lambda n: float(n.get("snr") or 0.0))
+        ra, dec = node.get("ra"), node.get("dec")
+        mjd = node.get("mjd")
+        if ra is None or dec is None or mjd is None:
+            return {"status": "unavailable", "detail": "track has no RA/Dec/MJD"}
+        if catalog_state["down"]:
+            return {"status": "unavailable", "detail": "catalog unavailable"}
+        if catalog_state["partial"]:
+            return {"status": "partial", "detail": "catalog partial"}
+        try:
+            result = CATALOG_CLIENT.match(
+                ra=float(ra),
+                dec=float(dec),
+                mjd=float(mjd),
+                sigma_arcsec=0.5,
+                detection_id=str(track.get("track_id") or "track"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            catalog_state["down"] = True
+            return {"status": "unavailable", "detail": str(exc)}
+        if not result.get("ok"):
+            catalog_state["down"] = True
+            return {"status": "unavailable", "detail": result.get("catalog_reason") or "catalog unavailable"}
+        if result.get("catalog_status") != "ok":
+            catalog_state["partial"] = True
+            return {"status": "partial", "detail": result.get("catalog_status")}
+        candidates = result.get("candidates") or []
+        if len(candidates) == 0:
+            return {"status": "none"}
+        if len(candidates) > 1:
+            return {"status": "ambiguous", "detail": "multiple catalog candidates"}
+        cand = candidates[0]
+        ruwe = cand.get("ruwe")
+        if ruwe is not None and float(ruwe) > 2.0:
+            return {"status": "ambiguous", "detail": "RUWE_HIGH"}
+        caveat = None
+        if ruwe is None:
+            caveat = "RUWE unavailable; D1 is catalog identity, not high-confidence astrometry"
+        return {
+            "status": "known",
+            "catalog": cand.get("release") or result.get("release") or "gaia-dr3",
+            "source_id": cand.get("catalog_id"),
+            "caveat": caveat,
+        }
+
+    tracks = tracks_layer.tracklets(
+        epochs,
+        max_sep_px=3.0,
+        max_gap=1,
+        catalog_lookup=lookup,
+        max_catalog_checks=20,
+    )
+    track_counts = tracks_layer.counts(tracks)
+    return {
+        "schema_version": "1.0",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "query": cascade.get("query"),
+        "target": cascade.get("target"),
+        "mode": cascade.get("mode"),
+        "fallback_reason": cascade.get("fallback_reason"),
+        "note": cascade.get("note"),
+        "cascade_counts": cascade.get("counts"),
+        "counts": track_counts,
+        "tracks": tracks,
+        "limits": {
+            "max_sep_px": 3.0,
+            "max_gap": 1,
+            "max_catalog_checks": 20,
+            "l1_max_per_epoch": 80,
+            "residual_max_per_epoch": 80,
+        },
+        "level_note": "D2 not implemented; D5 is manual/follow-up confirmation, out of scope.",
+        "disclaimer": tracks_layer.DISCLAIMER,
+        "discovery_claim": False,
     }
 
 
@@ -1169,6 +1266,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._static("index.html")
             if path in ("/cascade", "/cascade.html"):
                 return self._static("cascade.html")
+            if path in ("/tracks", "/tracks.html"):
+                return self._static("tracks.html")
             if path.startswith("/static/"):
                 return self._static(path[len("/static/") :])
             if path == "/api/health":
@@ -1191,6 +1290,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/cascade":
                 q = parse_qs(u.query)
                 return self._json(run_cascade(q))
+            if path == "/api/tracks":
+                q = parse_qs(u.query)
+                return self._json(run_tracks(q))
             if path == "/api/targets":
                 return self._json({"targets": data_layer.load_targets()})
             if path == "/api/epochs":
