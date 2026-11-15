@@ -81,10 +81,15 @@ class ASourceBatchUiStaticTest(unittest.TestCase):
         self.assertIn("no_match = 未收录候选", html)
         self.assertIn("<th>epoch</th><th>S/N</th><th>RA / Dec</th><th>catalog</th>", html)
         self.assertIn("a-coord", js)
+        self.assertIn('</summary>\n        <div class="a-source-actions">', html)
+        self.assertIn('id="anyfieldBatchActions"', html)
         with open(os.path.join(APP, "web", "style.css"), encoding="utf-8") as fh:
             css = fh.read()
         self.assertIn(".a-source-table { width: 100%; max-width: 100%; table-layout: fixed;", css)
-        self.assertIn("grid-template-columns: 46px minmax(0, 1fr) 62px", css)
+        self.assertIn(".a-source-actions { display: flex; flex-wrap: wrap;", css)
+        self.assertIn(".anyfield-actions { margin-top: 6px; display: flex; flex-wrap: wrap;", css)
+        self.assertIn("grid-template-columns: 46px minmax(0, 1fr) 70px", css)
+        self.assertIn("width: 31%", css)
         self.assertNotIn("新恒星", html + js)
         self.assertNotIn("新行星", html + js)
 
