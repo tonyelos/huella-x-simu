@@ -36,6 +36,9 @@ CATALOG = "gaia"
 IDENTIFICATION_SCHEMA_VERSION = "1.0"
 IDENTIFICATION_ENGINE_VERSION = "d-identify/0.1"
 MAX_CANDIDATES = 5
+# 一个 SPHEREx 像素（6.15″/px）。目标-星表偏移超过 1 px 时，
+# 位置匹配不足以支撑 known/ambiguous；这是通用门限，不针对目标名。
+CATALOG_OFFSET_LIMIT_ARCSEC = 6.15
 
 IDENTIFICATION_STATUSES = (
     "known_star",
@@ -786,6 +789,26 @@ def _identify(
         cid = candidate.get("catalog_id")
         if not cid:
             return insufficient("CATALOG_ID_MISSING", catalog=catalog)
+        sep = _finite(candidate.get("separation_arcsec"))
+        if sep is not None and sep > CATALOG_OFFSET_LIMIT_ARCSEC:
+            # 单候选但偏移超过 1 个 SPHEREx 像素：这是偶然对齐，不能 known。
+            # 保留 candidates（含 candidate id）与 separation 供审计；
+            # 顶层 catalog_id/source_id 明确置空，避免被当成已确认身份。
+            out = {
+                **base,
+                "status": "insufficient_data",
+                "label_zh": LABELS_ZH["insufficient_data"],
+                "confidence": 0.0,
+                "catalog_id": None,
+                "separation_arcsec": sep,
+                "candidates": candidates,
+                "reason": "CATALOG_OFFSET_TOO_LARGE",
+                "quality": ["CATALOG_OFFSET_TOO_LARGE"],
+                "caveats": [
+                    f"星表候选偏离 {sep:.2f}″，超过 {CATALOG_OFFSET_LIMIT_ARCSEC:.2f}″ 门限，不能据此给 known。",
+                ],
+            }
+            return out
         release = candidate.get("release") or catalog.get("release")
         base["release"] = release
         ruwe = _finite(candidate.get("ruwe"))
