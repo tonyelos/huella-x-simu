@@ -474,3 +474,26 @@ body.expert .readiness .ready-row span { color: inherit; }
 .batch-badge.insufficient_data { color: var(--muted); }
 .batch-badge.catalog_unavailable { color: var(--rose); border-color: rgba(239,143,156,.35); }
 #batchCSourcesBtn:disabled { opacity: .55; }
+
+/* ---------- A 源表批量识别 ---------- */
+.a-source-panel { margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.018); }
+.a-source-panel summary { display: flex; align-items: center; gap: 6px; padding: 7px 9px; color: var(--muted); font-size: 10.5px; cursor: pointer; list-style: none; }
+.a-source-panel summary::-webkit-details-marker { display: none; }
+.a-source-panel summary::before { content: "▸"; color: var(--muted); }
+.a-source-panel[open] summary::before { content: "▾"; }
+.a-source-panel summary .a-source-count { color: var(--ink2); font-family: var(--mono); font-size: 10px; }
+.a-source-panel summary button { margin-left: auto; }
+.a-source-table-wrap { max-height: 260px; overflow: auto; border-top: 1px solid rgba(255,255,255,.06); }
+.a-source-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 9px; }
+.a-source-table th { position: sticky; top: 0; background: #0a0f18; color: var(--muted); font-weight: 500; text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.a-source-table td { padding: 3px 4px; border-bottom: 1px solid rgba(255,255,255,.035); color: var(--ink2); white-space: nowrap; }
+.a-source-table tr { cursor: pointer; }
+.a-source-table tr:hover { background: rgba(242,179,94,.07); }
+.a-source-table .q { color: var(--amber2); max-width: 96px; overflow: hidden; text-overflow: ellipsis; }
+.a-source-badge { font-size: 8.5px; padding: 1px 5px; border-radius: 999px; border: 1px solid var(--line2); color: var(--ink2); }
+.a-source-badge.known { color: var(--green); border-color: rgba(110,231,168,.4); }
+.a-source-badge.ambiguous { color: var(--amber2); border-color: rgba(242,179,94,.4); }
+.a-source-badge.no_match { color: var(--muted); }
+.a-source-badge.insufficient { color: var(--muted); }
+.a-source-badge.unavailable { color: var(--rose); border-color: rgba(239,143,156,.35); }
+.a-source-panel #aSourceSummary { margin: 4px 9px; }
