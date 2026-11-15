@@ -224,8 +224,10 @@ if "startPlayback" not in main_js or "playbackStep" not in main_js or "stopPlayb
     fail("缺观测序列播放调度器")
 elif "已到最后一个观测" not in main_js:
     fail("播放到末尾没有停止提示/逻辑")
+elif "已从第一个观测开始播放" not in main_js or "state.mjd <= first + OBS_EPS" not in main_js:
+    fail("默认/末尾按播放没有从第一个观测重启")
 else:
-    ok("播放 = 观测序列：去重 mjd、2.4/1.2/0.6s 每步、末尾停止")
+    ok("播放 = 观测序列：首端/末尾按播放从第一个观测开始、2.4/1.2/0.6s 每步、末尾停止")
 
 globe_js = read(os.path.join(TOOL, "js", "globe.js"))
 if "ROTATE_MS = 700" not in globe_js or "rotTween" not in globe_js:
@@ -235,7 +237,11 @@ elif "Math.pow(1 - p, 3)" not in globe_js or "rotTween.target" not in globe_js:
 else:
     ok("地球 tween：0.7s、最短路径、ease-out、结束精确")
 
-missing_readme_time = [key for key in ("UTC 时间轴", "播放 = 观测序列", "观测序列") if key not in readme]
+missing_readme_time = [
+    key
+    for key in ("UTC 时间轴", "播放 = 观测序列", "观测序列", "已从第一个观测开始播放")
+    if key not in readme
+]
 if missing_readme_time:
     fail(f"README 缺时间交互说明：{missing_readme_time}")
 else:

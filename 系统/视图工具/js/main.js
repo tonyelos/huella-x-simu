@@ -482,24 +482,29 @@ function startPlayback() {
     toast('没有可用观测序列', 3200);
     return;
   }
+  const first = observationTimes[0];
   const last = observationTimes[observationTimes.length - 1];
-  if (state.mjd >= last - OBS_EPS) {
-    toast('已到最后一个观测，播放不会循环回开头', 3600);
-    return;
-  }
-  const idx = nextObservationIndex(state.mjd);
-  if (idx < 0) {
-    toast('已到最后一个观测，播放不会循环回开头', 3600);
-    return;
-  }
-  const prev = idx > 0 ? observationTimes[idx - 1] : null;
-  const onObservation = prev !== null && Math.abs(prev - state.mjd) <= OBS_EPS;
-  if (!onObservation) {
-    // 当前时间不在观测序列：先跳到下一个真实观测。
-    commitTime(observationTimes[idx], { animate: true, source: 'play-start' });
-    if (idx >= observationTimes.length - 1) {
-      toast('已到最后一个观测，播放停止', 3600);
+
+  // 默认打开在 mjdMax（或用户停在时间轴首端）时，按播放先回到第一个观测，
+  // 避免“以为播放坏了”；这是一次手动重启，不是播放循环。
+  if (state.mjd >= last - OBS_EPS || state.mjd <= first + OBS_EPS) {
+    commitTime(first, { animate: true, source: 'play-start' });
+    toast('已从第一个观测开始播放', 3200);
+  } else {
+    const idx = nextObservationIndex(state.mjd);
+    if (idx < 0) {
+      toast('已到最后一个观测，播放不会循环回开头', 3600);
       return;
+    }
+    const prev = idx > 0 ? observationTimes[idx - 1] : null;
+    const onObservation = prev !== null && Math.abs(prev - state.mjd) <= OBS_EPS;
+    if (!onObservation) {
+      // 当前时间不在观测序列：先跳到下一个真实观测。
+      commitTime(observationTimes[idx], { animate: true, source: 'play-start' });
+      if (idx >= observationTimes.length - 1) {
+        toast('已到最后一个观测，播放停止', 3600);
+        return;
+      }
     }
   }
   state.playing = true;
