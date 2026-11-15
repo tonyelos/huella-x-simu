@@ -286,7 +286,7 @@ function lockCSource(src) {
   u.searchParams.set("fov", $("#fov").value);
   u.searchParams.set("lock", "1");
   history.replaceState(null, "", u.toString());
-  note(`已锁定 C 源 ${esc(src.source_id || "")}：RA ${ra.toFixed(6)}° · Dec ${dec.toFixed(6)}°；正在查询 Gaia DR3…`);
+  note(`已锁定 C 源 ${esc(src.source_id || "")}：RA ${ra.toFixed(6)}° · Dec ${dec.toFixed(6)}°；已发起星表识别…`);
   renderLockInfo();
   renderCSources({ status: "ok", sources: state.anyfieldSources, truncated: false }, 200);
   identifyLockedSource(state.locked);
@@ -531,9 +531,13 @@ function renderAll(d, dt) {
     : "";
   const fitTxt = isSample ? "仅解析/渲染核验" : `拟合 ${det}/${nEpoch} 期`;
   const baseTxt = isSample ? "" : ` · 探测基线 ${Number.isFinite(probe) ? probe.toFixed(0) : "—"} 天`;
-  note(
-    `<b>${(d.data.mode || "").toUpperCase()}</b> · ${nEpoch} 期 · ${(d.data.bands || []).join("/")} · ${fetchTxt}${fitTxt}${baseTxt}${fb} · ${dt}s<br>${d.data.note || ""}`
-  );
+  // C 源锁定后的 note 由 /api/identify 负责；避免本次 analyze 完成时把
+  // “已锁定 C 源 / 数据不足”覆盖回分析摘要。A 源不受影响。
+  if (!(state.locked && state.locked.c_source)) {
+    note(
+      `<b>${(d.data.mode || "").toUpperCase()}</b> · ${nEpoch} 期 · ${(d.data.bands || []).join("/")} · ${fetchTxt}${fitTxt}${baseTxt}${fb} · ${dt}s<br>${d.data.note || ""}`
+    );
+  }
 
   // 就绪度
   $$(".ready-row").forEach((row) => {
@@ -1149,6 +1153,21 @@ function lockKey(src) {
 }
 
 /** A 锁定源后单独调用 /api/identify；失败必须显示“星表不可用”，不能当成未匹配。 */
+function updateLockedSourceNote(src, ident) {
+  // A 源锁定后的 note 由 analyze 负责（“正在以该坐标重新分析…”），这里只更新 C 源，
+  // 避免 identify 晚到把 analyze 的状态覆盖掉。
+  if (!src || !src.c_source) return;
+  if (window.LockNote && typeof window.LockNote.sourceNote === "function") {
+    note(window.LockNote.sourceNote(src, ident || { status: "catalog_unavailable", label_zh: "星表不可用" }));
+    return;
+  }
+  const ra = Number(src.ra);
+  const dec = Number(src.dec);
+  const status = ident && ident.status ? ident.status : "catalog_unavailable";
+  const label = (ident && ident.label_zh) || CATALOG_TEXT[status] || "星表不可用";
+  note(`已锁定 C 源 RA <b>${Number.isFinite(ra) ? ra.toFixed(6) : "—"}°</b> · Dec <b>${Number.isFinite(dec) ? dec.toFixed(6) : "—"}°</b> · ${esc(label)}（${esc(status)}）`);
+}
+
 async function identifyLockedSource(src) {
   const d = state.analysis;
   if (!d || !src) return;
@@ -1161,7 +1180,17 @@ async function identifyLockedSource(src) {
   const sigmaPx = Math.max(0.03, Math.hypot(Number.isFinite(sx) ? sx : 0.5, Number.isFinite(sy) ? sy : 0.5)) + 0.05;
   const givenSigma = Number(src.sigma_arcsec);
   const sigma = Number.isFinite(givenSigma) && givenSigma > 0 ? givenSigma : Math.max(0.3, sigmaPx * scale);
-  if (!Number.isFinite(mjd) || !Number.isFinite(Number(src.ra)) || !Number.isFinite(Number(src.dec))) return;
+  if (!Number.isFinite(mjd) || !Number.isFinite(Number(src.ra)) || !Number.isFinite(Number(src.dec))) {
+    state.lockedIdentification = {
+      status: "catalog_unavailable",
+      label_zh: "星表不可用",
+      caveats: ["缺少坐标/MJD，无法查询星表。"],
+      discovery_claim: false,
+    };
+    renderLockInfo();
+    updateLockedSourceNote(src, state.lockedIdentification);
+    return;
+  }
   state.lockedIdentifying = true;
   state.lockedIdentificationKey = key;
   renderLockInfo();
@@ -1205,6 +1234,7 @@ async function identifyLockedSource(src) {
     if (state.lockedIdentificationKey === key) {
       state.lockedIdentifying = false;
       renderLockInfo();
+      updateLockedSourceNote(src, state.lockedIdentification);
     }
   }
 }
@@ -1227,7 +1257,9 @@ function clearLock(showNote = true) {
 }
 
 function resolveLock(d) {
-  if (state.locked) {
+  if (state.locked && state.locked.c_source) {
+    // C 源锁定独立于 A 分析目标；不要因为 analyze 的目标坐标不同而清掉它。
+  } else if (state.locked) {
     // 分析坐标已变（例如用户换了目标）→ 旧锁定不再适用于当前结果
     const sep = SourcePick.angularSepDeg(state.locked.ra, state.locked.dec, d.target.ra, d.target.dec);
     if (!Number.isFinite(sep) || sep > 1e-5) {
