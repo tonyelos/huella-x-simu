@@ -5,15 +5,17 @@ Endpoints:
   GET  /api/v1/health
   GET  /api/v1/field?ra=&dec=&fov=
   GET  /api/v1/epochs?ra=&dec=&fov=   (1.0-compatible)
-  GET  /api/v1/sources?ra=&dec=&fov=  (local ingested sources)
+  GET  /api/v1/sources?ra=&dec=&fov=  (local ingested / on-demand S3 sources)
+  GET  /api/v1/discover?ra=&dec=&fov= (week_index + S3 Range candidates)
+  POST /api/v1/fetch                  (allowlisted IRSA cutout for an S3 key)
   POST /api/v1/ingest                 (local JSON manifest or local NPZ/FITS path)
   GET  /api/v1/ingest/{job_id}
   POST /api/v1/ingest/{job_id}/rollback
 
 The catalog DB is read-only. The sidecar is the only writable store. There is
 no outbound network access, no pixel download, no detection/reprojection, and
-no SIM generation. P1A adds local NPZ/FITS pixel ingest + source detection; it
-still has no IRSA/S3, no reprojection/common grid, and no series recomputation.
+no SIM generation. P1B-1 adds on-demand discovery and one allowlisted S3 cutout
+fetch; it still has no reprojection/common grid or multi-epoch series.
 """
 from __future__ import annotations
 
@@ -158,6 +160,22 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                 body["request_id"] = request_id
                 self._send_json(200, body)
                 return
+            if path == "/api/v1/discover":
+                query = parse_qs(parsed.query, keep_blank_values=True)
+                ra = self._param(query, "ra")
+                dec = self._param(query, "dec")
+                if ra is None or dec is None:
+                    raise ApiError(400, "INVALID_QUERY", "需要同时提供 ra、dec（度）")
+                fov = self._param(query, "fov", "0.2")
+                max_weeks_raw = self._param(query, "max_weeks", "6")
+                try:
+                    max_weeks = int(max_weeks_raw)
+                except (TypeError, ValueError) as exc:
+                    raise ApiError(400, "INVALID_QUERY", "max_weeks 必须是整数") from exc
+                body = self.server.store.discover(ra, dec, fov, max_weeks)  # type: ignore[attr-defined]
+                body["request_id"] = request_id
+                self._send_json(200, body)
+                return
             if path == "/api/v1/sources":
                 query = parse_qs(parsed.query, keep_blank_values=True)
                 ra = self._param(query, "ra")
@@ -198,6 +216,8 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                             "/api/v1/field",
                             "/api/v1/epochs",
                             "/api/v1/sources",
+                            "/api/v1/discover",
+                            "/api/v1/fetch",
                             "/api/v1/ingest",
                             "/api/v1/ingest/{job_id}",
                             "/api/v1/ingest/{job_id}/rollback",
@@ -205,10 +225,12 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
                         "network": "none",
                         "catalog_writes": "none",
                         "sidecar_writes": "enabled",
-                        "ingest": "metadata_or_local_pixels",
+                        "ingest": "metadata_local_pixels_or_s3_cutout",
                         "pixel_ingest": True,
                         "pixel_kinds": ["npz", "fits"],
                         "pixel_detection": True,
+                        "discovery": "week_index+s3_header",
+                        "fetch": "allowlisted_irsa_cutout",
                         "sim": False,
                     },
                 )
@@ -228,6 +250,14 @@ class AnyFieldHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
         try:
+            if path == "/api/v1/fetch":
+                payload = self._read_json_body()
+                if not self.server.store._is_fetch_manifest(payload):  # type: ignore[attr-defined]
+                    raise ApiError(400, "INVALID_MANIFEST", "fetch 需要 input.s3_key/obsid/detector")
+                body = self.server.store.submit_ingest(payload)  # type: ignore[attr-defined]
+                body["request_id"] = request_id
+                self._send_json(202, body)
+                return
             if path == "/api/v1/ingest":
                 payload = self._read_json_body()
                 body = self.server.store.submit_ingest(payload)  # type: ignore[attr-defined]
@@ -285,15 +315,34 @@ def build_server(
     sidecar_path: str | Path | None = None,
     blob_root: str | Path | None = None,
     ingest_roots: list[str | Path] | None = None,
+    s3_base: str = "https://nasa-irsa-spherex.s3.amazonaws.com",
+    irsa_base: str = "https://irsa.ipac.caltech.edu/ibe/data/spherex/",
+    week_index_path: str | Path | None = None,
+    discovery_cache_dir: str | Path | None = None,
+    fetch_allow_hosts: list[str] | tuple[str, ...] | None = None,
+    fetch_max_bytes: int | None = None,
+    fetch_timeout: float = 30.0,
     build_footprints: bool = True,
 ) -> AnyFieldHTTPServer:
+    kwargs = {}
+    if week_index_path is not None:
+        kwargs["week_index_path"] = week_index_path
+    if discovery_cache_dir is not None:
+        kwargs["discovery_cache_dir"] = discovery_cache_dir
     store = Store(
         db_path,
         sidecar_path=sidecar_path,
         blob_root=blob_root,
         ingest_roots=ingest_roots,
+        s3_base=s3_base,
+        irsa_base=irsa_base,
+        fetch_allow_hosts=fetch_allow_hosts,
+        fetch_timeout=fetch_timeout,
         build_footprints=build_footprints,
+        **kwargs,
     )
+    if fetch_max_bytes is not None:
+        store.fetcher.max_bytes = int(fetch_max_bytes)
     return AnyFieldHTTPServer((host, int(port)), store)
 
 

@@ -100,8 +100,10 @@ class AnyFieldHTTPTest(unittest.TestCase):
     def test_capabilities_declares_no_network_or_ingest(self) -> None:
         status, body = self._get("/api/v1/capabilities")
         self.assertEqual(status, 200)
-        self.assertEqual(body["ingest"], "metadata_or_local_pixels")
+        self.assertEqual(body["ingest"], "metadata_local_pixels_or_s3_cutout")
         self.assertTrue(body["pixel_ingest"])
+        self.assertEqual(body["discovery"], "week_index+s3_header")
+        self.assertEqual(body["fetch"], "allowlisted_irsa_cutout")
         self.assertFalse(body["sim"])
         self.assertEqual(body["network"], "none")
 
@@ -837,3 +839,312 @@ class AnyFieldFileIngestTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertGreater(field["source_count"], 0)
         self.assertTrue(field["sources"])
+
+
+# --------------------------------------------------------------------------- discovery / fetch
+from fake_s3 import FakeS3, build_week_index  # noqa: E402
+
+
+class AnyFieldDiscoveryFetchTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory(prefix="anyfield-p1b-")
+        cls.root = Path(cls.tmp.name)
+        cls.db = build_fixture(cls.root / "catalog.sqlite")
+        cls.sidecar = cls.root / "anyfield.sqlite"
+        cls.fake = FakeS3(tmp=cls.root, ra=120.0, dec=20.0)
+        cls.week_index = build_week_index(cls.root / "week_index.json", ra=120.0, dec=20.0)
+        cls.server = build_server(
+            db_path=cls.db,
+            host="127.0.0.1",
+            port=0,
+            sidecar_path=cls.sidecar,
+            blob_root=cls.root / "blobs",
+            s3_base=cls.fake.base,
+            irsa_base=cls.fake.base + "/ibe/data/spherex/",
+            week_index_path=cls.week_index,
+            discovery_cache_dir=cls.root / "discovery_headers",
+            fetch_allow_hosts=["127.0.0.1"],
+            fetch_timeout=3,
+        )
+        cls.server.quiet = True
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        host, port = cls.server.server_address[:2]
+        cls.base = f"http://{host}:{port}"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=2)
+        cls.fake.close()
+        cls.tmp.cleanup()
+
+    def setUp(self) -> None:
+        import sqlite3
+
+        conn = sqlite3.connect(str(self.sidecar))
+        try:
+            conn.execute("DELETE FROM measurement")
+            conn.execute("DELETE FROM epoch_extra")
+            conn.execute("DELETE FROM ingest_job")
+            conn.execute("DELETE FROM coverage_region")
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _get(self, path: str) -> tuple[int, dict]:
+        try:
+            with urlopen(Request(self.base + path), timeout=5) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def _post(self, path: str, payload: dict | str) -> tuple[int, dict]:
+        body = payload.encode("utf-8") if isinstance(payload, str) else json.dumps(payload).encode("utf-8")
+        request = Request(self.base + path, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=5) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode("utf-8"))
+
+    def _wait(self, job_id: str, timeout: float = 5.0) -> dict:
+        import time
+
+        deadline = time.time() + timeout
+        last = {}
+        while time.time() < deadline:
+            status, last = self._get(f"/api/v1/ingest/{job_id}")
+            self.assertEqual(status, 200)
+            if last.get("state") in ("committed", "failed", "retracted"):
+                return last
+            time.sleep(0.02)
+        self.fail(f"fetch job did not finish: {last}")
+
+    def test_discover_returns_candidates(self) -> None:
+        status, body = self._get("/api/v1/discover?ra=120&dec=20&fov=0.2&max_weeks=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["discovery"], "week_index+s3_header")
+        self.assertEqual(body["count"], 6)
+        required = {"obsid", "detector", "release", "version", "mjd", "date_obs", "key", "slice_url", "sep_deg"}
+        for cand in body["candidates"]:
+            self.assertTrue(required.issubset(cand.keys()))
+            self.assertTrue(cand["slice_url"].startswith("http://127.0.0.1:"))
+            self.assertIn("/dr1/level2/", cand["slice_url"])
+            self.assertIn("/level2_2026W50_1A_0001_1D", cand["key"])
+
+    def test_discover_empty_is_200_not_422(self) -> None:
+        status, body = self._get("/api/v1/discover?ra=0&dec=0&fov=0.2&max_weeks=1")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["count"], 0)
+        self.assertEqual(body["reason"], "NO_WEEK_INDEX_MATCH")
+        self.assertNotIn("error", body)
+        self.assertTrue(any("EMPTY_DISCOVERY" in w for w in body["warnings"]))
+
+    def test_discover_bad_max_weeks_is_400(self) -> None:
+        status, body = self._get("/api/v1/discover?ra=120&dec=20&fov=0.2&max_weeks=0")
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "INVALID_QUERY")
+
+    def test_fetch_candidate_to_sources(self) -> None:
+        _, disc = self._get("/api/v1/discover?ra=120&dec=20&fov=0.2&max_weeks=1")
+        cand = disc["candidates"][0]
+        status, created = self._post(
+            "/api/v1/fetch",
+            {
+                "input": {"s3_key": cand["key"], "obsid": cand["obsid"], "detector": cand["detector"]},
+                "ra": 120.0,
+                "dec": 20.0,
+                "fov": 0.2,
+            },
+        )
+        self.assertEqual(status, 202)
+        job = self._wait(created["job_id"])
+        self.assertEqual(job["state"], "committed")
+        self.assertEqual(job["input_kind"], "s3_cutout")
+        self.assertGreater(job["measurements_added"], 0)
+
+        status, sources = self._get("/api/v1/sources?ra=120&dec=20&fov=0.2&limit=100")
+        self.assertEqual(status, 200)
+        self.assertGreater(sources["count"], 0)
+        self.assertEqual(sources["source_origin"], "on_demand_s3")
+        first = sources["sources"][0]
+        self.assertEqual(first["source_origin"], "on_demand_s3")
+        self.assertEqual(first["provenance"], "real")
+        self.assertIn("ra", first)
+        self.assertIn("dec", first)
+        self.assertIn("snr", first)
+
+        status, field = self._get("/api/v1/field?ra=120&dec=20&fov=0.2")
+        self.assertEqual(status, 200)
+        self.assertGreater(field["source_count"], 0)
+        self.assertEqual(field["source_origin"], "on_demand_s3")
+
+    def test_fetch_idempotent(self) -> None:
+        _, disc = self._get("/api/v1/discover?ra=120&dec=20&fov=0.2&max_weeks=1")
+        cand = disc["candidates"][0]
+        payload = {
+            "input": {"s3_key": cand["key"], "obsid": cand["obsid"], "detector": cand["detector"]},
+            "ra": 120.0, "dec": 20.0, "fov": 0.2,
+        }
+        status, first = self._post("/api/v1/fetch", payload)
+        self.assertEqual(status, 202)
+        self.assertEqual(self._wait(first["job_id"])["state"], "committed")
+        status, second = self._post("/api/v1/fetch", payload)
+        self.assertEqual(status, 202)
+        self.assertTrue(second["replayed"])
+        second_job = self._wait(second["job_id"])
+        self.assertEqual(second_job["state"], "committed")
+        self.assertEqual(second_job["measurements_added"], 0)
+        _, sources = self._get("/api/v1/sources?ra=120&dec=20&fov=0.2")
+        self.assertGreater(sources["count"], 0)
+
+    def test_fetch_url_and_bad_key_are_400(self) -> None:
+        status, body = self._post(
+            "/api/v1/fetch",
+            {"input": {"s3_key": "https://evil.example/x.fits", "obsid": "x", "detector": 1}},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "NETWORK_SOURCE_NOT_ALLOWED")
+
+        status, body = self._post(
+            "/api/v1/fetch",
+            {"input": {"s3_key": "not-a-key", "obsid": "x", "detector": 1}, "ra": 120, "dec": 20, "fov": 0.2},
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(body["error"]["code"], "INVALID_S3_KEY")
+
+    def test_fetch_host_not_allowlisted_is_400(self) -> None:
+        tmp = tempfile.TemporaryDirectory(prefix="anyfield-fetch-acl-")
+        try:
+            root = Path(tmp.name)
+            db = build_fixture(root / "catalog.sqlite")
+            fake = FakeS3(tmp=root, ra=130.0, dec=30.0)
+            week = build_week_index(root / "week_index.json", ra=130.0, dec=30.0)
+            server = build_server(
+                db_path=db, host="127.0.0.1", port=0,
+                sidecar_path=root / "anyfield.sqlite", blob_root=root / "blobs",
+                s3_base=fake.base, irsa_base=fake.base + "/ibe/data/spherex/",
+                week_index_path=week, discovery_cache_dir=root / "hdr",
+                fetch_allow_hosts=["example.com"], fetch_timeout=3,
+            )
+            server.quiet = True
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address[:2]
+                base = f"http://{host}:{port}"
+                body = json.dumps({
+                    "input": {
+                        "s3_key": fake.keys[1],
+                        "obsid": fake.obsid,
+                        "detector": 1,
+                    },
+                    "ra": 130.0, "dec": 30.0, "fov": 0.2,
+                }).encode()
+                request = Request(base + "/api/v1/fetch", data=body, headers={"Content-Type": "application/json"})
+                try:
+                    with urlopen(request, timeout=5) as response:
+                        code = response.status
+                        payload = json.loads(response.read())
+                except HTTPError as exc:
+                    code = exc.code
+                    payload = json.loads(exc.read())
+                self.assertEqual(code, 400)
+                self.assertEqual(payload["error"]["code"], "FETCH_HOST_NOT_ALLOWED")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+                fake.close()
+        finally:
+            tmp.cleanup()
+
+    def test_fetch_size_limit_fails_job(self) -> None:
+        tmp = tempfile.TemporaryDirectory(prefix="anyfield-fetch-size-")
+        try:
+            root = Path(tmp.name)
+            db = build_fixture(root / "catalog.sqlite")
+            fake = FakeS3(tmp=root, ra=131.0, dec=31.0, cutout_data=b"x" * 4096)
+            week = build_week_index(root / "week_index.json", ra=131.0, dec=31.0)
+            server = build_server(
+                db_path=db, host="127.0.0.1", port=0,
+                sidecar_path=root / "anyfield.sqlite", blob_root=root / "blobs",
+                s3_base=fake.base, irsa_base=fake.base + "/ibe/data/spherex/",
+                week_index_path=week, discovery_cache_dir=root / "hdr",
+                fetch_allow_hosts=["127.0.0.1"], fetch_timeout=3,
+                fetch_max_bytes=1024,
+            )
+            server.quiet = True
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address[:2]
+                base = f"http://{host}:{port}"
+                body = json.dumps({
+                    "input": {"s3_key": fake.keys[1], "obsid": fake.obsid, "detector": 1},
+                    "ra": 131.0, "dec": 31.0, "fov": 0.2,
+                }).encode()
+                request = Request(base + "/api/v1/fetch", data=body, headers={"Content-Type": "application/json"})
+                with urlopen(request, timeout=5) as response:
+                    created = json.loads(response.read())
+                job_id = created["job_id"]
+                import time
+
+                status_payload = None
+                for _ in range(200):
+                    with urlopen(base + f"/api/v1/ingest/{job_id}", timeout=5) as response:
+                        status_payload = json.loads(response.read())
+                    if status_payload.get("state") in ("committed", "failed", "retracted"):
+                        break
+                    time.sleep(0.02)
+                self.assertEqual(status_payload.get("state"), "failed")
+                self.assertEqual(status_payload.get("error", {}).get("code"), "FETCH_TOO_LARGE")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+                fake.close()
+        finally:
+            tmp.cleanup()
+
+
+class AnyFieldDiscoveryUnavailableTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmp = tempfile.TemporaryDirectory(prefix="anyfield-disc-down-")
+        cls.root = Path(cls.tmp.name)
+        cls.db = build_fixture(cls.root / "catalog.sqlite")
+        cls.week = build_week_index(cls.root / "week_index.json", ra=120.0, dec=20.0)
+        cls.server = build_server(
+            db_path=cls.db, host="127.0.0.1", port=0,
+            sidecar_path=cls.root / "anyfield.sqlite", blob_root=cls.root / "blobs",
+            s3_base="http://127.0.0.1:1", irsa_base="http://127.0.0.1:1/ibe/data/spherex/",
+            week_index_path=cls.week, discovery_cache_dir=cls.root / "hdr",
+            fetch_allow_hosts=["127.0.0.1"], fetch_timeout=1,
+        )
+        cls.server.quiet = True
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        host, port = cls.server.server_address[:2]
+        cls.base = f"http://{host}:{port}"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=2)
+        cls.tmp.cleanup()
+
+    def test_discover_s3_unavailable_is_503(self) -> None:
+        try:
+            with urlopen(self.base + "/api/v1/discover?ra=120&dec=20&fov=0.2&max_weeks=1", timeout=5) as response:
+                code = response.status
+                body = json.loads(response.read())
+        except HTTPError as exc:
+            code = exc.code
+            body = json.loads(exc.read())
+        self.assertEqual(code, 503)
+        self.assertEqual(body["error"]["code"], "UPSTREAM_UNAVAILABLE")
