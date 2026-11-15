@@ -142,3 +142,38 @@ JS error：无
 - 4 期数据下 tracklet 关联有歧义，卡片带 caveat；
 - D1=0 是因为 B 返回 `catalog_status=partial`，不是轨迹算法丢 known；
 - 截图：[tracks-page.png](evidence-ego/tracks-page.png)。
+
+---
+
+## 7. 三模块联动：View → 分析层 → SQL
+
+View 深链：
+
+```text
+http://127.0.0.1:8830/?ra=269.452077&dec=4.693365&fov=0.5&target=barnard&t=60920&t0=60890&t1=60950
+```
+
+实测：
+
+- 时间窗口 `30` 天：MJD 60890.000–60950.000（UTC 2025-08-03 → 2025-10-02）；
+- 页面显示“窗口 = 分析层过滤范围；不是数据时相/当前时刻”；
+- 三个入口并存：级联/残差、轨迹发现、MoveScope；
+- 点击“进入轨迹发现”（用户手势）→ 新页：
+  `http://127.0.0.1:8790/tracks?ra=269.452077&dec=4.693365&fov=0.5&t0=60890.0000&t1=60950.0000&from=view`
+- 分析页显示：
+  `来自视图 / 时间窗口 MJD 60890.000–60950.000 / 保留 3/4 期`
+  cascade：L1 172 / residual 194；
+  D0 51 / D1 0 / D2 0 / D3 2 / D4 203；
+- 无 JS error；
+- 编程式 `evaluate(click)` 会被浏览器拦 popup，页面 toast 提示“已复制链接”；真实用户点击正常打开。
+
+SQL 层：
+
+```text
+GET /api/v1/epochs?target_id=barnard&mjd_min=60916&mjd_max=60923
+→ count=2, time_filter.applied=true
+```
+
+结论：View 选区/时间 → App 时间过滤/cascade/tracks → DB epochs/coverage 链路打通；时间窗口过小时 app 返回空/insufficient，不伪造。
+
+截图：[three-module-view.png](evidence-ego/three-module-view.png)、[three-module-tracks.png](evidence-ego/three-module-tracks.png)。
