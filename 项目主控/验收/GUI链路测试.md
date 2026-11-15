@@ -116,3 +116,29 @@ JS error：无
 - residual 用 5σ + ≤80/期，仍可能有 PSF 翼/边缘噪声，页面明确标 `RESIDUAL_CANDIDATE`；
 - 页面不是“自动发现新天体”，是分层审查/复核工具；
 - 截图：[cascade-page.png](evidence-ego/cascade-page.png)。
+
+---
+
+## 6. 补充：跨历元轨迹页
+
+打开 <http://127.0.0.1:8790/tracks>（默认 Barnard）：
+
+```text
+标题：MoveScope · 跨历元轨迹候选
+cascade：L1 215 / residual 241 / 4 历元
+D0 ARTIFACT: 45
+D1 KNOWN CATALOG: 0（B 当前 fixture partial，D1 不给）
+D2 NOT IMPLEMENTED: 0
+D3 UNKNOWN MOVING: 10
+D4 UNKNOWN STATIONARY: 195
+cards: 120（显示上限，计数为全量）
+页脚：轨迹候选 ≠ 新天体；D5 人工/后续确认
+JS error：无
+```
+
+说明：
+
+- D0–D4 是候选分级，不是发现声明；
+- 4 期数据下 tracklet 关联有歧义，卡片带 caveat；
+- D1=0 是因为 B 返回 `catalog_status=partial`，不是轨迹算法丢 known；
+- 截图：[tracks-page.png](evidence-ego/tracks-page.png)。
