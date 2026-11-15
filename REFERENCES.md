@@ -95,6 +95,8 @@ included in the package.
 | Astropy | ecosystem reference; not used | <https://www.astropy.org/> |
 | Meeus, *Astronomical Algorithms* (2nd ed.) | solar-position/ sidereal-time formulas (math facts; no code copied) | ISBN 978-0943396613 |
 | NASA Space Apps Challenge 2026 challenge page | challenge requirements | <https://www.spaceappschallenge.org/2026/challenges/planet-x-and-spherex/> |
+| The SPHEREx Satellite Mission (2026) | instrument facts: 102 bands, 0.75–5.0 µm, R 35–130, 6.2″ pixels | <https://doi.org/10.3847/1538-4357/ae2be2> |
+| Spectral Map Making with SPHEREx (2026) | 2040×2040 arrays, LVF/PSF sampling | <https://doi.org/10.3847/1538-4365/ae91df> |
 
 ---
 
