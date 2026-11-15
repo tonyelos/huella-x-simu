@@ -36,6 +36,7 @@ sys.path.insert(0, HERE)
 
 from core import anyfield as anyfield_layer  # noqa: E402
 from core import catalog as catalog_layer  # noqa: E402
+from core import catalog_prior  # noqa: E402
 from core import tracks as tracks_layer  # noqa: E402
 from core import data as data_layer  # noqa: E402
 from core import epoch_source  # noqa: E402
@@ -1277,6 +1278,9 @@ def run_analysis(payload: dict) -> dict:
     # 阶段 D MVP：目标源级星表识别。B 不可用时只降级 identification，
     # 不阻塞原有的运动分析（响应仍 200）。
     identification = build_identification(result, tgt, detection_id=str(tgt.get("id") or "target"))
+    # 星表先验 motion：只给 S 且 Gaia PM 显著/相容的情况加 L(prior)，
+    # 不改实测 μ/moving/显著性，也不冒充发现。
+    catalog_prior.apply_catalog_prior(result, identification)
     # 阶段 A：源表放在顶层，与 epochs 的帧一一对应；result 保持运动指纹的原有结构。
     sources = result.pop("sources", []) or []
     if mode_out == "unavailable":

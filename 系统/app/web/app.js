@@ -601,16 +601,17 @@ function renderAll(d, dt) {
   });
 
   // 鉴定卡
+  const priorMotion = r.catalog_motion && r.catalog_motion.basis === "catalog_prior";
   const v = $("#verdict");
   v.className = "verdict";
   v.dataset.class = r.class;
   v.innerHTML = `
-    <div class="eyebrow">MOTION FINGERPRINT · ${r.readiness}</div>
+    <div class="eyebrow">MOTION FINGERPRINT · ${r.readiness}${priorMotion ? " · CATALOG PRIOR" : ""}</div>
     <div class="verdict-main">
       <div class="class-dot">${cls.letter}</div>
       <div>
-        <h3>${isSample ? "样本核验（不做测量）" : (r.label_zh || cls.label)}</h3>
-        <p>${isSample ? "两张图来自不同天区 · 仅验证解析与渲染" : cls.sub + (r.moving ? " · 位移显著" : "") + (r.variable ? " · 变光显著" : "")}</p>
+        <h3>${isSample ? "样本核验（不做测量）" : priorMotion ? "L · Gaia 先验" : (r.label_zh || cls.label)}</h3>
+        <p>${isSample ? "两张图来自不同天区 · 仅验证解析与渲染" : priorMotion ? "SPHEREx 本次未独立测出；采用 Gaia PM 先验；不是发现" : cls.sub + (r.moving ? " · 位移显著" : "") + (r.variable ? " · 变光显著" : "")}</p>
       </div>
     </div>
     <div class="conf">
@@ -654,18 +655,24 @@ function renderAll(d, dt) {
 function renderMetrics(r) {
   const fp = r.fingerprint;
   const moving = r.moving;
-  const mu = moving
-    ? `${(fp.mu_mas_yr / 1000).toFixed(2)} <small>″/yr</small>`
-    : `&lt; ${((fp.mu_err_mas_yr || 0) * 3 / 1000).toFixed(2)} <small>3σ</small>`;
-  const pa = moving && fp.pa_deg != null ? `${fp.pa_deg.toFixed(0)}°` : "—";
+  const prior = r.catalog_motion && r.catalog_motion.basis === "catalog_prior" ? r.catalog_motion : null;
+  const mu = prior
+    ? `${(prior.pm_mas_yr / 1000).toFixed(2)} <small>Gaia 先验</small>`
+    : moving
+      ? `${(fp.mu_mas_yr / 1000).toFixed(2)} <small>″/yr</small>`
+      : `&lt; ${((fp.mu_err_mas_yr || 0) * 3 / 1000).toFixed(2)} <small>3σ</small>`;
+  const pa = prior
+    ? "—"
+    : moving && fp.pa_deg != null ? `${fp.pa_deg.toFixed(0)}°` : "—";
   const amp = fp.amp_mag > 0.25 ? `${fp.amp_mag.toFixed(2)} <small>mag</small>` : "—";
   const period = fp.delta_bic_var > 6 && fp.period_d ? `${fp.period_d.toFixed(1)} <small>d</small>` : "—";
   const acc = fp.accel_sig > 2 ? `${fp.accel_sig.toFixed(1)}σ` : "—";
   const lin = moving && Number.isFinite(fp.linearity) ? `${(fp.linearity * 100).toFixed(1)}%` : "—";
 
   const cards = [
-    ["自行 μ", mu, moving],
+    [prior ? "Gaia 先验 μ" : "自行 μ", mu, moving || !!prior],
     ["方向 PA", pa, false],
+    ...(prior ? [["SPHEREx 实测 μ", `${(fp.mu_mas_yr / 1000).toFixed(2)} <small>±${(fp.mu_err_mas_yr / 1000).toFixed(2)}″/yr</small>`, false]] : []),
     ["首末位移", `${fp.displacement_arcsec.toFixed(2)} <small>±${(fp.displacement_err_arcsec || 0).toFixed(2)}″</small>`, moving],
     ["亮度振幅", amp, fp.amp_mag > 0.25],
     ["周期候选", period, !!fp.period_d],
