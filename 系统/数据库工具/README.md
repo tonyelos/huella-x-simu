@@ -360,7 +360,7 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 99 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 23 个）
+├── tests/                 103 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 27 个）
 ├── tests/fixtures/        gaia_dr3_sample.csv（234 行真实 Gaia 子集，仅测试）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/
