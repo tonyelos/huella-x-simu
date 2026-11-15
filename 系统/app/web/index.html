@@ -17,6 +17,7 @@
   </div>
   <div class="top-right">
     <span id="modeBadge" class="badge ghost">未分析</span>
+    <span id="timeBadge" class="badge ghost hidden">未限定时间</span>
     <span id="readyBadge" class="badge ghost">—</span>
     <label class="switch" title="显示协方差、BIC、质量标记等科研细节">
       <input type="checkbox" id="expert"><span>研究者模式</span>
@@ -37,6 +38,8 @@
         <label>赤经 RA <span class="unit">deg</span><input id="ra" inputmode="decimal"></label>
         <label>赤纬 Dec <span class="unit">deg</span><input id="dec" inputmode="decimal"></label>
         <label>视场 FOV <span class="unit">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01" title="0.02–3.0 度"></label>
+        <label>窗口 t0 <span class="unit">MJD</span><input id="t0" inputmode="decimal" placeholder="可选"></label>
+        <label>窗口 t1 <span class="unit">MJD</span><input id="t1" inputmode="decimal" placeholder="可选"></label>
         <label>数据模式
           <select id="mode">
             <option value="auto">自动（真实优先）</option>
@@ -82,6 +85,14 @@
 
   <!-- 中：天区视图 -->
   <section class="panel center">
+    <div class="layer-bar" role="group" aria-label="分析层模式">
+      <div class="layer-tabs">
+        <button type="button" data-layer-mode="browse" class="active">普通</button>
+        <button type="button" data-layer-mode="cascade">级联/残差</button>
+        <button type="button" data-layer-mode="tracks">轨迹</button>
+      </div>
+      <a id="detailLink" class="ghost small hidden" href="/cascade" target="_blank" rel="noopener">详细表格 ↗</a>
+    </div>
     <div class="viewer-head">
       <div class="viewer-title">
         <span class="eyebrow">SKY PATCH</span>
@@ -121,6 +132,13 @@
 
   <!-- 右：鉴定卡 -->
   <aside class="panel right">
+    <section id="layerPanel" class="layer-panel hidden" aria-live="polite">
+      <div class="layer-panel-head"><span id="layerTitle">分析层</span><span id="layerBadge" class="badge ghost">—</span></div>
+      <div id="layerStats" class="layer-stats"></div>
+      <div id="layerToggles" class="layer-toggles"></div>
+      <div id="layerDetail" class="layer-detail"></div>
+      <div id="layerDisclaimer" class="layer-disclaimer">候选不是新天体；不做发现声明。</div>
+    </section>
     <div id="verdict" class="verdict empty">
       <div class="eyebrow">MOTION FINGERPRINT</div>
       <div class="verdict-main">

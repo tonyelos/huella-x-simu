@@ -59,6 +59,34 @@ CATALOG_CLIENT = catalog_layer.CatalogClient()
 # C-P0 可选增强：只做 /api/v1/field 覆盖握手；不影响 /api/analyze 数据路径。
 ANYFIELD_CLIENT = anyfield_layer.AnyFieldClient()
 
+# 主界面模式切换复用同一分析历元：按 analysis_id 缓存 build_dataset 结果，
+# 避免切 cascade/tracks 时重新取数。缓存小、按 LRU 淘汰。
+_ANALYSIS_EPOCHS = OrderedDict()
+MAX_ANALYSIS_EPOCHS = 8
+
+
+def remember_analysis_epochs(aid: str, target: dict, epochs: list, meta: dict, time_filter: dict):
+    if not aid:
+        return
+    _ANALYSIS_EPOCHS[aid] = {
+        "target": target,
+        "epochs": list(epochs),
+        "meta": dict(meta or {}),
+        "time_filter": dict(time_filter or {}),
+    }
+    _ANALYSIS_EPOCHS.move_to_end(aid)
+    while len(_ANALYSIS_EPOCHS) > MAX_ANALYSIS_EPOCHS:
+        _ANALYSIS_EPOCHS.popitem(last=False)
+
+
+def get_analysis_epochs(aid: str):
+    if not aid:
+        return None
+    rec = _ANALYSIS_EPOCHS.get(aid)
+    if rec is not None:
+        _ANALYSIS_EPOCHS.move_to_end(aid)
+    return rec
+
 
 class ApiError(Exception):
     def __init__(self, status: int, code: str, message: str):
@@ -830,8 +858,12 @@ def _parse_time_window(q: dict):
     def first(*names):
         for name in names:
             vals = q.get(name)
-            if vals and vals[0] not in (None, ""):
-                return vals[0]
+            if isinstance(vals, (list, tuple)):
+                val = vals[0] if vals else None
+            else:
+                val = vals
+            if val not in (None, ""):
+                return val
         return None
 
     raw0 = first("t0", "mjd_min")
@@ -872,8 +904,18 @@ def run_cascade(q: dict) -> dict:
     fov = validate_fov(fov_raw)
     t0, t1, time_requested = _parse_time_window(q)
     tid, ra, dec, target_preset = resolve_request(payload)
+    aid = (q.get("analysis_id") or [None])[0]
+    cached = get_analysis_epochs(aid)
 
-    if tid != "custom":
+    if cached is not None:
+        target = cached["target"]
+        epochs = list(cached["epochs"])
+        meta = cached["meta"]
+        time_filter = cached["time_filter"]
+        time_requested = bool(time_filter.get("filtered"))
+        t0, t1 = time_filter.get("t0"), time_filter.get("t1")
+        requested_count = int(time_filter.get("requested") or len(epochs))
+    elif tid != "custom":
         target = target_preset
         tgt, epochs, _truth, meta = data_layer.build_dataset(tid, mode="auto", size_deg=fov)
     else:
@@ -888,21 +930,24 @@ def run_cascade(q: dict) -> dict:
             target = tgt
 
     meta = meta or {}
-    if meta.get("fallback_reason") == "DB_UNAVAILABLE":
-        raise ApiError(503, "DB_UNAVAILABLE", "数据库不可用，无法读取真实历元；级联页不做 SIM 冒充。")
-    requested_epochs = list(epochs)
-    if time_requested:
-        epochs = [
-            ep for ep in requested_epochs
-            if t0 <= float(getattr(ep, "mjd", float("nan"))) <= t1
-        ]
-    time_filter = {
-        "t0": t0,
-        "t1": t1,
-        "requested": len(requested_epochs),
-        "kept": len(epochs),
-        "filtered": bool(time_requested),
-    }
+    if cached is None:
+        if meta.get("fallback_reason") == "DB_UNAVAILABLE":
+            raise ApiError(503, "DB_UNAVAILABLE", "数据库不可用，无法读取真实历元；级联页不做 SIM 冒充。")
+        requested_epochs = list(epochs)
+        if time_requested:
+            epochs = [
+                ep for ep in requested_epochs
+                if t0 <= float(getattr(ep, "mjd", float("nan"))) <= t1
+            ]
+        time_filter = {
+            "t0": t0,
+            "t1": t1,
+            "requested": len(requested_epochs),
+            "kept": len(epochs),
+            "filtered": bool(time_requested),
+        }
+    else:
+        requested_epochs = list(epochs)
     if not epochs and not time_requested:
         raise ApiError(503, "NO_EPOCHS", "该天区没有可用历元。")
     if epochs and meta.get("mode") == "unavailable":
@@ -912,6 +957,7 @@ def run_cascade(q: dict) -> dict:
 
     epoch_rows = []
     totals = {"l1": 0, "masked": 0, "residual": 0}
+    common_wcs = epochs[0].wcs if epochs else None
     for ep in epochs:
         try:
             layers = pipeline.cascade_layers(ep)
@@ -919,6 +965,18 @@ def run_cascade(q: dict) -> dict:
         except Exception as exc:  # noqa: BLE001 - 单期失败不拖垮整页
             layers = {"l1": [], "masked": [], "residual": [], "counts": {"l1": 0, "masked": 0, "residual": 0}}
             err = str(exc)
+        if common_wcs is not None:
+            for layer_name in ("l1", "masked", "residual"):
+                for src in layers.get(layer_name) or []:
+                    ra, dec = src.get("ra"), src.get("dec")
+                    if ra is None or dec is None:
+                        continue
+                    try:
+                        cx, cy = common_wcs.world_to_pixel(float(ra), float(dec))
+                        src["common_x"] = float(np.atleast_1d(cx)[0]) - 1.0
+                        src["common_y"] = float(np.atleast_1d(cy)[0]) - 1.0
+                    except Exception:  # noqa: BLE001
+                        pass
         counts = layers.get("counts") or {}
         for key in totals:
             totals[key] += int(counts.get(key) or 0)
@@ -1086,6 +1144,53 @@ def run_tracks(q: dict) -> dict:
     }
 
 
+def empty_time_analysis(target: dict, meta: dict, time_filter: dict) -> dict:
+    """时间窗口过滤后 0 期：200 空结果，不伪造测量/不 500。"""
+    t0 = time_filter.get("t0")
+    t1 = time_filter.get("t1")
+    requested = time_filter.get("requested", 0)
+    note = (
+        f"时间窗口 MJD {float(t0):.3f}–{float(t1):.3f} 内没有历元"
+        f"（请求 {requested} 期，保留 0 期）；未做测量/拟合，不伪造轨迹。"
+    )
+    result = _empty_result("U", "时间窗口内没有历元", "L0")
+    result["readiness_scope"] = "analysis"
+    result["quality"] = ["TIME_WINDOW_EMPTY"]
+    result["evidence"] = ["时间窗口内没有可用历元；没有生成源表、模型或运动结论。"]
+    result["falsifier"] = "换一个包含历元的时间窗口后重试。"
+    result["public_text"] = "当前时间窗口没有可用历元，因此没有做运动/变光测量。"
+    result["caveats"] = ["时间窗口为空；不把空结果当成“没有天体”。"]
+    data = {
+        "mode": meta.get("mode", "real"),
+        "note": note,
+        "readiness": "L0",
+        "n_epochs": 0,
+        "real_epochs": 0,
+        "bands": [],
+        "provenance": [],
+        "fallback_reason": meta.get("fallback_reason"),
+        "source": meta.get("source"),
+        "time_filter": time_filter,
+    }
+    payload = {
+        "schema_version": "1.0",
+        "analysis_id": uuid.uuid4().hex[:12],
+        "target": {k: target.get(k) for k in ("id", "name", "name_zh", "ra", "dec", "type", "expected", "note")},
+        "data": data,
+        "truth": None,
+        "epochs": [],
+        "stack_url": None,
+        "result": result,
+        "sources": [],
+        "sources_meta": sources_meta([], [], "时间窗口内没有历元。"),
+        "identification": None,
+        "common_wcs": None,
+        "time_filter": time_filter,
+        "theory": THEORY_BLOCK,
+    }
+    return payload
+
+
 def run_analysis(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ApiError(400, "BAD_JSON", "请求体必须是 JSON 对象。")
@@ -1141,7 +1246,20 @@ def run_analysis(payload: dict) -> dict:
             )
             response_target = None
 
+    t0, t1, time_requested = _parse_time_window(payload)
+    requested_epochs = list(epochs)
+    if time_requested:
+        epochs = [ep for ep in requested_epochs if t0 <= float(getattr(ep, "mjd", float("nan"))) <= t1]
+    time_filter = {
+        "t0": t0,
+        "t1": t1,
+        "requested": len(requested_epochs),
+        "kept": len(epochs),
+        "filtered": bool(time_requested),
+    }
     if not epochs:
+        if time_requested:
+            return empty_time_analysis(response_target or tgt, meta or {}, time_filter)
         raise ApiError(503, "NO_EPOCHS", "没有可用历元。")
 
     for ep in epochs:
@@ -1179,6 +1297,7 @@ def run_analysis(payload: dict) -> dict:
 
     aid = uuid.uuid4().hex[:12]
     STORE.put(aid, rendered)
+    remember_analysis_epochs(aid, response_target or tgt, epochs, meta, time_filter)
 
     frames_json = []
     for i, ep in enumerate(epochs):
@@ -1210,6 +1329,7 @@ def run_analysis(payload: dict) -> dict:
         "detected_epochs": int(result.get("detected_epochs") or 0),
         "detection_baseline_days": result.get("baseline_days"),
         "catalog_baseline_days": meta.get("catalog_baseline_days"),
+        "time_filter": time_filter,
     }
     data_block["note"] = compose_note(meta, result, data_block)
     if meta.get("coverage") is not None:
@@ -1237,6 +1357,7 @@ def run_analysis(payload: dict) -> dict:
             "scale_arcsec": common.pixel_scale_arcsec(),
             "naxis": common.naxis1,
         },
+        "time_filter": time_filter,
         "theory": THEORY_BLOCK,
     }
     return payload
