@@ -147,6 +147,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 全量缓存功能验证：B 17,679 源/7 场/schema v3；C 47 源 → 31 single/6 ambiguous/10 no_match；tracks D1=11；官方基准 4 PASS + 1 DATA_LIMITED（WISE 20.3″ 候选被 6.15″ 门限拒绝）。见 [官方案例基准_fullcache.md](官方案例基准_fullcache.md)、[星表识别覆盖率.md](星表识别覆盖率.md)。
 
+批量星表识别计划：[../架构/18_批量星表识别.md](../架构/18_批量星表识别.md)（C 源表 47 源批量匹配 → known/ambiguous/no_match UI）。
+
 星表识别覆盖审查：[星表识别覆盖率.md](星表识别覆盖率.md)（当前 B 250 行 fixture → 0/47；完整 17,679 缓存 → 37/47 有候选；检测仅覆盖约 1.8% 真实星）。
 
 跨历元轨迹实施计划：[../架构/12_跨历元轨迹发现计划.md](../架构/12_跨历元轨迹发现计划.md)（T1 tracklet → T2 UI → T3 验证）。
