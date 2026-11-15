@@ -6,6 +6,7 @@
 检查项：
   1. index.html 里存在 main.js 引用的所有 DOM id；品牌标题正确；默认不是 M101
   2. 深链：search 优先 + hash 兜底 + 写回 search（含 t）
+  2b. 分析时间窗口 30/90/180/365/730 + t0/t1 + /cascade//tracks 入口
   3. data/fields.json 行数/列数/NaN/来源/生成元数据（不得再指向 header_cache）
   4. data/targets.json 字段齐全、生成物、与 app/data/targets.json 一致；rw_aur.truth 修正
   5. data/epoch_index.json 有策展历元（barnard 4 / rw_aur 1）
@@ -112,6 +113,87 @@ elif "p.set('t'" not in main_js:
     fail("深链没有写回时相 t")
 else:
     ok("深链：search 优先 + hash 兜底 + 写回 search")
+
+# ---------------------------------------------------------------- 1c. 分析时间窗口 / 分析入口
+win_block = re.search(r'<select id="win-days"[\s\S]*?</select>', html)
+if not win_block:
+    fail("index.html 缺分析时间窗口选择器 #win-days")
+else:
+    opts = re.findall(r'<option value="(\d+)"', win_block.group(0))
+    if opts != ["30", "90", "180", "365", "730"]:
+        fail(f"时间窗口选项不是 30/90/180/365/730：{opts}")
+    elif 'value="365" selected' not in win_block.group(0):
+        fail("时间窗口默认值不是 365 天")
+    else:
+        ok("时间窗口选项 30/90/180/365/730，默认 365 天")
+
+for key in ("WINDOW_OPTIONS = [30, 90, 180, 365, 730]", "DEFAULT_WINDOW_DAYS = 365", "windowDays: DEFAULT_WINDOW_DAYS"):
+    if key not in main_js:
+        fail(f"main.js 缺时间窗口常量/状态：{key}")
+if "state.t0 = state.mjd - state.windowDays" not in main_js or "state.t1 = state.mjd + state.windowDays" not in main_js:
+    fail("时间窗口没有以当前 state.mjd 为中心计算 t0/t1")
+if "$('win-days').addEventListener('change'" not in main_js:
+    fail("时间窗口选择器没有 change 监听")
+if "const t0 = num('t0')" not in main_js or "const t1 = num('t1')" not in main_js:
+    fail("深链没有读取 t0/t1")
+if "p.set('t0'" not in main_js or "p.set('t1'" not in main_js:
+    fail("URL 没有写回 t0/t1")
+if "p.set('t0'" in main_js and "p.set('t1'" in main_js:
+    ok("时间窗口：默认 365、以 state.mjd 为中心、URL 读写 t0/t1")
+
+if "分析层过滤范围" not in html or "数据时相" not in html:
+    fail("页面没有明确“时间窗口 = 分析层过滤范围”且区别于数据时相")
+else:
+    ok("页面明确：时间窗口 = 分析层过滤范围（≠ 数据时相）")
+
+for key in ("cascade: '/cascade'", "tracks: '/tracks'"):
+    if key not in main_js:
+        fail(f"分析入口缺路径：{key}")
+am = re.search(r"function analysisUrl\(kind\)[\s\S]*?\n\}", main_js)
+if not am:
+    fail("找不到 analysisUrl()")
+else:
+    body = am.group(0)
+    needs = (
+        "String(state.ra)",
+        "String(state.dec)",
+        "String(state.fov)",
+        "p.set('t0'",
+        "p.set('t1'",
+        "p.set('from', 'view')",
+    )
+    miss = [x for x in needs if x not in body]
+    if miss:
+        fail(f"analysisUrl 缺参数/不是全精度：{miss}")
+    else:
+        ok("分析入口 URL：全精度 ra/dec/fov + t0/t1 + from=view")
+
+for bid in ("btn-cascade", "btn-tracks", "btn-movescope"):
+    if f'id="{bid}"' not in html:
+        fail(f"index.html 缺按钮 #{bid}")
+for call in (
+    "openMoveScopePage(analysisUrl('cascade')",
+    "openMoveScopePage(analysisUrl('tracks')",
+    "openMoveScopePage(moveScopeUrl()",
+):
+    if call not in main_js:
+        fail(f"main.js 缺入口绑定：{call}")
+if "$('btn-movescope')" not in main_js or "$('btn-cascade')" not in main_js or "$('btn-tracks')" not in main_js:
+    fail("分析入口没有绑定点击事件")
+else:
+    ok("三个入口并存：MoveScope / 级联-残差 / 轨迹发现")
+
+if "不是数据时相" not in main_js:
+    fail("分析提示没有区分“分析窗口”和“数据时相”")
+else:
+    ok("分析提示区分分析窗口与数据时相")
+
+readme_needs = ("分析时间窗口", "t0", "t1", "/cascade?", "/tracks?", "from=view", "分析层过滤范围")
+missing_readme = [s for s in readme_needs if s not in readme]
+if missing_readme:
+    fail(f"README 缺分析窗口/入口说明：{missing_readme}")
+else:
+    ok("README 记录分析窗口与 /cascade、/tracks 入口")
 
 # ---------------------------------------------------------------- 2. fields.json
 fields_doc = json.loads(read(os.path.join(TOOL, "data", "fields.json")))

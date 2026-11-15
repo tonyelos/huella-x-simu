@@ -11,6 +11,10 @@ const MOVESCOPE_ORIGIN = String(
   window.MOVESCOPE_ORIGIN || 'http://127.0.0.1:8790'
 ).replace(/\/+$/, '');
 const PRESET_FOV = { barnard: 0.5, epsind_b: 0.5, wise0855: 0.2, rw_aur: 0.5, r_dra: 0.5, m101: 0.1, campo_a: 0.1 };
+// 分析层时间窗口：以当前数据时相为中心，过滤级联/轨迹的历元范围。
+const WINDOW_OPTIONS = [30, 90, 180, 365, 730];
+const DEFAULT_WINDOW_DAYS = 365;
+const ANALYSIS_PATHS = { cascade: '/cascade', tracks: '/tracks' };
 
 // 覆盖口径：单片 3.49° 方视场的半对角线 2.47°（中心落在这个半径里才算“这帧拍到了该天区”）
 const HIT_RADIUS_DEG = 2.47;
@@ -25,6 +29,9 @@ const state = {
   mode: 'data',
   playing: false,
   speed: 0.6,
+  windowDays: DEFAULT_WINDOW_DAYS,
+  t0: 0,
+  t1: 0,
 };
 
 let fields = [];
@@ -124,6 +131,7 @@ function syncRegionUI() {
   updateHits();
   updatePresetState();
   updateMoveScopeHint();
+  updateAnalysisHint();
 }
 
 function updateSite() {
@@ -232,6 +240,43 @@ function moveScopeUrl() {
   return `${MOVESCOPE_ORIGIN}/?${p.toString()}`;
 }
 
+/** 分析入口：当前天区全精度坐标 + 分析时间窗口 t0/t1 + 来源标记。 */
+function analysisUrl(kind) {
+  const path = ANALYSIS_PATHS[kind];
+  if (!path) throw new Error(`unknown analysis page: ${kind}`);
+  const p = new URLSearchParams();
+  p.set('ra', String(state.ra));
+  p.set('dec', String(state.dec));
+  p.set('fov', String(state.fov));
+  p.set('t0', state.t0.toFixed(4));
+  p.set('t1', state.t1.toFixed(4));
+  p.set('from', 'view');
+  return `${MOVESCOPE_ORIGIN}${path}?${p.toString()}`;
+}
+
+/** 打开 MoveScope 页面；先 GET 探活，失败时复制链接并给出可读提示。 */
+async function openMoveScopePage(url, label, copyLabel = `${label} 链接`) {
+  const win = window.open('about:blank', '_blank');
+  const alive = await moveScopeAlive();
+  if (alive) {
+    if (win) {
+      win.location.replace(url);
+      return;
+    }
+    const copied = await copy(url, copyLabel, { silent: true });
+    toast(copied ? `浏览器拦截了新标签页，${copyLabel}已复制` : `浏览器拦截了新标签页；请手动打开 ${label}`, 4200);
+    return;
+  }
+  if (win) win.close();
+  const copied = await copy(url, copyLabel, { silent: true });
+  toast(
+    copied
+      ? `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），${copyLabel}已复制`
+      : `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），${label}未打开`,
+    5200,
+  );
+}
+
 function updateMoveScopeHint() {
   const t = matchedTarget();
   const el = $('ms-hint');
@@ -259,10 +304,72 @@ async function moveScopeAlive() {
   }
 }
 
+// ---------------------------------------------------------------- 分析时间窗口
+function normalizeWindowDays(days) {
+  const d = Number(days);
+  if (!Number.isFinite(d) || d <= 0) return DEFAULT_WINDOW_DAYS;
+  return WINDOW_OPTIONS.find((opt) => Math.abs(opt - d) < 0.01) ?? d;
+}
+
+/** 修改半宽后，以当前 state.mjd 为中心重算 t0/t1。 */
+function applyWindowDays(days, { silent = false } = {}) {
+  const d = Number(days);
+  if (!Number.isFinite(d) || d <= 0) return;
+  state.windowDays = normalizeWindowDays(d);
+  state.t0 = state.mjd - state.windowDays;
+  state.t1 = state.mjd + state.windowDays;
+  syncWindowUI();
+  if (!silent) scheduleUrl();
+}
+
+function syncWindowUI() {
+  if (!Number.isFinite(state.t0) || !Number.isFinite(state.t1)) {
+    state.t0 = state.mjd - state.windowDays;
+    state.t1 = state.mjd + state.windowDays;
+  }
+  const t0 = state.t0;
+  const t1 = state.t1;
+  const range = $('win-range');
+  if (!range) return;
+  range.textContent = `MJD ${t0.toFixed(3)} – ${t1.toFixed(3)}`;
+  $('win-utc').textContent = `${A.fmtUtc(t0).slice(0, 16)} → ${A.fmtUtc(t1).slice(0, 16)} UTC`;
+
+  const sel = $('win-days');
+  if (sel) {
+    const value = String(state.windowDays);
+    let opt = [...sel.options].find((o) => o.value === value);
+    if (!opt) {
+      opt = [...sel.options].find((o) => o.dataset.custom === '1');
+      if (!opt) {
+        opt = document.createElement('option');
+        opt.dataset.custom = '1';
+        sel.appendChild(opt);
+      }
+      opt.value = value;
+      opt.textContent = `自定义 ${state.windowDays.toFixed(1)} 天`;
+    }
+    sel.value = value;
+  }
+  updateAnalysisHint();
+}
+
+function updateAnalysisHint() {
+  const el = $('analysis-hint');
+  if (!el) return;
+  const t0 = Number.isFinite(state.t0) ? state.t0 : state.mjd - state.windowDays;
+  const t1 = Number.isFinite(state.t1) ? state.t1 : state.mjd + state.windowDays;
+  const fovWarn = state.fov > 3.0
+    ? `<br><span style="color:var(--amber)">当前 FOV ${state.fov.toFixed(2)}° 超出 MoveScope 分析页 3.0° 上限，请先调小 FOV。</span>`
+    : '';
+  el.innerHTML = `级联/轨迹入口：当前天区 + 分析窗口 <b>${A.fmtUtc(t0).slice(0, 10)} → ${A.fmtUtc(t1).slice(0, 10)}</b>；窗口是分析层过滤范围，不是数据时相。${fovWarn}`;
+}
+
 // ---------------------------------------------------------------- 时间
 function setClock(mjd, mode = 'data', silent = false) {
   state.mjd = clamp(mjd, mjdMin, mjdMax);
   state.mode = mode;
+  state.t0 = state.mjd - state.windowDays;
+  state.t1 = state.mjd + state.windowDays;
   globe?.setClock(state.mjd);
   $('clock-date').textContent = `${A.fmtUtc(state.mjd)} UTC`;
   $('clock-mjd').textContent = `MJD ${state.mjd.toFixed(4)}`;
@@ -272,6 +379,7 @@ function setClock(mjd, mode = 'data', silent = false) {
   updateLabels(site);
   const near = fields.some((f) => Math.abs(f.mjd - state.mjd) < 0.5);
   $('tracknote').textContent = near ? '轨迹窗口 ±12 h' : '该时相 ±12 h 无曝光';
+  syncWindowUI();
   if (!silent) scheduleUrl();
 }
 
@@ -280,6 +388,8 @@ function goNow() {
   state.playing = false;
   setPlaying(false);
   state.mjd = now;
+  state.t0 = now - state.windowDays;
+  state.t1 = now + state.windowDays;
   globe?.setClock(now);
   state.mode = 'now';
   $('clock-date').textContent = `${A.fmtUtc(now)} UTC`;
@@ -289,6 +399,8 @@ function goNow() {
   const site = updateSite();
   updateLabels(site);
   $('tracknote').textContent = '该时相 ±12 h 无曝光';
+  syncWindowUI();
+  scheduleUrl();
   if (Math.abs(now - mjdMax) > 40) {
     toast(`本地索引止于 ${A.fmtUtc(mjdMax).slice(0, 10)}，实时时刻无地面轨迹`, 3200);
   }
@@ -297,6 +409,10 @@ function goNow() {
 function setPlaying(on) {
   state.playing = on;
   $('btn-play').classList.toggle('playing', on);
+  if (!on) {
+    syncWindowUI();
+    scheduleUrl();
+  }
 }
 
 // ---------------------------------------------------------------- 标签投影
@@ -344,6 +460,8 @@ function writeUrl() {
   p.set('fov', Number(state.fov.toFixed(2)).toString());
   if (t) p.set('target', t.id);
   p.set('t', state.mjd.toFixed(4));
+  p.set('t0', state.t0.toFixed(4));
+  p.set('t1', state.t1.toFixed(4));
   const url = `${location.pathname}?${p.toString()}`;
   history.replaceState(null, '', url);
 }
@@ -361,11 +479,15 @@ function readUrlState() {
   };
   const dec = num('dec');
   const fov = num('fov');
+  const t0 = num('t0');
+  const t1 = num('t1');
   return {
     ra: num('ra'),
     dec: dec !== undefined && dec >= -90 && dec <= 90 ? dec : undefined,
     fov: fov !== undefined && fov >= 0.05 && fov <= 180 ? fov : undefined,
     t: num('t'),
+    t0: t0 !== undefined && t0 > 0 ? t0 : undefined,
+    t1: t1 !== undefined && t1 > 0 ? t1 : undefined,
     target: get('target'),
   };
 }
@@ -506,12 +628,20 @@ async function boot() {
   if (u.ra !== undefined) state.ra = cleanRa(u.ra);
   if (u.dec !== undefined) state.dec = clamp(u.dec, -89.5, 89.5);
   if (u.fov !== undefined) state.fov = clamp(u.fov, 0.05, 180);
-  const t0 = u.t !== undefined ? clamp(u.t, mjdMin, mjdMax) : mjdMax;
+
+  let startMjd = u.t !== undefined ? clamp(u.t, mjdMin, mjdMax) : mjdMax;
+  if (u.t0 !== undefined && u.t1 !== undefined && u.t1 > u.t0) {
+    const half = normalizeWindowDays((u.t1 - u.t0) / 2);
+    if (half > 0) {
+      state.windowDays = half;
+      if (u.t === undefined) startMjd = clamp((u.t0 + u.t1) / 2, mjdMin, mjdMax);
+    }
+  }
 
   sky.setSelection({ ra: state.ra, dec: state.dec, fov: state.fov }, { recenter: true, rezoom: true });
   globe.setSelection({ ra: state.ra, dec: state.dec, fov: state.fov });
   globe.focus(state.ra, state.dec, true);
-  setClock(t0, 'data', true);
+  setClock(startMjd, 'data', true);
   syncRegionUI();
   drawDensity();
   writeUrl();
@@ -555,6 +685,10 @@ async function boot() {
     setClock(mjdMin + frac * (mjdMax - mjdMin), 'data');
   });
 
+  $('win-days').addEventListener('change', (e) => {
+    applyWindowDays(parseFloat(e.target.value));
+  });
+
   document.querySelectorAll('.sbtn').forEach((b) => {
     b.addEventListener('click', () => {
       document.querySelectorAll('.sbtn').forEach((x) => x.classList.remove('active'));
@@ -577,6 +711,12 @@ async function boot() {
       mjd: state.mjd,
       target_id: t ? t.id : null,
       site: { lat: site.lat, lon: site.lon },
+      analysis_window: {
+        t0: state.t0,
+        t1: state.t1,
+        days: state.windowDays,
+        purpose: 'analysis_filter',
+      },
       coverage: { frames: hitStats.frames, exposures: hitStats.exposures, nights: hitStats.nights, radius_deg: HIT_RADIUS_DEG },
     };
     copy(JSON.stringify(payload, null, 2), '天区 JSON');
@@ -584,28 +724,12 @@ async function boot() {
 
   $('btn-link').addEventListener('click', () => copy(location.href, '链接'));
 
-  $('btn-movescope').addEventListener('click', async () => {
-    const url = moveScopeUrl();
-    const win = window.open('about:blank', '_blank');
-    const alive = await moveScopeAlive();
-    if (alive) {
-      if (win) {
-        win.location.replace(url);
-      } else {
-        const copied = await copy(url, 'MoveScope 链接', { silent: true });
-        toast(copied ? '浏览器拦截了新标签页，MoveScope 链接已复制' : '浏览器拦截了新标签页；请手动打开 MoveScope', 4200);
-      }
-    } else {
-      if (win) win.close();
-      const copied = await copy(url, 'MoveScope 链接', { silent: true });
-      toast(
-        copied
-          ? `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），链接已复制`
-          : `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py）`,
-        5200,
-      );
-    }
-  });
+  $('btn-movescope').addEventListener('click', () =>
+    openMoveScopePage(moveScopeUrl(), 'MoveScope', 'MoveScope 链接'));
+  $('btn-cascade').addEventListener('click', () =>
+    openMoveScopePage(analysisUrl('cascade'), '级联 / 残差页', '级联/残差链接'));
+  $('btn-tracks').addEventListener('click', () =>
+    openMoveScopePage(analysisUrl('tracks'), '轨迹发现页', '轨迹发现链接'));
 
   window.addEventListener('keydown', (e) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
@@ -617,6 +741,7 @@ async function boot() {
 
   // 动画循环：播放 + 标签投影
   let last = performance.now();
+  let lastWindowSync = 0;
   function tick(now) {
     requestAnimationFrame(tick);
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -626,10 +751,16 @@ async function boot() {
       if (m > mjdMax) m = mjdMin;
       state.mjd = m;
       state.mode = 'data';
+      state.t0 = m - state.windowDays;
+      state.t1 = m + state.windowDays;
       globe.setClock(m);
       $('time').value = String(((m - mjdMin) / (mjdMax - mjdMin)) * 1000);
       $('clock-date').textContent = `${A.fmtUtc(m)} UTC`;
       $('clock-mjd').textContent = `MJD ${m.toFixed(4)}`;
+      if (now - lastWindowSync > 200) {
+        syncWindowUI();
+        lastWindowSync = now;
+      }
     }
     updateLabels();
   }
