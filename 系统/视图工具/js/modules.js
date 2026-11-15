@@ -282,7 +282,7 @@ function renderBands() {
     <div class="hx-mol-read" id="hx-mol-read">${state.mol ? T('molActive').replace('{name}', state.mol[state.lang] || state.mol.en).replace('{lo}', state.mol.lo.toFixed(2)).replace('{hi}', state.mol.hi.toFixed(2)) : T('bandsIdle')}</div>
     <div class="hx-actions">
       <a class="hx-btn" href="http://127.0.0.1:8790/" target="_blank" rel="noopener">${T('spectralLink')}</a>
-      <a class="hx-btn" href="../../../astro/modulos/m6_huella_espectral/LEEME.md" target="_blank" rel="noopener">${T('legacySpectral')}</a>
+      <a class="hx-btn" href="http://127.0.0.1:8840/astro/modulos/m6_huella_espectral/LEEME.md" target="_blank" rel="noopener">${T('legacySpectral')}</a>
     </div>
     <div class="hx-repo">${T('repo')} <a href="${REPO}" target="_blank" rel="noopener">Beltranpcb/HuellaX ↗</a></div>`;
   const mols = $('hx-mols');
@@ -321,7 +321,7 @@ function renderThree(sel) {
       <div><span>${T('hitsLabel')}</span><b>${esc(hits)}</b></div>
     </div>
     <div class="hx-actions">
-      <a class="hx-btn" href="../../../astro/modulos/m9_sitio/espectro3d.html" target="_blank" rel="noopener">${T('threeOpen')}</a>
+      <a class="hx-btn" href="http://127.0.0.1:8840/astro/modulos/m9_sitio/espectro3d.html" target="_blank" rel="noopener">${T('threeOpen')}</a>
     </div>
     <div class="hx-repo">${T('repo')} <a href="${REPO}" target="_blank" rel="noopener">Beltranpcb/HuellaX ↗</a></div>`;
 }
