@@ -159,6 +159,8 @@ A 源表批量识别已实现：215 源 → known 130 / ambiguous 33 / no_match 
 
 统一候选目录计划：[../架构/22_统一候选目录.md](../架构/22_统一候选目录.md)（A/C 同位置合并，track 一轨迹一行）。
 
+AstroNova/HUELLA X 深度分析：[../参考/AstroNova-DEEP.md](../参考/AstroNova-DEEP.md)（SHA 1253925；静态演示+离线流水线；无 LICENSE；可借 UI/合同，不可复制代码）。
+
 剩余四项收口：[../架构/23_剩余四项收口.md](../架构/23_剩余四项收口.md)（实际 2MASS/WISE、单目标多目录、conflict 仲裁、SIMBAD/TAP 上游阻塞）。
 
 星表可用性检查：[星表可用性检查.md](星表可用性检查.md)（7 场/17,679 源可用；任意新天区 503；不是全量 Gaia）。
