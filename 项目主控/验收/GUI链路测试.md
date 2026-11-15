@@ -230,23 +230,23 @@ GET /api/v1/epochs?target_id=barnard&mjd_min=60916&mjd_max=60923
 
 轴左标 `UTC 时间轴`；窗口仍单独显示。
 
-### 播放
+### 播放（按用户要求回退连续时间）
 
-- 播放改为**观测序列**，不是连续时间；
-- 步长 0.5×=2.4s / 1×=1.2s / 2×=0.6s；
-- 地球 700ms 最短路径 tween，不再 216°/s 疯转；
-- 末尾停止、不循环；
-- 默认打开在最后一期，按播放会从第一个观测开始并提示：
-  `已从第一个观测开始播放`。
+- 保留速度选择器：`0.15× / 1× / 4×`（0.15 / 0.6 / 2.4 天/秒）；
+- `mjd += dt × speed`；播放期间 `animate:false`，地球角度实时对应；
+- 到 `mjdMax` 回绕 `mjdMin`；从末尾/now 按播放先回 `mjdMin`；
+- 手动输入/滑杆/±按钮仍保留 700ms Earth tween；
+- 播放模式标“数据时相”；页面标“播放 = 连续时间”。
 
 实测：
 
 ```text
-默认打开：MJD 61316.5299（最后）
-按播放 450ms：MJD 60789.7508（第一个观测）
-toast：已从第一个观测开始播放
-mode：观测序列
+1× 起播 1s：MJD 61000.0000 → 61000.3398（启动延迟；后续约 0.6 天/秒）
+0.15× 1s：61000.5305 → 61000.7080
+4× 1s：61000.7080 → 61003.2280
+末尾回绕：61315.5299 → 60791.5（越过 mjdMax 后回 mjdMin）
+mode：数据时相
 JS error：无
 ```
 
-截图：[time-axis-new.png](evidence-ego/time-axis-new.png)、[time-playing-new.png](evidence-ego/time-playing-new.png)、[time-default-play.png](evidence-ego/time-default-play.png)。
+截图：[time-axis-new.png](evidence-ego/time-axis-new.png)、[time-continuous-1x.png](evidence-ego/time-continuous-1x.png)。
