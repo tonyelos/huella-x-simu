@@ -251,6 +251,43 @@ button.small { font-size: 11.5px; padding: 7px 10px; }
 .public { margin: 0; padding: 13px 14px; border-left: 2px solid rgba(242,179,94,.6); background: rgba(242,179,94,.045); color: var(--ink); font-size: 13px; line-height: 1.65; border-radius: 0 10px 10px 0; }
 .public b { color: var(--amber2); }
 
+/* ---------- 星表识别卡（阶段 D MVP） ---------- */
+.catalog-card { border: 1px solid var(--line2); border-radius: 12px; padding: 12px 13px; background: rgba(255,255,255,.018); }
+.catalog-card[data-status="known_star"] { border-color: rgba(110,231,168,.34); background: rgba(110,231,168,.045); }
+.catalog-card[data-status="ambiguous"] { border-color: rgba(242,179,94,.38); background: rgba(242,179,94,.05); }
+.catalog-card[data-status="uncatalogued_candidate"] { border-color: rgba(122,162,255,.36); border-style: dashed; background: rgba(122,162,255,.04); }
+.catalog-card[data-status="catalog_unavailable"] { border-color: rgba(239,143,156,.4); background: rgba(239,143,156,.05); }
+.catalog-card[data-status="insufficient_data"] { border-color: var(--line); background: rgba(255,255,255,.012); }
+.catalog-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.catalog-head > span:first-child { font-size: 10px; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; }
+.catalog-badge { font-family: var(--mono); font-size: 10px; letter-spacing: .04em; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--line2); color: var(--ink2); white-space: nowrap; }
+.catalog-card[data-status="known_star"] .catalog-badge { color: var(--green); border-color: rgba(110,231,168,.4); }
+.catalog-card[data-status="ambiguous"] .catalog-badge { color: var(--amber2); border-color: rgba(242,179,94,.42); }
+.catalog-card[data-status="uncatalogued_candidate"] .catalog-badge { color: var(--blue); border-color: rgba(122,162,255,.4); }
+.catalog-card[data-status="catalog_unavailable"] .catalog-badge { color: var(--rose); border-color: rgba(239,143,156,.42); }
+.catalog-card[data-status="insufficient_data"] .catalog-badge { color: var(--muted); }
+.catalog-badge.known_star { color: var(--green); border-color: rgba(110,231,168,.4); }
+.catalog-badge.ambiguous { color: var(--amber2); border-color: rgba(242,179,94,.42); }
+.catalog-badge.uncatalogued_candidate { color: var(--blue); border-color: rgba(122,162,255,.4); }
+.catalog-badge.catalog_unavailable { color: var(--rose); border-color: rgba(239,143,156,.42); }
+.catalog-badge.insufficient_data { color: var(--muted); }
+.catalog-body { margin-top: 8px; font-size: 11.5px; line-height: 1.6; color: var(--ink2); }
+.catalog-body b { color: var(--ink); font-weight: 500; }
+.catalog-id { font-family: var(--mono); font-size: 12px; color: var(--ink); word-break: break-all; }
+.catalog-id span { color: var(--muted); font-size: 10px; margin-left: 7px; }
+.catalog-metrics { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.catalog-chip { font-family: var(--mono); font-size: 9.5px; padding: 3px 6px; border-radius: 5px; border: 1px solid var(--line); background: rgba(255,255,255,.025); color: var(--ink2); }
+.catalog-candidates { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; }
+.catalog-candidate { display: flex; gap: 8px; align-items: baseline; font-family: var(--mono); font-size: 10px; color: var(--ink2); border-top: 1px solid rgba(255,255,255,.05); padding-top: 4px; }
+.catalog-candidate code { color: var(--ink); font-size: 10.5px; }
+.catalog-candidate em { color: var(--muted); font-style: normal; margin-left: auto; }
+.catalog-note { margin-top: 7px; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.catalog-disclaimer { margin-top: 8px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,.05); color: var(--muted); font-size: 10px; line-height: 1.5; }
+.lock-catalog { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(242,179,94,.2); display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lock-catalog .catalog-badge { padding: 2px 6px; font-size: 9.5px; }
+.lock-catalog code { font-family: var(--mono); color: var(--ink); font-size: 10px; }
+.lock-catalog em { color: var(--muted); font-style: normal; font-size: 10px; }
+
 .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .metric { border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: rgba(255,255,255,.015); }
 .metric span { display: block; font-size: 9.5px; letter-spacing: .06em; color: var(--muted); }

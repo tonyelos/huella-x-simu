@@ -32,11 +32,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
+from core import catalog as catalog_layer  # noqa: E402
 from core import data as data_layer  # noqa: E402
 from core import epoch_source  # noqa: E402
 from core import pipeline  # noqa: E402
 from core.simulator import Epoch  # noqa: E402
-from core.wcs import WCS, angular_sep  # noqa: E402
+from core.wcs import ARCSEC, WCS, angular_sep, gnomonic_inverse  # noqa: E402
 
 WEB = os.path.join(HERE, "web")
 
@@ -47,6 +48,10 @@ MAX_RESULTS = 12
 MAX_RESULT_BYTES = 256 * 1024 * 1024
 MAX_PNG_PX = 2048  # 单帧 PNG 最大边长：0.25° 仍按 ×4 放大（≈584 px），大 FOV 不做无意义上采样
 VALID_MODES = {"auto", "real", "synthetic", "sample"}
+
+# D 阶段：B 星表服务的 app 侧客户端。测试/部署可通过
+# CATALOG_URL（兼容 MOVESCOPE_CATALOG_URL）/ MOVESCOPE_CATALOG_TIMEOUT 覆盖。
+CATALOG_CLIENT = catalog_layer.CatalogClient()
 
 
 class ApiError(Exception):
@@ -485,6 +490,7 @@ def run_sample_analysis(target: dict, fov: float) -> dict:
         "result": result,
         "sources": [],
         "sources_meta": sources_meta(epochs, [], "样本模式只做解析/渲染核验，不做源探测（不伪造源）。"),
+        "identification": None,
         "common_wcs": {
             "crval1": first.wcs.crval1,
             "crval2": first.wcs.crval2,
@@ -583,6 +589,211 @@ def compose_note(meta: dict, result: dict, data_block: dict) -> str:
     return note + ((" " + base) if base else "")
 
 
+def target_measurement(result: dict, target: dict) -> dict | None:
+    """目标源在最新有效历元的实测位置（ICRS deg）与 MJD/误差。
+
+    识别用的是**分析目标**的实测位置，不是目录里的 J2000 坐标：高自行星
+    （Barnard 10.4″/yr）在 20+ 年后早已离开 J2000 位置。B 按该 MJD 把星表源
+    PM 传播到观测历元，app 不重复做星表传播。
+    """
+    measurements = result.get("measurements") or []
+    valid = []
+    for m in measurements:
+        if not isinstance(m, dict):
+            continue
+        try:
+            mjd = float(m.get("mjd"))
+            xi = float(m.get("xi_arcsec"))
+            eta = float(m.get("eta_arcsec"))
+            sigma = float(m.get("sigma_arcsec"))
+        except (TypeError, ValueError):
+            continue
+        if not all(math.isfinite(v) for v in (mjd, xi, eta, sigma)):
+            continue
+        valid.append(
+            {
+                "mjd": mjd,
+                "xi": xi,
+                "eta": eta,
+                "sigma": max(abs(sigma), 0.01),
+                "saturated": bool(m.get("saturated")),
+            }
+        )
+    if not valid:
+        return None
+    latest = max(valid, key=lambda m: m["mjd"])
+    try:
+        ra, dec = gnomonic_inverse(
+            latest["xi"] / ARCSEC,
+            latest["eta"] / ARCSEC,
+            float(target["ra"]),
+            float(target["dec"]),
+        )
+        ra = float(np.atleast_1d(ra)[0])
+        dec = float(np.atleast_1d(dec)[0])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (math.isfinite(ra) and math.isfinite(dec)):
+        return None
+    return {
+        "ra": ra,
+        "dec": dec,
+        "mjd": latest["mjd"],
+        "sigma_arcsec": latest["sigma"],
+        "n_epochs": len(valid),
+        "saturated": latest["saturated"],
+    }
+
+
+def build_identification(result: dict, target: dict, *, detection_id: str = "target") -> dict:
+    """目标源识别的安全入口：星表任何失败都不能让 /api/analyze 变成 500。"""
+    measurement = target_measurement(result, target)
+    if measurement is None:
+        reason = "FETCH_FAILED" if "FETCH_FAILED" in (result.get("quality") or []) else "TARGET_NOT_DETECTED"
+        return catalog_layer.insufficient(reason)
+
+    try:
+        catalog = CATALOG_CLIENT.match(
+            ra=measurement["ra"],
+            dec=measurement["dec"],
+            mjd=measurement["mjd"],
+            sigma_arcsec=measurement["sigma_arcsec"],
+            detection_id=detection_id,
+            analysis_id=None,
+        )
+    except Exception as exc:  # noqa: BLE001 - 客户端约定不抛异常，这里再兜一层
+        catalog = {
+            "ok": False,
+            "catalog_status": "unavailable",
+            "catalog_reason": "CATALOG_CLIENT_ERROR",
+            "detail": str(exc),
+        }
+    try:
+        return catalog_layer.identify(catalog, target=measurement, motion=result)
+    except Exception as exc:  # noqa: BLE001 - 分类失败只降级为数据不足，不伪造 known
+        return catalog_layer.insufficient("IDENTIFICATION_ERROR", catalog=catalog, detail=str(exc))
+
+
+def run_identify(payload: dict) -> dict:
+    """D-MVP 单源识别接口：检测位置 + MJD + 误差（+ 可选 PM）→ 星表结论。
+
+    与 ``/api/analyze`` 内的 identification 共用同一个 ``core.catalog`` 分类器；
+    不跑图像分析，也不做行星确认。星表失败时仍返回 200 + ``catalog_unavailable``，
+    只有请求参数非法才 400。
+    """
+    if not isinstance(payload, dict):
+        raise ApiError(400, "BAD_JSON", "请求体必须是 JSON 对象。")
+
+    def num(name: str, *, default=None, required: bool = True) -> float:
+        raw = payload.get(name, default)
+        if raw is None:
+            if required:
+                raise ApiError(400, "MISSING_FIELD", f"缺少 {name}。")
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise ApiError(400, f"INVALID_{name.upper()}", f"{name} 必须是数字。")
+        if not math.isfinite(value):
+            raise ApiError(400, f"INVALID_{name.upper()}", f"{name} 必须是有限数字。")
+        return value
+
+    ra = num("ra")
+    dec = num("dec")
+    if not (0.0 <= ra < 360.0):
+        raise ApiError(400, "INVALID_RA", "ra 必须在 [0, 360) 度。")
+    if not (-90.0 <= dec <= 90.0):
+        raise ApiError(400, "INVALID_DEC", "dec 必须在 [-90, 90] 度。")
+    mjd = num("mjd")
+    sigma = num("sigma_arcsec", default=1.0)
+    if not (0.0 < sigma <= 60.0):
+        raise ApiError(400, "INVALID_SIGMA", "sigma_arcsec 必须在 (0, 60] 角秒。")
+
+    pmra = num("pmra_mas_yr", required=False)
+    pmdec = num("pmdec_mas_yr", required=False)
+    if (pmra is None) != (pmdec is None):
+        raise ApiError(400, "INVALID_PM", "pmra_mas_yr 与 pmdec_mas_yr 必须同时提供。")
+    pm_err = num("pm_err_mas_yr", required=False)
+    if pm_err is not None and (not math.isfinite(pm_err) or pm_err <= 0):
+        raise ApiError(400, "INVALID_PM_ERR", "pm_err_mas_yr 必须 > 0。")
+    if pm_err is not None and pmra is None:
+        raise ApiError(400, "INVALID_PM_ERR", "pm_err_mas_yr 需要同时提供 pmra/pmdec。")
+
+    raw_epochs = payload.get("n_epochs")
+    if raw_epochs is None:
+        n_epochs = 2 if pmra is not None else 1
+    else:
+        try:
+            n_epochs = int(raw_epochs)
+        except (TypeError, ValueError):
+            raise ApiError(400, "INVALID_N_EPOCHS", "n_epochs 必须是整数。")
+        if n_epochs < 1 or n_epochs > 1000:
+            raise ApiError(400, "INVALID_N_EPOCHS", "n_epochs 必须在 [1, 1000]。")
+
+    detection_id = str(payload.get("detection_id") or "target")[:200]
+    analysis_id = str(payload.get("analysis_id") or "")[:200] or None
+    target = {
+        "ra": ra,
+        "dec": dec,
+        "mjd": mjd,
+        "sigma_arcsec": sigma,
+        "n_epochs": n_epochs,
+    }
+    # 即使没有 PM，也把历元数带进分类器：单期/多期 caveat 需要它。
+    motion = {"moving": False, "n_epochs": n_epochs, "detected_epochs": n_epochs}
+    if pmra is not None:
+        mu = math.hypot(pmra, pmdec)
+        pa = math.degrees(math.atan2(pmra, pmdec)) % 360.0
+        motion.update(
+            {
+                "moving": True,
+                "mu_mas_yr": mu,
+                "mu_err_mas_yr": pm_err,
+                "pa_deg": pa,
+            }
+        )
+
+    try:
+        catalog = CATALOG_CLIENT.match(
+            ra=ra,
+            dec=dec,
+            mjd=mjd,
+            sigma_arcsec=sigma,
+            detection_id=detection_id,
+            analysis_id=analysis_id,
+            pmra_mas_yr=pmra,
+            pmdec_mas_yr=pmdec,
+        )
+    except Exception as exc:  # noqa: BLE001 - 星表失败不能变成 500
+        catalog = {
+            "ok": False,
+            "catalog_status": "unavailable",
+            "catalog_reason": "CATALOG_CLIENT_ERROR",
+            "detail": str(exc),
+        }
+    try:
+        ident = catalog_layer.identify(catalog, target=target, motion=motion)
+    except Exception as exc:  # noqa: BLE001 - 分类失败降级，不伪造 known
+        ident = catalog_layer.insufficient("IDENTIFICATION_ERROR", catalog=catalog, detail=str(exc))
+
+    ident["detection_id"] = detection_id
+    ident["input"] = {
+        "ra": ra,
+        "dec": dec,
+        "mjd": mjd,
+        "sigma_arcsec": sigma,
+        "pmra_mas_yr": pmra,
+        "pmdec_mas_yr": pmdec,
+        "pm_err_mas_yr": pm_err,
+        "n_epochs": n_epochs,
+    }
+    if pmra is not None and pm_err is None:
+        ident.setdefault("caveats", []).append(
+            "提供了 PM 但未提供 PM 误差；未做 3σ 自行一致性判定，known 置信度降级。"
+        )
+    return ident
+
+
 def run_analysis(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ApiError(400, "BAD_JSON", "请求体必须是 JSON 对象。")
@@ -653,6 +864,9 @@ def run_analysis(payload: dict) -> dict:
     else:
         result = pipeline.run_pipeline(tgt, epochs, truth=truth, mode=mode_out)
     result["readiness_scope"] = "analysis"
+    # 阶段 D MVP：目标源级星表识别。B 不可用时只降级 identification，
+    # 不阻塞原有的运动分析（响应仍 200）。
+    identification = build_identification(result, tgt, detection_id=str(tgt.get("id") or "target"))
     # 阶段 A：源表放在顶层，与 epochs 的帧一一对应；result 保持运动指纹的原有结构。
     sources = result.pop("sources", []) or []
     if mode_out == "unavailable":
@@ -724,6 +938,7 @@ def run_analysis(payload: dict) -> dict:
         "result": result,
         "sources": sources,
         "sources_meta": sources_meta(epochs, sources, source_note),
+        "identification": identification,
         "common_wcs": {
             "crval1": common.crval1,
             "crval2": common.crval2,
@@ -850,6 +1065,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/identify":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                try:
+                    payload = json.loads(self.rfile.read(n) or b"{}")
+                except json.JSONDecodeError:
+                    raise ApiError(400, "BAD_JSON", "请求体不是合法 JSON。")
+                out = run_identify(payload)
+                return self._json(out)
+            except ApiError as exc:  # noqa: BLE001
+                return self._api_error(exc)
+            except Exception as exc:  # noqa: BLE001
+                import traceback
+
+                traceback.print_exc()
+                return self._json({"error": {"code": "INTERNAL", "message": str(exc)}}, 500)
         if u.path != "/api/analyze":
             return self._send(404, b"not found", "text/plain")
         try:
