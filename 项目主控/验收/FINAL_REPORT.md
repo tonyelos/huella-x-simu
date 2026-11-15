@@ -127,6 +127,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 三模块联动：[../架构/13_三模块联动计划.md](../架构/13_三模块联动计划.md)（View 时间窗口 → App `/cascade`/`/tracks` 过滤 → DB epochs/coverage）。见 [GUI链路测试.md](GUI链路测试.md) §7。
 
+外部数据包审查：[外部数据包审查_sphx_b.md](外部数据包审查_sphx_b.md)（原始 DR1 recorte 可用；6 个派生候选仅 2 历元、全部未识别，不能当发现）。
+
 模式化重构：[../架构/14_模式化重构计划.md](../架构/14_模式化重构计划.md)（View 只选区域/时间；MoveScope 同画布切换普通/级联/轨迹）。
 
 模式化重构已完成并验证：View 只剩“在 MoveScope 打开”；MoveScope 主画布模式栏切换普通/级联/轨迹，URL 不跳页。见 [GUI链路测试.md](GUI链路测试.md) §8。
