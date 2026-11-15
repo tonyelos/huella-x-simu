@@ -204,3 +204,49 @@ GET /api/v1/epochs?target_id=barnard&mjd_min=60916&mjd_max=60923
 截图：[mode-view-single-entry.png](evidence-ego/mode-view-single-entry.png)、
 [mode-cascade.png](evidence-ego/mode-cascade.png)、
 [mode-tracks.png](evidence-ego/mode-tracks.png)。
+
+---
+
+## 9. 时间选择 / 播放 / 时间轴优化
+
+### 时间选择
+
+- 新增 UTC 输入 `YYYY-MM-DD HH:MM` + “定位”；
+- 新增 `−1d / −1h / +1h / +1d`；
+- 输入 `2025-09-02 00:00`：
+  - 时钟 `2025-09-02 00:00:00 UTC`
+  - MJD `60920.0000`
+  - 窗口 `MJD 60555.000 – 61285.000`
+  - URL 同步 `t/t0/t1`
+- 所有入口统一走 `commitTime`；`state.mjd` / `globe.setClock` 各只有一处写入。
+
+### 时间轴
+
+5 个 UTC 刻度：
+
+```text
+2025-04-24 / 2025-09-03 / 2026-01-13 / 2026-05-24 / 2026-10-03
+```
+
+轴左标 `UTC 时间轴`；窗口仍单独显示。
+
+### 播放
+
+- 播放改为**观测序列**，不是连续时间；
+- 步长 0.5×=2.4s / 1×=1.2s / 2×=0.6s；
+- 地球 700ms 最短路径 tween，不再 216°/s 疯转；
+- 末尾停止、不循环；
+- 默认打开在最后一期，按播放会从第一个观测开始并提示：
+  `已从第一个观测开始播放`。
+
+实测：
+
+```text
+默认打开：MJD 61316.5299（最后）
+按播放 450ms：MJD 60789.7508（第一个观测）
+toast：已从第一个观测开始播放
+mode：观测序列
+JS error：无
+```
+
+截图：[time-axis-new.png](evidence-ego/time-axis-new.png)、[time-playing-new.png](evidence-ego/time-playing-new.png)、[time-default-play.png](evidence-ego/time-default-play.png)。
