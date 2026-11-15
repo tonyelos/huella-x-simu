@@ -80,7 +80,9 @@ console.log(JSON.stringify(out));
         self.assertEqual(resolved["status"], "known")
         self.assertIn("resolution=priority_known", resolved["caveats"])
         self.assertIn("origin", out["csv"].split("\n")[0])
+        self.assertIn("resolution,raw_statuses", out["csv"].split("\n")[0])
         self.assertTrue(out["csv"].startswith("\ufeff"))
+        self.assertIn("resolution", out["json"]["rows"][0])
         self.assertEqual(out["json"]["counts"]["rows"], 5)
         self.assertEqual(len(out["json"]["rows"]), 5)
 

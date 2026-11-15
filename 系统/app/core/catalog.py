@@ -39,6 +39,11 @@ MAX_CANDIDATES = 5
 # 一个 SPHEREx 像素（6.15″/px）。目标-星表偏移超过 1 px 时，
 # 位置匹配不足以支撑 known/ambiguous；这是通用门限，不针对目标名。
 CATALOG_OFFSET_LIMIT_ARCSEC = 6.15
+# 2MASS/WISE are cross-match derived from Gaia but keep survey-epoch positions
+# without a full PM solution. A strict Gaia-level 0.5" radius splits a single
+# physical source across catalogs; 2.0" keeps the sub-arcsecond-to-arcsecond
+# offsets together while still separating genuinely distinct sources.
+CATALOG_GROUP_RADIUS_ARCSEC = 2.0
 
 IDENTIFICATION_STATUSES = (
     "known_star",
@@ -204,7 +209,7 @@ def _crossmatch(candidate: dict) -> dict:
     }
 
 
-def group_candidates(candidates: list[dict], radius_arcsec: float = 0.5) -> list[dict]:
+def group_candidates(candidates: list[dict], radius_arcsec: float = CATALOG_GROUP_RADIUS_ARCSEC) -> list[dict]:
     """跨目录按位置去重；同一目录的不同候选不会被合并。
 
     2MASS/WISE 同一物理源可能与 Gaia 各一行：group 后只保留 1 个 primary
@@ -350,7 +355,7 @@ def normalize_match(raw: dict) -> dict:
         cand = _candidate(item)
         if cand is not None:
             candidates.append(cand)
-    candidates = group_candidates(candidates)
+    candidates = group_candidates(candidates, CATALOG_GROUP_RADIUS_ARCSEC)
 
     release = match.get("release") or raw.get("release")
     if not release and isinstance(raw.get("releases"), list):
@@ -1112,6 +1117,30 @@ def _identify(
     base = _base(catalog)
     base["catalog_status"] = catalog.get("catalog_status")
     base["n_candidates"] = n_candidates
+
+    # 多目录去重后，如果最近的物理组仍然偏离超过 1 个 SPHEREx 像素，
+    # 这不是 ambiguous 多候选，而是“没有可信的位置匹配”。
+    nearest_sep = None
+    for cand in candidates:
+        sep = _finite(cand.get("separation_arcsec"))
+        if sep is not None and (nearest_sep is None or sep < nearest_sep):
+            nearest_sep = sep
+    if nearest_sep is not None and nearest_sep > CATALOG_OFFSET_LIMIT_ARCSEC:
+        return {
+            **base,
+            "status": "insufficient_data",
+            "label_zh": LABELS_ZH["insufficient_data"],
+            "confidence": 0.0,
+            "catalog_id": None,
+            "separation_arcsec": nearest_sep,
+            "candidates": candidates,
+            "reason": "CATALOG_OFFSET_TOO_LARGE",
+            "quality": ["CATALOG_OFFSET_TOO_LARGE"],
+            "caveats": [
+                f"最近星表候选偏离 {nearest_sep:.2f}″，超过 {CATALOG_OFFSET_LIMIT_ARCSEC:.2f}″ 门限，"
+                "不能据此给 known/ambiguous。",
+            ],
+        }
 
     if n_candidates >= 2 or catalog.get("ambiguous"):
         best = min(
