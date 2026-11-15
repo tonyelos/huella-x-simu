@@ -23,6 +23,8 @@ const state = {
   hoverKey: null,
   lockRequest: null, // URL 带 lock=1 时，分析完成后按坐标重新锁定
   anyfieldSeq: 0, // C 覆盖握手请求序号：旧响应不得覆盖新坐标
+  anyfieldContext: null, // {ra, dec, fov} 当前 C 覆盖卡对应的查询
+  anyfieldSources: [],
 };
 
 const CLASS_META = {
@@ -89,8 +91,17 @@ const ANYFIELD_TEXT = {
 
 function hideAnyfield() {
   state.anyfieldSeq += 1;
+  state.anyfieldContext = null;
+  state.anyfieldSources = [];
   const card = $("#anyfieldCard");
   if (card) card.classList.add("hidden");
+  const btn = $("#loadCSourcesBtn");
+  if (btn) btn.classList.add("hidden");
+  const list = $("#anyfieldSources");
+  if (list) {
+    list.classList.add("hidden");
+    list.innerHTML = "";
+  }
 }
 
 function renderAnyfield(data, httpStatus) {
@@ -104,6 +115,18 @@ function renderAnyfield(data, httpStatus) {
   const label = ANYFIELD_TEXT[status] || "C 状态未知";
   badge.className = "anyfield-badge " + (status || "unavailable");
   badge.textContent = label;
+  const loadBtn = $("#loadCSourcesBtn");
+  const list = $("#anyfieldSources");
+  if (status === "ok" && httpStatus === 200) {
+    if (loadBtn) loadBtn.classList.remove("hidden");
+  } else {
+    if (loadBtn) loadBtn.classList.add("hidden");
+    if (list) {
+      list.classList.add("hidden");
+      list.innerHTML = "";
+    }
+    state.anyfieldSources = [];
+  }
   if (status === "ok" && httpStatus === 200) {
     const n = Number(data.n_epochs || 0);
     const method = data.footprint_method ? `<code>${esc(data.footprint_method)}</code>` : "—";
@@ -120,6 +143,13 @@ function renderAnyfield(data, httpStatus) {
 
 async function refreshAnyfield(ra, dec, fov) {
   const seq = ++state.anyfieldSeq;
+  state.anyfieldContext = { ra: Number(ra), dec: Number(dec), fov: Number(fov) };
+  state.anyfieldSources = [];
+  const list = $("#anyfieldSources");
+  if (list) {
+    list.classList.add("hidden");
+    list.innerHTML = "";
+  }
   const card = $("#anyfieldCard");
   const badge = $("#anyfieldBadge");
   const body = $("#anyfieldBody");
@@ -148,6 +178,118 @@ async function refreshAnyfield(ra, dec, fov) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function loadCSources() {
+  const ctx = state.anyfieldContext;
+  if (!ctx) return;
+  const btn = $("#loadCSourcesBtn");
+  const box = $("#anyfieldSources");
+  if (!btn || !box) return;
+  btn.disabled = true;
+  btn.textContent = "加载 C 源列表…";
+  box.classList.remove("hidden");
+  box.innerHTML = '<div class="anyfield-source-note">正在读取 C 已 ingest 的源…</div>';
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const url = `/api/sources?ra=${encodeURIComponent(ctx.ra)}&dec=${encodeURIComponent(ctx.dec)}&fov=${encodeURIComponent(ctx.fov)}&limit=200`;
+    const r = await fetch(url, { signal: ctrl.signal });
+    let data = {};
+    try {
+      data = await r.json();
+    } catch (e) {
+      data = {};
+    }
+    renderCSources(data, r.status);
+  } catch (e) {
+    renderCSources({ status: "unavailable" }, 0);
+  } finally {
+    clearTimeout(timer);
+    btn.disabled = false;
+    btn.textContent = "加载 C 源列表";
+  }
+}
+
+function renderCSources(data, httpStatus) {
+  const box = $("#anyfieldSources");
+  if (!box) return;
+  box.classList.remove("hidden");
+  const status = data && data.status;
+  if (httpStatus === 200 && status === "ok") {
+    const all = Array.isArray(data.sources) ? data.sources : [];
+    state.anyfieldSources = all;
+    if (!all.length) {
+      box.innerHTML = '<div class="anyfield-source-note">C 源列表为空：该场尚未 ingest，或源在搜索半径外。空列表不等于“没有天体”。</div>';
+      return;
+    }
+    const shown = all.slice(0, 50);
+    const head = `<div class="anyfield-source-head">C 源列表：${all.length} 个（显示前 ${shown.length}${data.truncated ? "，已截断" : ""}）</div>`;
+    const rows = shown.map((src, i) => {
+      const q = (src.quality || []).join(" · ") || (src.saturated ? "SATURATED" : "—");
+      const sid = esc(src.source_id || `#${i}`);
+      return `<button type="button" class="anyfield-source${state.locked && state.locked.c_source && state.locked.source_id === src.source_id ? " locked" : ""}" data-c-index="${i}" title="${sid}">
+        <span>S/N ${Number(src.snr || 0).toFixed(1)}</span>
+        <span>${Number(src.ra).toFixed(4)}°</span>
+        <span>${Number(src.dec).toFixed(4)}°</span>
+        <span class="q">${esc(q)}</span>
+      </button>`;
+    }).join("");
+    box.innerHTML = head + rows + '<div class="anyfield-source-note">点击源 → 锁定并调用 /api/identify。C 源列表只是检测源，不是 known/unknown 结论。</div>';
+    box.querySelectorAll(".anyfield-source").forEach((el) => {
+      el.addEventListener("click", () => {
+        const idx = Number(el.dataset.cIndex);
+        if (Number.isInteger(idx) && state.anyfieldSources[idx]) lockCSource(state.anyfieldSources[idx]);
+      });
+    });
+  } else if (status === "no_coverage" || httpStatus === 422) {
+    box.innerHTML = '<div class="anyfield-source-note">C 确认无覆盖，没有可加载的源列表。</div>';
+  } else if (status === "index_incomplete" || httpStatus === 503) {
+    box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用（索引不完整）；旧分析和本地源列表不受影响。</div>';
+  } else {
+    box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用；旧分析和本地源列表不受影响。</div>';
+  }
+}
+
+function lockCSource(src) {
+  if (!src) return;
+  const ra = Number(src.ra);
+  const dec = Number(src.dec);
+  if (!Number.isFinite(ra) || !Number.isFinite(dec)) return;
+  const sigma = 0.5; // C-P1A 未给质心误差；按 0.5″ 保守处理，结果会带 caveat。
+  state.locked = {
+    ra,
+    dec,
+    mjd: Number(src.mjd),
+    snr: Number(src.snr) || 0,
+    flux: Number(src.flux) || 0,
+    flux_err: Number(src.flux_err) || 0,
+    quality: Array.isArray(src.quality) ? src.quality : [],
+    saturated: !!src.saturated,
+    epoch_id: src.epoch_id || null,
+    frame: 0,
+    c_source: true,
+    source_id: String(src.source_id),
+    sigma_arcsec: sigma,
+  };
+  state.lockedIdentification = null;
+  state.lockedIdentificationKey = null;
+  state.selected = "custom";
+  $("#ra").value = ra.toFixed(6);
+  $("#dec").value = dec.toFixed(6);
+  renderPresets();
+  hideTip();
+  const u = new URL(location.href);
+  u.searchParams.set("target", "custom");
+  u.searchParams.set("ra", ra.toFixed(6));
+  u.searchParams.set("dec", dec.toFixed(6));
+  u.searchParams.set("fov", $("#fov").value);
+  u.searchParams.set("lock", "1");
+  history.replaceState(null, "", u.toString());
+  note(`已锁定 C 源 ${esc(src.source_id || "")}：RA ${ra.toFixed(6)}° · Dec ${dec.toFixed(6)}°；正在查询 Gaia DR3…`);
+  renderLockInfo();
+  renderCSources({ status: "ok", sources: state.anyfieldSources, truncated: false }, 200);
+  identifyLockedSource(state.locked);
 }
 
 function fmtArcsec(value, digits = 3) {
@@ -215,6 +357,8 @@ function bindUI() {
   $("#lockInfo").addEventListener("click", (e) => {
     if (e.target && e.target.id === "unlockBtn") clearLock();
   });
+  const loadBtn = $("#loadCSourcesBtn");
+  if (loadBtn) loadBtn.addEventListener("click", loadCSources);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") $("#theoryModal").classList.add("hidden");
     if (e.key === " " && state.analysis) {
@@ -1010,12 +1154,13 @@ async function identifyLockedSource(src) {
   if (!d || !src) return;
   const key = lockKey(src);
   const ep = (d.epochs || [])[Number(src.frame)] || (d.epochs || [])[0] || {};
-  const mjd = Number(ep.mjd);
+  const mjd = Number.isFinite(Number(src.mjd)) ? Number(src.mjd) : Number(ep.mjd);
   const scale = Number(d.common_wcs && d.common_wcs.scale_arcsec) || 6.15;
   const sx = Number(src.sigma_x);
   const sy = Number(src.sigma_y);
   const sigmaPx = Math.max(0.03, Math.hypot(Number.isFinite(sx) ? sx : 0.5, Number.isFinite(sy) ? sy : 0.5)) + 0.05;
-  const sigma = Math.max(0.3, sigmaPx * scale);
+  const givenSigma = Number(src.sigma_arcsec);
+  const sigma = Number.isFinite(givenSigma) && givenSigma > 0 ? givenSigma : Math.max(0.3, sigmaPx * scale);
   if (!Number.isFinite(mjd) || !Number.isFinite(Number(src.ra)) || !Number.isFinite(Number(src.dec))) return;
   state.lockedIdentifying = true;
   state.lockedIdentificationKey = key;
@@ -1025,7 +1170,9 @@ async function identifyLockedSource(src) {
     dec: Number(src.dec),
     mjd,
     sigma_arcsec: sigma,
-    detection_id: `${src.epoch_id || "epoch"}:${Number(src.x).toFixed(2)}:${Number(src.y).toFixed(2)}`,
+    detection_id: src.c_source
+      ? `c:${String(src.source_id)}`
+      : `${src.epoch_id || "epoch"}:${Number(src.x).toFixed(2)}:${Number(src.y).toFixed(2)}`,
   };
   try {
     const r = await fetch("/api/identify", {
@@ -1146,13 +1293,14 @@ function renderLockInfo() {
           ${caveats.map((c) => `<div class="catalog-note">${esc(c)}</div>`).join("")}
         </div>`
       : "";
+  const origin = s.c_source ? `C ingested · ${String(s.source_id || "")}` : `第 ${Number(s.frame) + 1} 期`;
   el.classList.remove("hidden");
   el.innerHTML = `
     <div class="lock-head"><span class="lock-dot"></span>已锁定源<button id="unlockBtn" class="ghost small" type="button">解除</button></div>
     <div class="lock-line">RA <b>${Number(s.ra).toFixed(6)}°</b> · Dec <b>${Number(s.dec).toFixed(6)}°</b></div>
-    <div class="lock-line">S/N <b>${Number(s.snr).toFixed(1)}</b> · flux ${Number(s.flux).toFixed(2)} ± ${Number(s.flux_err).toFixed(2)} · 第 ${Number(s.frame) + 1} 期 · ${SourcePick.qualityText(s)}</div>
+    <div class="lock-line">S/N <b>${Number(s.snr).toFixed(1)}</b> · flux ${Number(s.flux).toFixed(2)} ± ${Number(s.flux_err).toFixed(2)} · ${esc(origin)} · ${SourcePick.qualityText(s)}</div>
     ${catLine}
-    <div class="lock-hint">坐标已填入上方并用于分析；画布上为琥珀色锁定环。</div>`;
+    <div class="lock-hint">坐标已填入上方并用于分析；C 源由 /api/identify 单独比对星表。</div>`;
 }
 
 function syncURL() {

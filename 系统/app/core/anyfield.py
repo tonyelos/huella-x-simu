@@ -83,6 +83,9 @@ def _error_result(
         "coverage_method": body.get("coverage_method") or coverage.get("coverage_method"),
         "coverage": coverage or None,
         "epochs": [],
+        "sources": [],
+        "n_sources": 0,
+        "truncated": False,
         "index_completeness": body.get("index_completeness") or coverage.get("index_completeness"),
         "index_snapshot": body.get("index_snapshot"),
         "data_source": body.get("source"),
@@ -113,6 +116,9 @@ def _ok_result(body: dict, http_status: int = 200) -> dict:
         "coverage_method": body.get("coverage_method") or coverage.get("coverage_method"),
         "coverage": coverage or None,
         "epochs": epochs,
+        "sources": body.get("sources") if isinstance(body.get("sources"), list) else [],
+        "n_sources": len(body.get("sources")) if isinstance(body.get("sources"), list) else 0,
+        "truncated": bool(body.get("sources_truncated")),
         "index_completeness": body.get("index_completeness") or coverage.get("index_completeness"),
         "index_snapshot": body.get("index_snapshot"),
         "data_source": body.get("source"),
@@ -158,6 +164,101 @@ def normalize_field_response(status: int, body: dict | None) -> dict:
     )
 
 
+def _source(raw: dict) -> dict | None:
+    """C 源行的稳定子集；source_id 必须是字符串，缺 id 的源不伪造。"""
+    if not isinstance(raw, dict):
+        return None
+    source_id = raw.get("source_id")
+    if source_id is None or str(source_id).strip() == "":
+        return None
+    quality = raw.get("quality")
+    if not isinstance(quality, list):
+        quality = []
+    out = {
+        "source_id": str(source_id),
+        "epoch_id": raw.get("epoch_id"),
+        "obsid": raw.get("obsid"),
+        "detector": _int(raw.get("detector")),
+        "release": raw.get("release"),
+        "version": raw.get("version"),
+        "mjd": _finite(raw.get("mjd")),
+        "source_index": _int(raw.get("source_index")),
+        "x": _finite(raw.get("x")),
+        "y": _finite(raw.get("y")),
+        "ra": _finite(raw.get("ra")),
+        "dec": _finite(raw.get("dec")),
+        "flux": _finite(raw.get("flux")),
+        "flux_err": _finite(raw.get("flux_err")),
+        "snr": _finite(raw.get("snr")),
+        "saturated": bool(raw.get("saturated")),
+        "quality": [str(q) for q in quality],
+        "source_origin": str(raw.get("source_origin") or "ingested"),
+        "provenance": raw.get("provenance"),
+        "sep_deg": _finite(raw.get("sep_deg")),
+    }
+    return out
+
+
+def normalize_sources_response(status: int, body: dict | None) -> dict:
+    """把 C /api/v1/sources 收敛为稳定结果；200 空列表也是 ok。"""
+    body = body if isinstance(body, dict) else {}
+    if status == 200:
+        raw_sources = body.get("sources") if isinstance(body.get("sources"), list) else []
+        sources = []
+        for item in raw_sources:
+            src = _source(item)
+            if src is not None:
+                sources.append(src)
+        return {
+            "schema_version": ANYFIELD_SCHEMA_VERSION,
+            "service": ANYFIELD_SERVICE,
+            "ok": True,
+            "status": "ok",
+            "http_status": 200,
+            "n_sources": len(sources),
+            "count": len(sources),
+            "sources": sources,
+            "truncated": bool(body.get("sources_truncated")),
+            "source_origin": body.get("source_origin") or "ingested",
+            "provenance": body.get("provenance") or "real",
+            "index_completeness": body.get("index_completeness"),
+            "index_snapshot": body.get("index_snapshot"),
+            "query": body.get("query") if isinstance(body.get("query"), dict) else None,
+            "error_code": None,
+            "error": None,
+            "retryable": False,
+            "detail": None,
+        }
+    if status == 422:
+        error = body.get("error") if isinstance(body.get("error"), dict) else {}
+        return _error_result(
+            status="no_coverage",
+            code=str(error.get("code") or "NO_LOCAL_COVERAGE"),
+            detail=str(error.get("message") or "C 在 complete region 内确认无覆盖。"),
+            http_status=422,
+            retryable=False,
+            body=body,
+        )
+    if status == 503:
+        error = body.get("error") if isinstance(body.get("error"), dict) else {}
+        return _error_result(
+            status="index_incomplete",
+            code=str(error.get("code") or "INDEX_INCOMPLETE"),
+            detail=str(error.get("message") or "C 索引不完整或数据库不可用。"),
+            http_status=503,
+            retryable=True,
+            body=body,
+        )
+    return _error_result(
+        status="unavailable",
+        code=f"HTTP_{status}",
+        detail=f"C 返回未预期的 HTTP {status}。",
+        http_status=status,
+        retryable=status >= 500,
+        body=body,
+    )
+
+
 class AnyFieldClient:
     """C 的 stdlib HTTP 客户端；所有失败都转成结构化结果，不抛出。"""
 
@@ -171,6 +272,35 @@ class AnyFieldClient:
 
     def _resolved_timeout(self) -> float:
         return self.timeout if self.timeout is not None else anyfield_timeout_s()
+
+    def _get_json(self, path: str, params: dict):
+        """GET JSON；返回 (status, body, transport_error)。不抛未处理异常。"""
+        query = urllib.parse.urlencode(params)
+        url = self._resolved_base_url() + path + ("?" + query if query else "")
+        req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
+        opener = self._opener or urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(req, timeout=self._resolved_timeout()) as resp:
+                status = int(getattr(resp, "status", 200) or 200)
+                raw = resp.read()
+        except urllib.error.HTTPError as exc:
+            status = int(getattr(exc, "code", 0) or 0)
+            try:
+                raw = exc.read()
+            except Exception:  # noqa: BLE001 - 错误体只用于诊断
+                raw = b""
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            code = "ANYFIELD_TIMEOUT" if "timed out" in str(exc).lower() else "ANYFIELD_UNREACHABLE"
+            return None, None, {"code": code, "detail": str(exc), "retryable": True}
+        except Exception as exc:  # noqa: BLE001 - C 是可选增强，绝不拖垮 app
+            return None, None, {"code": "ANYFIELD_CLIENT_ERROR", "detail": str(exc), "retryable": True}
+        try:
+            body = json.loads(raw.decode("utf-8")) if raw else {}
+        except (UnicodeDecodeError, ValueError) as exc:
+            return status, None, {"code": "MALFORMED_RESPONSE", "detail": f"C 响应不是合法 JSON：{exc}", "retryable": True}
+        if not isinstance(body, dict):
+            return status, None, {"code": "MALFORMED_RESPONSE", "detail": "C 响应不是 JSON 对象。", "retryable": True}
+        return status, body, None
 
     def field(self, ra: float, dec: float, fov: float = 0.2) -> dict:
         ra = _finite(ra)
@@ -190,55 +320,59 @@ class AnyFieldClient:
                 detail="ra/dec/fov 超出 C 查询范围。",
                 retryable=False,
             )
-        query = urllib.parse.urlencode(
-            {"ra": f"{ra:.8f}", "dec": f"{dec:.8f}", "fov": f"{fov:.6f}"}
+        status, body, err = self._get_json(
+            "/api/v1/field",
+            {"ra": f"{ra:.8f}", "dec": f"{dec:.8f}", "fov": f"{fov:.6f}"},
         )
-        url = self._resolved_base_url() + "/api/v1/field?" + query
-        req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
-        opener = self._opener or urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        try:
-            with opener.open(req, timeout=self._resolved_timeout()) as resp:
-                status = int(getattr(resp, "status", 200) or 200)
-                raw = resp.read()
-        except urllib.error.HTTPError as exc:
-            status = int(getattr(exc, "code", 0) or 0)
-            try:
-                raw = exc.read()
-            except Exception:  # noqa: BLE001 - 错误体只用于诊断
-                raw = b""
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            # 连接拒绝、超时、DNS 等：C 不可用，不是“无覆盖”。
-            code = "ANYFIELD_TIMEOUT" if "timed out" in str(exc).lower() else "ANYFIELD_UNREACHABLE"
+        if err is not None:
             return _error_result(
                 status="unavailable",
-                code=code,
-                detail=str(exc),
-                retryable=True,
-            )
-        except Exception as exc:  # noqa: BLE001 - C 是可选增强，绝不拖垮 app
-            return _error_result(
-                status="unavailable",
-                code="ANYFIELD_CLIENT_ERROR",
-                detail=str(exc),
-                retryable=True,
-            )
-
-        try:
-            body = json.loads(raw.decode("utf-8")) if raw else {}
-        except (UnicodeDecodeError, ValueError) as exc:
-            return _error_result(
-                status="unavailable",
-                code="MALFORMED_RESPONSE",
-                detail=f"C 响应不是合法 JSON：{exc}",
+                code=err["code"],
+                detail=err["detail"],
                 http_status=status,
-                retryable=True,
-            )
-        if not isinstance(body, dict):
-            return _error_result(
-                status="unavailable",
-                code="MALFORMED_RESPONSE",
-                detail="C 响应不是 JSON 对象。",
-                http_status=status,
-                retryable=True,
+                retryable=bool(err.get("retryable", True)),
             )
         return normalize_field_response(status, body)
+
+    def sources(
+        self,
+        ra: float,
+        dec: float,
+        fov: float = 0.2,
+        epoch: str | None = None,
+        limit: int = 200,
+    ) -> dict:
+        ra = _finite(ra)
+        dec = _finite(dec)
+        fov = _finite(fov)
+        if ra is None or dec is None or fov is None:
+            return _error_result(
+                status="unavailable",
+                code="INVALID_QUERY",
+                detail="ra/dec/fov 必须是有限数字。",
+                retryable=False,
+            )
+        if not (0.0 <= ra < 360.0 and -90.0 <= dec <= 90.0 and 0.02 <= fov <= 3.0):
+            return _error_result(
+                status="unavailable",
+                code="INVALID_QUERY",
+                detail="ra/dec/fov 超出 C source 查询范围。",
+                retryable=False,
+            )
+        try:
+            limit_i = max(1, min(int(limit), 5000))
+        except (TypeError, ValueError):
+            limit_i = 200
+        params = {"ra": f"{ra:.8f}", "dec": f"{dec:.8f}", "fov": f"{fov:.6f}", "limit": str(limit_i)}
+        if epoch:
+            params["epoch"] = str(epoch)
+        status, body, err = self._get_json("/api/v1/sources", params)
+        if err is not None:
+            return _error_result(
+                status="unavailable",
+                code=err["code"],
+                detail=err["detail"],
+                http_status=status,
+                retryable=bool(err.get("retryable", True)),
+            )
+        return normalize_sources_response(status, body)

@@ -71,17 +71,92 @@ def _body_503():
     }
 
 
+def _body_sources():
+    return {
+        "schema_version": "1.0",
+        "service_version": "0.3.0",
+        "index_snapshot": "local-test",
+        "index_completeness": "partial",
+        "query": {"ra": RA, "dec": DEC, "fov": 0.2, "radius_deg": 0.1, "epoch": None, "limit": 200},
+        "source_origin": "ingested",
+        "provenance": "real",
+        "count": 2,
+        "sources": [
+            {
+                "source_id": "meas:2025W35_2A_0221_1:0",
+                "epoch_id": "2025W35_2A_0221_1",
+                "obsid": "2025W35_2A_0221_1",
+                "detector": 2,
+                "release": "dr1",
+                "version": "local-test",
+                "mjd": 60916.656,
+                "source_index": 0,
+                "x": 62.016,
+                "y": 8.682,
+                "ra": 269.45476104,
+                "dec": 4.8516613,
+                "flux": 128.28,
+                "flux_err": 1.46,
+                "snr": 161.68,
+                "saturated": False,
+                "quality": [],
+                "source_origin": "ingested",
+                "provenance": "real",
+                "sep_deg": 0.09,
+            },
+            {
+                "source_id": "meas:2025W35_2A_0221_1:1",
+                "epoch_id": "2025W35_2A_0221_1",
+                "obsid": "2025W35_2A_0221_1",
+                "detector": 2,
+                "release": "dr1",
+                "version": "local-test",
+                "mjd": 60916.656,
+                "source_index": 1,
+                "x": 80.0,
+                "y": 90.0,
+                "ra": 269.40,
+                "dec": 4.70,
+                "flux": 20.0,
+                "flux_err": 2.0,
+                "snr": 10.0,
+                "saturated": False,
+                "quality": ["EDGE"],
+                "source_origin": "ingested",
+                "provenance": "real",
+                "sep_deg": 0.2,
+            },
+        ],
+        "sources_truncated": False,
+        "generated_at": "2026-11-15T00:00:00Z",
+    }
+
+
 class _FakeC(BaseHTTPRequestHandler):
     def do_GET(self):
-        mode = getattr(self.server, "mode", "ok")
-        if mode == "timeout":
-            time.sleep(0.6)
-            return
-        status, payload = {
-            "ok": (200, _body_200()),
-            "422": (422, _body_422()),
-            "503": (503, _body_503()),
-        }.get(mode, (200, _body_200()))
+        if self.path.startswith("/api/v1/sources"):
+            mode = getattr(self.server, "source_mode", "ok")
+            if mode == "timeout":
+                time.sleep(0.6)
+                return
+            if mode == "empty":
+                payload = {**_body_sources(), "count": 0, "sources": []}
+                status = 200
+            else:
+                status, payload = {
+                    "ok": (200, _body_sources()),
+                    "503": (503, _body_503()),
+                }.get(mode, (200, _body_sources()))
+        else:
+            mode = getattr(self.server, "mode", "ok")
+            if mode == "timeout":
+                time.sleep(0.6)
+                return
+            status, payload = {
+                "ok": (200, _body_200()),
+                "422": (422, _body_422()),
+                "503": (503, _body_503()),
+            }.get(mode, (200, _body_200()))
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -151,6 +226,41 @@ class AnyFieldClientTest(FakeCServerMixin, unittest.TestCase):
         self.assertEqual(out["status"], "unavailable")
         self.assertIn(out["error_code"], {"ANYFIELD_TIMEOUT", "ANYFIELD_UNREACHABLE"})
 
+    def test_sources_200_parses_string_ids_and_fields(self):
+        self.c_httpd.source_mode = "ok"
+        out = self._client().sources(RA, DEC, 0.2, limit=50)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["n_sources"], 2)
+        self.assertEqual(len(out["sources"]), 2)
+        first = out["sources"][0]
+        self.assertIsInstance(first["source_id"], str)
+        self.assertEqual(first["source_id"], "meas:2025W35_2A_0221_1:0")
+        self.assertEqual(first["snr"], 161.68)
+        self.assertEqual(first["source_origin"], "ingested")
+        self.assertEqual(first["quality"], [])
+
+    def test_sources_empty_is_200_not_503(self):
+        self.c_httpd.source_mode = "empty"
+        out = self._client().sources(RA, DEC, 0.2)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["n_sources"], 0)
+        self.assertEqual(out["sources"], [])
+
+    def test_sources_503_is_index_incomplete(self):
+        self.c_httpd.source_mode = "503"
+        out = self._client().sources(RA, DEC, 0.2)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["status"], "index_incomplete")
+        self.assertNotEqual(out["status"], "no_coverage")
+
+    def test_sources_timeout_is_unavailable(self):
+        self.c_httpd.source_mode = "timeout"
+        out = af.AnyFieldClient(base_url=self.c_base, timeout=0.1).sources(RA, DEC, 0.2)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["status"], "unavailable")
+
     def test_connection_refused_is_unavailable(self):
         out = af.AnyFieldClient(base_url="http://127.0.0.1:1", timeout=0.3).field(RA, DEC, 0.2)
         self.assertFalse(out["ok"])
@@ -182,6 +292,57 @@ class AnyFieldClientTest(FakeCServerMixin, unittest.TestCase):
         self.assertEqual(af.anyfield_base_url(), "http://example.test:8798")
 
 
+class CSourceToIdentifyTest(FakeCServerMixin, unittest.TestCase):
+    def test_c_source_coordinates_can_be_identified(self):
+        self.c_httpd.source_mode = "ok"
+        result = af.AnyFieldClient(base_url=self.c_base, timeout=1.0).sources(RA, DEC, 0.2)
+        src = result["sources"][0]
+
+        class FakeB:
+            def match(self, **kwargs):
+                return {
+                    "ok": True,
+                    "catalog_status": "ok",
+                    "catalog": "gaia",
+                    "release": "gaia-dr3",
+                    "catalog_schema_version": 2,
+                    "n_candidates": 1,
+                    "ambiguous": False,
+                    "candidates": [
+                        {
+                            "catalog": "gaia",
+                            "catalog_id": "4472832130942575872",
+                            "source_id": "4472832130942575872",
+                            "release": "gaia-dr3",
+                            "separation_arcsec": 0.1,
+                            "pmra": -801.55,
+                            "pmdec": 10362.39,
+                            "pmra_error": 0.03,
+                            "pmdec_error": 0.04,
+                            "ruwe": 1.08485,
+                        }
+                    ],
+                    "persisted": False,
+                    "persisted_rows": 0,
+                }
+
+        with mock.patch.object(server, "CATALOG_CLIENT", FakeB()):
+            out = server.run_identify(
+                {
+                    "ra": src["ra"],
+                    "dec": src["dec"],
+                    "mjd": src["mjd"],
+                    "sigma_arcsec": 0.5,
+                    "detection_id": f"c:{src['source_id']}",
+                    "n_epochs": 1,
+                }
+            )
+        self.assertEqual(out["status"], "known_star", out)
+        self.assertEqual(out["source_id"], "4472832130942575872")
+        self.assertEqual(out["detection_id"], f"c:{src['source_id']}")
+        self.assertFalse(out["discovery_claim"])
+
+
 class FieldProxyTest(FakeCServerMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -201,6 +362,14 @@ class FieldProxyTest(FakeCServerMixin, unittest.TestCase):
 
     def _get(self, query):
         req = urllib.request.Request(self.base + "/api/field?" + query)
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read())
+
+    def _get_sources(self, query):
+        req = urllib.request.Request(self.base + "/api/sources?" + query)
         try:
             with urllib.request.urlopen(req, timeout=5) as r:
                 return r.status, json.loads(r.read())
@@ -238,6 +407,34 @@ class FieldProxyTest(FakeCServerMixin, unittest.TestCase):
         self.assertEqual(status, 503, body)
         self.assertEqual(body["status"], "unavailable")
 
+    def test_proxy_sources_200_real(self):
+        self.c_httpd.source_mode = "ok"
+        with mock.patch.object(server, "ANYFIELD_CLIENT", af.AnyFieldClient(base_url=self.c_base, timeout=1.0)):
+            status, body = self._get_sources(f"ra={RA}&dec={DEC}&fov=0.2&limit=50")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["status"], "ok")
+        self.assertEqual(body["n_sources"], 2)
+        self.assertIsInstance(body["sources"][0]["source_id"], str)
+
+    def test_proxy_sources_empty(self):
+        self.c_httpd.source_mode = "empty"
+        with mock.patch.object(server, "ANYFIELD_CLIENT", af.AnyFieldClient(base_url=self.c_base, timeout=1.0)):
+            status, body = self._get_sources(f"ra={RA}&dec={DEC}&fov=0.2")
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body["sources"], [])
+
+    def test_proxy_sources_503(self):
+        self.c_httpd.source_mode = "503"
+        with mock.patch.object(server, "ANYFIELD_CLIENT", af.AnyFieldClient(base_url=self.c_base, timeout=1.0)):
+            status, body = self._get_sources(f"ra={RA}&dec={DEC}&fov=0.2")
+        self.assertEqual(status, 503, body)
+        self.assertEqual(body["status"], "index_incomplete")
+
+    def test_proxy_sources_invalid_query_is_400(self):
+        status, body = self._get_sources("ra=999&dec=0")
+        self.assertEqual(status, 400, body)
+        self.assertEqual(body["error"]["code"], "INVALID_RA")
+
     def test_proxy_invalid_query_is_400(self):
         status, body = self._get("ra=999&dec=0")
         self.assertEqual(status, 400, body)
@@ -258,6 +455,13 @@ class AnyFieldUiCopyTest(unittest.TestCase):
         self.assertIn("C 服务不可用", js)
         self.assertIn("footprint_method", js)
         self.assertIn("n_epochs", js)
+        self.assertIn("loadCSourcesBtn", html)
+        self.assertIn("anyfieldSources", html)
+        self.assertIn("加载 C 源列表", html)
+        self.assertIn("C 源列表", js)
+        self.assertIn("/api/sources", js)
+        self.assertIn("lockCSource", js)
+        self.assertIn("identifyLockedSource", js)
         # 503 文案不能把 C 缺口说成“确认无覆盖”，也不能出现 SIM。
         self.assertNotIn("SIM", js[js.find("C 索引不完整") - 200 : js.find("C 索引不完整") + 200])
         self.assertIn("不改变现有本地数据/分析结论", js)
