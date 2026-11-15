@@ -403,6 +403,28 @@ THEORY_BLOCK = {
 }
 
 
+def sources_meta(epochs: list[Epoch], sources: list[dict], note: str | None = None) -> dict:
+    """源表的说明块：计数、每期数量与质量门槛（不改动源数据本身）。"""
+    by_frame: dict[int, int] = {}
+    for s in sources or []:
+        frame = int(s.get("frame", 0) or 0)
+        by_frame[frame] = by_frame.get(frame, 0) + 1
+    meta = {
+        "n": len(sources or []),
+        "n_selectable": sum(1 for s in (sources or []) if not (s.get("quality") or [])),
+        "n_by_frame": [by_frame.get(i, 0) for i in range(len(epochs or []))],
+        "common_frame_epoch_id": str(epochs[0].id) if epochs else None,
+        "quality_rule": {
+            "snr_min": pipeline.SOURCE_SNR_MIN,
+            "edge_margin_px": pipeline.SOURCE_EDGE_MARGIN_PX,
+            "duplicate_radius_px": pipeline.SOURCE_DUPLICATE_RADIUS_PX,
+        },
+    }
+    if note:
+        meta["note"] = note
+    return meta
+
+
 def run_sample_analysis(target: dict, fov: float) -> dict:
     """离线样本模式：两份切片来自不同天区，只做解析/渲染核验，不测目标。"""
     epochs = data_layer.load_sample_epochs()
@@ -461,6 +483,8 @@ def run_sample_analysis(target: dict, fov: float) -> dict:
         "epochs": frames_json,
         "stack_url": f"/api/frame/{aid}/stack.png",
         "result": result,
+        "sources": [],
+        "sources_meta": sources_meta(epochs, [], "样本模式只做解析/渲染核验，不做源探测（不伪造源）。"),
         "common_wcs": {
             "crval1": first.wcs.crval1,
             "crval2": first.wcs.crval2,
@@ -629,6 +653,14 @@ def run_analysis(payload: dict) -> dict:
     else:
         result = pipeline.run_pipeline(tgt, epochs, truth=truth, mode=mode_out)
     result["readiness_scope"] = "analysis"
+    # 阶段 A：源表放在顶层，与 epochs 的帧一一对应；result 保持运动指纹的原有结构。
+    sources = result.pop("sources", []) or []
+    if mode_out == "unavailable":
+        source_note = "取数失败模式未做源探测（sources 为空，不伪造源）。"
+    elif not sources:
+        source_note = "本次分析没有可用的检测源表。"
+    else:
+        source_note = "x/y 为 common WCS 第 1 期像素；quality 非空的源不可点选。"
     common = epochs[0].wcs
     imgs = pipeline.reproject_to_common(epochs, common)
     cube = np.stack(imgs, axis=0)
@@ -690,6 +722,8 @@ def run_analysis(payload: dict) -> dict:
         "epochs": frames_json,
         "stack_url": f"/api/frame/{aid}/stack.png",
         "result": result,
+        "sources": sources,
+        "sources_meta": sources_meta(epochs, sources, source_note),
         "common_wcs": {
             "crval1": common.crval1,
             "crval2": common.crval2,

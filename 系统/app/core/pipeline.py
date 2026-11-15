@@ -31,6 +31,12 @@ from .simulator import Epoch
 from .wcs import WCS, ARCSEC
 
 
+# 源表（前端点选）的质量门槛。只影响 /api/analyze 暴露的源，不影响运动测量本身。
+SOURCE_SNR_MIN = 5.0
+SOURCE_EDGE_MARGIN_PX = 3.0
+SOURCE_DUPLICATE_RADIUS_PX = 1.2
+
+
 @dataclass
 class Source:
     x: float  # 0-based
@@ -109,6 +115,107 @@ def detect_sources(epoch: Epoch, max_sources: int = 80, threshold: float = 6.0) 
         )
     out.sort(key=lambda s: -s.snr)
     return out[:max_sources]
+
+
+# ------------------------------------------------------------------ 源表（前端点选，阶段 A）
+
+
+def source_quality(src: Source, shape, snr_min: float = SOURCE_SNR_MIN,
+                   edge_margin: float = SOURCE_EDGE_MARGIN_PX) -> list[str]:
+    """单源质量标记（不含 common 网格检查）。
+
+    ``[]`` 表示可用于点选；带标记的源仍保留在响应里，前端灰显且不可点，
+    这样既不把边缘/饱和/低 S/N 源当成有效源，也不隐藏真实存在的探测。
+    """
+    h, w = int(shape[0]), int(shape[1])
+    flags: list[str] = []
+    if src.saturated:
+        flags.append("SATURATED")
+    if not math.isfinite(float(src.snr)) or float(src.snr) < snr_min:
+        flags.append("LOW_SNR")
+    if (
+        src.x < edge_margin
+        or src.y < edge_margin
+        or src.x > (w - 1) - edge_margin
+        or src.y > (h - 1) - edge_margin
+    ):
+        flags.append("EDGE")
+    return flags
+
+
+def dedupe_sources(cat: list[Source], radius: float = SOURCE_DUPLICATE_RADIUS_PX) -> list[Source]:
+    """合并同一峰附近重复检出的源，保留 S/N 最高的那个。
+
+    ``find_peaks`` 的 min_sep 是整数像素；两个相邻峰经 PSF 质心后可能落到同一位置。
+    这里只为显示的源表去重，不改动用于关联/测光的 catalogs。
+    """
+    kept: list[Source] = []
+    for s in sorted(cat, key=lambda s: (-float(s.snr), float(s.x), float(s.y))):
+        if all(math.hypot(s.x - k.x, s.y - k.y) >= radius for k in kept):
+            kept.append(s)
+    return kept
+
+
+def source_catalog(epochs: list[Epoch], catalogs: list[list[Source]], common: WCS | None = None) -> list[dict]:
+    """把每期探测源投影到公共 WCS 像素网格，产出前端可点选的源表。
+
+    ``x``/``y`` 是 common WCS（第 0 期）的 0-based 像素，与 ``reproject_to_common``
+    展示的帧一致；``ra``/``dec`` 是该源在本期 WCS 下的天球坐标。
+    """
+    if not epochs or not catalogs:
+        return []
+    common = common or epochs[0].wcs
+    naxis = int(getattr(common, "naxis1", 0) or 0)
+    if naxis <= 0:
+        naxis = int(np.asarray(epochs[0].image).shape[1])
+
+    out: list[dict] = []
+    for i, (ep, cat) in enumerate(zip(epochs, catalogs)):
+        if not cat:
+            continue
+        try:
+            kept = dedupe_sources(cat)
+            xs = np.array([s.x for s in kept], float)
+            ys = np.array([s.y for s in kept], float)
+            ra, dec = ep.wcs.pixel_to_world(xs + 1.0, ys + 1.0)
+            ra = np.atleast_1d(np.asarray(ra, float))
+            dec = np.atleast_1d(np.asarray(dec, float))
+            xr, yr = common.world_to_pixel(ra, dec)
+            cx = np.atleast_1d(np.asarray(xr, float)) - 1.0
+            cy = np.atleast_1d(np.asarray(yr, float)) - 1.0
+        except Exception:  # noqa: BLE001 - 源表是辅助信息，坏 WCS 不应拖垮分析
+            continue
+        if not (len(cx) == len(cy) == len(ra) == len(dec) == len(kept)):
+            continue
+        for j, src in enumerate(kept):
+            if not all(
+                np.isfinite(v) for v in (cx[j], cy[j], ra[j], dec[j], src.flux, src.flux_err, src.snr)
+            ):
+                continue
+            quality = source_quality(src, ep.image.shape)
+            if not (0.0 <= float(cx[j]) <= naxis - 1 and 0.0 <= float(cy[j]) <= naxis - 1):
+                quality = merge_quality(quality, ["OUT_OF_FRAME"])
+            out.append(
+                {
+                    "epoch_id": str(ep.id),
+                    "frame": i,
+                    "x": round(float(cx[j]), 3),
+                    "y": round(float(cy[j]), 3),
+                    "ra": round(float(ra[j]), 6),
+                    "dec": round(float(dec[j]), 6),
+                    "flux": float(src.flux),
+                    "flux_err": float(src.flux_err),
+                    "snr": round(float(src.snr), 2),
+                    "saturated": bool(src.saturated),
+                    "quality": quality,
+                    "sigma_x": round(float(src.sigma_x), 3),
+                    "sigma_y": round(float(src.sigma_y), 3),
+                    "method": str(src.method),
+                    "native_x": round(float(src.x), 3),
+                    "native_y": round(float(src.y), 3),
+                }
+            )
+    return out
 
 
 # ------------------------------------------------------------------ 相对定标
@@ -250,6 +357,8 @@ def run_pipeline(target: dict, epochs: list[Epoch], truth: dict | None = None, m
     # 目标的逐期测量
     tr_t, tr_xi, tr_eta, tr_sx, tr_sy, tr_f, tr_fe, tr_sat, tr_ids, tr_meta = ([] for _ in range(10))
     ref_wcs = epochs[0].wcs
+    # 阶段 A：把探测源暴露到公共网格，供前端绘制/点选（不改动测量流程）
+    sources = source_catalog(epochs, catalogs, ref_wcs)
     ra0, dec0 = target["ra"], target["dec"]
     target_xy_common = []
     out_of_frame_ids: list[str] = []
@@ -343,6 +452,7 @@ def run_pipeline(target: dict, epochs: list[Epoch], truth: dict | None = None, m
             "baseline_days": 0.0, "n_boot": 0, "multi_band": False, "bands": [],
             "quality": quality, "match_stats": match_stats,
             "n_detected_in_catalog": [len(c) for c in catalogs],
+            "sources": sources,
             "target_xy_common": [],
             "track": {"t": [], "xi": [], "eta": [], "sx": [], "sy": [], "flux": [], "flux_err": []},
             "measurements": [],
@@ -403,6 +513,7 @@ def run_pipeline(target: dict, epochs: list[Epoch], truth: dict | None = None, m
         for i in range(len(track))
     ]
     result["target_xy_common"] = target_xy_common
+    result["sources"] = sources
     result["track"] = {
         "t": [float(x) for x in track.t],
         "xi": [float(x) for x in track.xi],

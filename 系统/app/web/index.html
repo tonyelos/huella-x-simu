@@ -46,6 +46,7 @@
       </div>
       <button id="runBtn" class="primary"><span class="dot"></span>识别运动规律</button>
       <div id="sourceNote" class="note">选择目标或输入坐标后开始。</div>
+      <div id="lockInfo" class="lock-info hidden" aria-live="polite"></div>
     </section>
 
     <section>
@@ -88,6 +89,7 @@
         <span>blink · stack · difference · trajectory</span>
       </div>
       <div id="canvasLoading" class="canvas-loading hidden"><div class="spinner"></div><p>读取历元 / 测量 / 拟合…</p></div>
+      <div id="skyTip" class="sky-tip hidden"></div>
     </div>
     <div class="timeline">
       <button id="play" aria-label="播放">▶</button>
@@ -96,6 +98,8 @@
     </div>
     <div class="strip" id="strip"></div>
     <div class="legend">
+      <span><i class="sw source"></i>检测源 · 可点选</span>
+      <span><i class="sw locked"></i>已锁定</span>
       <span><i class="sw target"></i>目标测量位置</span>
       <span><i class="sw trail"></i>轨迹</span>
       <span class="muted" id="stretchNote">asinh · 6–99.6%</span>
@@ -178,6 +182,7 @@
   </div>
 </div>
 
+<script src="/static/source_pick.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
