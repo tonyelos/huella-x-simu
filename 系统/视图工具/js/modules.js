@@ -1,6 +1,6 @@
 // modules.js — evidence modules inside Sky View.
 // SkyBoT is a live external query; the band atlas is an instrument plan;
-// 3D is the actual Sky View globe plus a clearly-labelled legacy link.
+// The 3D globe is the workspace itself; there is no separate 3D module.
 // The modules read the current selection from the existing Sky View DOM.
 
 import { getLang } from './i18n.js';
@@ -18,7 +18,7 @@ const MOLECULES = [
 
 const STR = {
   en: {
-    dock: 'Evidence modules', skybot: 'SkyBoT', bands: 'Bands', three: '3D',
+    dock: 'Evidence modules', skybot: 'SkyBoT', bands: 'Bands',
     skybotKicker: 'LIVE · IMCCE',
     skybotTitle: 'Known solar-system objects',
     skybotDesc: 'Cone search around the current Sky View selection. External ephemerides; a non-match is not a discovery.',
@@ -35,13 +35,10 @@ const STR = {
     bandsDesc: 'The band plan and common molecular windows. This is not a measured spectrum; measured spectra stay in MoveScope when the pipeline has one.',
     bandsIdle: 'Select a molecule to highlight its expected window.',
     spectralLink: 'Open MoveScope analysis ↗', legacySpectral: 'Legacy spectral notes',
-    threeKicker: 'ACTUAL 3D CONTEXT', threeTitle: 'Where the selection sits',
-    threeDesc: 'The globe behind this panel is the actual Sky View context. The separate 3D spectral page is legacy and must not be read as a measured 3D spectrum.',
-    raLabel: 'RA', decLabel: 'DEC', fovLabel: 'FOV', hitsLabel: 'Local hits',
-    threeOpen: 'Open legacy 3D ↗', repo: 'Project repository'
+    repo: 'Project repository'
   },
   es: {
-    dock: 'Módulos de evidencia', skybot: 'SkyBoT', bands: 'Bandas', three: '3D',
+    dock: 'Módulos de evidencia', skybot: 'SkyBoT', bands: 'Bandas',
     skybotKicker: 'EN VIVO · IMCCE',
     skybotTitle: 'Objetos conocidos del sistema solar',
     skybotDesc: 'Búsqueda de cono alrededor de la selección actual de Sky View. Efemérides externas; un no_match no es un descubrimiento.',
@@ -58,10 +55,7 @@ const STR = {
     bandsDesc: 'El plan de bandas y ventanas moleculares comunes. No es un espectro medido; los espectros medidos permanecen en MoveScope cuando el pipeline los tiene.',
     bandsIdle: 'Selecciona una molécula para resaltar su ventana esperada.',
     spectralLink: 'Abrir análisis en MoveScope ↗', legacySpectral: 'Notas espectrales legacy',
-    threeKicker: 'CONTEXTO 3D REAL', threeTitle: 'Dónde está la selección',
-    threeDesc: 'El globo detrás de este panel es el contexto real de Sky View. La página 3D espectral separada es legacy y no debe leerse como un espectro 3D medido.',
-    raLabel: 'AR', decLabel: 'DEC', fovLabel: 'FOV', hitsLabel: 'Impactos locales',
-    threeOpen: 'Abrir 3D legacy ↗', repo: 'Repositorio del proyecto'
+    repo: 'Repositorio del proyecto'
   }
 };
 
@@ -118,8 +112,7 @@ function buildChrome() {
   dock.id = 'hx-dock'; dock.className = 'hx-dock';
   dock.innerHTML = `
     <button type="button" class="hx-dock-btn skybot" data-hx="skybot"><i></i><span>${T('skybot')}</span></button>
-    <button type="button" class="hx-dock-btn bands" data-hx="bands"><i></i><span>${T('bands')}</span></button>
-    <button type="button" class="hx-dock-btn three" data-hx="three"><i></i><span>${T('three')}</span></button>`;
+    <button type="button" class="hx-dock-btn bands" data-hx="bands"><i></i><span>${T('bands')}</span></button>`;
   document.body.appendChild(dock);
   const drawer = document.createElement('aside');
   drawer.id = 'hx-drawer'; drawer.className = 'hx-drawer'; drawer.setAttribute('aria-hidden', 'true');
@@ -162,7 +155,6 @@ function openModule(name, rerender = false) {
   const sel = readSelection();
   if (name === 'skybot') renderSkybot(sel);
   else if (name === 'bands') renderBands();
-  else renderThree(sel);
   if (!rerender) drawer.querySelector('.hx-drawer-body').scrollTop = 0;
 }
 
@@ -309,22 +301,7 @@ function renderBands() {
   ro.observe(c);
 }
 
-function renderThree(sel) {
-  setHead(T('threeKicker'), T('threeTitle'), T('threeDesc'));
-  const hits = $('hits-count')?.textContent || '—';
-  const body = $('hx-body');
-  body.innerHTML = `
-    <div class="hx-ctx">
-      <div><span>${T('raLabel')}</span><b>${sel.ra.toFixed(5)}°</b></div>
-      <div><span>${T('decLabel')}</span><b>${sel.dec.toFixed(5)}°</b></div>
-      <div><span>${T('fovLabel')}</span><b>${sel.fov.toFixed(2)}°</b></div>
-      <div><span>${T('hitsLabel')}</span><b>${esc(hits)}</b></div>
-    </div>
-    <div class="hx-actions">
-      <a class="hx-btn" href="http://127.0.0.1:8840/astro/modulos/m9_sitio/espectro3d.html" target="_blank" rel="noopener">${T('threeOpen')}</a>
-    </div>
-    <div class="hx-repo">${T('repo')} <a href="${REPO}" target="_blank" rel="noopener">Beltranpcb/HuellaX ↗</a></div>`;
-}
+
 
 buildChrome();
 renderDock();

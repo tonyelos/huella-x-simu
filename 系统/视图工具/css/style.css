@@ -485,7 +485,6 @@ html[lang="es"] .hits-head .count { display: block; margin-top: 2px; text-align:
 }
 .hx-dock-btn i { width: 4px; height: 4px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 7px var(--cyan); }
 .hx-dock-btn.skybot i { background: var(--amber); box-shadow: 0 0 7px var(--amber); }
-.hx-dock-btn.three i { background: var(--mint); box-shadow: 0 0 7px var(--mint); }
 
 .hx-drawer {
   position: fixed; right: 22px; top: 78px; bottom: 116px; width: 382px;
