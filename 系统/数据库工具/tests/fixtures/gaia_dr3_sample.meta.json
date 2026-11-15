@@ -9,14 +9,14 @@
   "source": "ESA Gaia Archive TAP cone search",
   "tap_url": "https://gea.esac.esa.int/tap-server/tap/sync",
   "archive_url": "https://gea.esac.esa.int/archive/",
-  "query_template": "SELECT g.source_id,\n       g.ra,\n       g.dec,\n       g.pmra,\n       g.pmdec,\n       g.parallax,\n       g.ra_error,\n       g.dec_error,\n       g.pmra_error,\n       g.pmdec_error,\n       g.phot_g_mean_mag,\n       g.bp_rp,\n       g.ref_epoch,\n       g.in_qso_candidates,\n       g.in_galaxy_candidates,\n       g.non_single_star,\n       t.original_ext_source_id AS twomass_id,\n       w.original_ext_source_id AS wise_id\nFROM gaiadr3.gaia_source AS g\nLEFT JOIN gaiadr3.tmass_psc_xsc_best_neighbour AS t ON t.source_id = g.source_id\nLEFT JOIN gaiadr3.allwise_best_neighbour AS w ON w.source_id = g.source_id\nWHERE CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', 0.00000000, 0.00000000, 0.25)) = 1\n  AND g.phot_g_mean_mag <= 20",
-  "fetched_at": "2026-11-15T00:47:26Z",
+  "query_template": "SELECT g.source_id,\n       g.ra,\n       g.dec,\n       g.pmra,\n       g.pmdec,\n       g.parallax,\n       g.ra_error,\n       g.dec_error,\n       g.pmra_error,\n       g.pmdec_error,\n       g.parallax_error,\n       g.ruwe,\n       g.astrometric_excess_noise,\n       g.phot_variable_flag,\n       g.phot_g_mean_mag,\n       g.bp_rp,\n       g.ref_epoch,\n       g.in_qso_candidates,\n       g.in_galaxy_candidates,\n       g.non_single_star,\n       t.original_ext_source_id AS twomass_id,\n       w.original_ext_source_id AS wise_id\nFROM gaiadr3.gaia_source AS g\nLEFT JOIN gaiadr3.tmass_psc_xsc_best_neighbour AS t ON t.source_id = g.source_id\nLEFT JOIN gaiadr3.allwise_best_neighbour AS w ON w.source_id = g.source_id\nWHERE CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', 0.00000000, 0.00000000, 0.25)) = 1\n  AND g.phot_g_mean_mag <= 20",
+  "fetched_at": "2026-11-15T02:28:40Z",
   "mode": "tap",
   "usage": "tests_only",
   "complete": false,
-  "note": "这是真实 Gaia DR3 TAP 结果的小样本，不是合成坐标；field_id 是导入时按预设场加的，source_id/ra/dec/pm 等保留 Gaia 原值。样本不完整（234 行，仅用于离线测试/回归，不得当作演示星表、全天星表或全量 Gaia），不能据此声称 Gaia 全量或 OSI 许可。field_counts 是当时 7 个场各 0.25°、G<=20 的真实 TAP 行数（合计 17,679），不是本 fixture 的行数。",
-  "field_counts_note": "field_counts 是 TAP 缓存场的完整计数；fixture 只含每场抽样后的 234 行，不完整。",
-  "n_fixture_rows": 234,
+  "note": "这是真实 Gaia DR3 TAP 结果的小样本，不是合成坐标；field_id 是导入时按预设场加的，source_id/ra/dec/pm 等保留 Gaia 原值。样本不完整（仅用于离线测试/回归，不得当作演示星表、全天星表或全量 Gaia），不能据此声称 Gaia 全量或 OSI 许可。field_counts 是当时 7 个场各 0.25°、G<=20 的真实 TAP 行数，不是本 fixture 的行数。",
+  "field_counts_note": "field_counts 是 TAP 缓存场的完整计数；fixture 只含每场抽样后的行，不完整。",
+  "n_fixture_rows": 250,
   "field_counts": {
     "barnard": 9603,
     "epsind_b": 813,
@@ -34,7 +34,30 @@
       "dec": 4.693365,
       "radius_deg": 0.25,
       "n_sources": 9603,
-      "provenance": "tap"
+      "provenance": "tap",
+      "photometry": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 3531,
+          "matched": 3532,
+          "j_available": 3532,
+          "h_available": 3532,
+          "k_available": 3532
+        },
+        "wise": {
+          "rows": 4584,
+          "matched": 3100,
+          "w1_available": 3100,
+          "w2_available": 3100
+        },
+        "errors": {}
+      }
     },
     {
       "field_id": "epsind_b",
@@ -43,7 +66,30 @@
       "dec": -56.782844,
       "radius_deg": 0.25,
       "n_sources": 813,
-      "provenance": "tap"
+      "provenance": "tap",
+      "photometry": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 532,
+          "matched": 468,
+          "j_available": 468,
+          "h_available": 468,
+          "k_available": 468
+        },
+        "wise": {
+          "rows": 2852,
+          "matched": 580,
+          "w1_available": 580,
+          "w2_available": 580
+        },
+        "errors": {}
+      }
     },
     {
       "field_id": "wise0855",
@@ -52,7 +98,30 @@
       "dec": -7.245147,
       "radius_deg": 0.25,
       "n_sources": 1210,
-      "provenance": "tap"
+      "provenance": "tap",
+      "photometry": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 814,
+          "matched": 780,
+          "j_available": 780,
+          "h_available": 780,
+          "k_available": 780
+        },
+        "wise": {
+          "rows": 3334,
+          "matched": 921,
+          "w1_available": 921,
+          "w2_available": 921
+        },
+        "errors": {}
+      }
     },
     {
       "field_id": "rw_aur",
@@ -61,7 +130,30 @@
       "dec": 30.401438,
       "radius_deg": 0.25,
       "n_sources": 4684,
-      "provenance": "tap"
+      "provenance": "tap",
+      "photometry": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 2811,
+          "matched": 2776,
+          "j_available": 2776,
+          "h_available": 2776,
+          "k_available": 2776
+        },
+        "wise": {
+          "rows": 4023,
+          "matched": 2486,
+          "w1_available": 2486,
+          "w2_available": 2486
+        },
+        "errors": {}
+      }
     },
     {
       "field_id": "r_dra",
@@ -70,7 +162,30 @@
       "dec": 66.754979,
       "radius_deg": 0.25,
       "n_sources": 651,
-      "provenance": "tap"
+      "provenance": "tap",
+      "photometry": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 452,
+          "matched": 405,
+          "j_available": 405,
+          "h_available": 405,
+          "k_available": 405
+        },
+        "wise": {
+          "rows": 2474,
+          "matched": 452,
+          "w1_available": 452,
+          "w2_available": 452
+        },
+        "errors": {}
+      }
     },
     {
       "field_id": "m101",
@@ -79,7 +194,30 @@
       "dec": 54.34895,
       "radius_deg": 0.25,
       "n_sources": 458,
-      "provenance": "tap"
+      "provenance": "tap",
+      "photometry": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 344,
+          "matched": 291,
+          "j_available": 291,
+          "h_available": 291,
+          "k_available": 291
+        },
+        "wise": {
+          "rows": 3582,
+          "matched": 292,
+          "w1_available": 292,
+          "w2_available": 292
+        },
+        "errors": {}
+      }
     },
     {
       "field_id": "campo_a",
@@ -88,8 +226,203 @@
       "dec": 30.67,
       "radius_deg": 0.25,
       "n_sources": 260,
-      "provenance": "tap"
+      "provenance": "tap",
+      "photometry": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 190,
+          "matched": 167,
+          "j_available": 167,
+          "h_available": 167,
+          "k_available": 167
+        },
+        "wise": {
+          "rows": 2925,
+          "matched": 221,
+          "w1_available": 221,
+          "w2_available": 221
+        },
+        "errors": {}
+      }
     }
   ],
+  "photometry": {
+    "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+    "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+    "license": {
+      "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+      "wise": "Public domain (NASA/JPL-Caltech)"
+    },
+    "note": "fixture 的 J/H/K/W1/W2 是真实 Gator 值（若该行有交叉证认且目录有值）；null 表示无匹配/无质量值，不是 0。每场覆盖率见 fields[].photometry。",
+    "fields": {
+      "barnard": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 3531,
+          "matched": 3532,
+          "j_available": 3532,
+          "h_available": 3532,
+          "k_available": 3532
+        },
+        "wise": {
+          "rows": 4584,
+          "matched": 3100,
+          "w1_available": 3100,
+          "w2_available": 3100
+        },
+        "errors": {}
+      },
+      "epsind_b": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 532,
+          "matched": 468,
+          "j_available": 468,
+          "h_available": 468,
+          "k_available": 468
+        },
+        "wise": {
+          "rows": 2852,
+          "matched": 580,
+          "w1_available": 580,
+          "w2_available": 580
+        },
+        "errors": {}
+      },
+      "wise0855": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 814,
+          "matched": 780,
+          "j_available": 780,
+          "h_available": 780,
+          "k_available": 780
+        },
+        "wise": {
+          "rows": 3334,
+          "matched": 921,
+          "w1_available": 921,
+          "w2_available": 921
+        },
+        "errors": {}
+      },
+      "rw_aur": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 2811,
+          "matched": 2776,
+          "j_available": 2776,
+          "h_available": 2776,
+          "k_available": 2776
+        },
+        "wise": {
+          "rows": 4023,
+          "matched": 2486,
+          "w1_available": 2486,
+          "w2_available": 2486
+        },
+        "errors": {}
+      },
+      "r_dra": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 452,
+          "matched": 405,
+          "j_available": 405,
+          "h_available": 405,
+          "k_available": 405
+        },
+        "wise": {
+          "rows": 2474,
+          "matched": 452,
+          "w1_available": 452,
+          "w2_available": 452
+        },
+        "errors": {}
+      },
+      "m101": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 344,
+          "matched": 291,
+          "j_available": 291,
+          "h_available": 291,
+          "k_available": 291
+        },
+        "wise": {
+          "rows": 3582,
+          "matched": 292,
+          "w1_available": 292,
+          "w2_available": 292
+        },
+        "errors": {}
+      },
+      "campo_a": {
+        "status": "ok",
+        "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+        "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+        "license": {
+          "2mass": "Public domain (2MASS/IPAC/Caltech/UMass)",
+          "wise": "Public domain (NASA/JPL-Caltech)"
+        },
+        "2mass": {
+          "rows": 190,
+          "matched": 167,
+          "j_available": 167,
+          "h_available": 167,
+          "k_available": 167
+        },
+        "wise": {
+          "rows": 2925,
+          "matched": 221,
+          "w1_available": 221,
+          "w2_available": 221
+        },
+        "errors": {}
+      }
+    }
+  },
   "fallback_fields": []
 }

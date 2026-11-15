@@ -18,7 +18,7 @@ from pathlib import Path
 from .connection import connect, utcnow
 from .star_config import STAR_SCHEMA_VERSION
 
-STAR_DDL = r"""
+STAR_TABLES_DDL = r"""
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS star_meta (
@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS catalog_field (
     radius_deg  REAL NOT NULL,
     n_sources   INTEGER NOT NULL DEFAULT 0,
     provenance  TEXT NOT NULL DEFAULT 'import',
+    photometry_json TEXT,
     imported_at TEXT NOT NULL,
     PRIMARY KEY (release_id, field_id)
 );
@@ -72,6 +73,10 @@ CREATE TABLE IF NOT EXISTS catalog_source (
     dec_error       REAL,
     pmra_error      REAL,
     pmdec_error     REAL,
+    parallax_error  REAL,
+    ruwe            REAL,
+    astrometric_excess_noise REAL,
+    phot_variable_flag TEXT,
     gmag            REAL,
     bp_rp           REAL,
     jmag            REAL,
@@ -127,7 +132,12 @@ CREATE TABLE IF NOT EXISTS catalog_import_run (
     errors_json TEXT
 );
 
+"""
+
+STAR_VIEWS_DDL = r"""
 -- 对外字段名用 SQL 标准别名；列名 twomass_id/wise_id 只是 SQLite 的合法标识符。
+DROP VIEW IF EXISTS v_catalog_source;
+DROP VIEW IF EXISTS v_catalog_release;
 CREATE VIEW IF NOT EXISTS v_catalog_source AS
 SELECT
     s.source_id,
@@ -142,6 +152,10 @@ SELECT
     s.dec_error,
     s.pmra_error,
     s.pmdec_error,
+    s.parallax_error,
+    s.ruwe,
+    s.astrometric_excess_noise,
+    s.phot_variable_flag,
     s.gmag,
     s.bp_rp,
     s.jmag,
@@ -181,8 +195,37 @@ GROUP BY r.release_id;
 """
 
 
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    try:
+        return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    except sqlite3.Error:
+        return set()
+
+
+def migrate_star_schema(conn: sqlite3.Connection) -> None:
+    """在旧 v1 库上做可空列迁移；只做 ADD COLUMN，不丢数据。"""
+    source_cols = _table_columns(conn, "catalog_source")
+    for name, typ in (
+        ("parallax_error", "REAL"),
+        ("ruwe", "REAL"),
+        ("astrometric_excess_noise", "REAL"),
+        ("phot_variable_flag", "TEXT"),
+    ):
+        if name not in source_cols:
+            conn.execute(f"ALTER TABLE catalog_source ADD COLUMN {name} {typ}")
+    field_cols = _table_columns(conn, "catalog_field")
+    if "photometry_json" not in field_cols:
+        conn.execute("ALTER TABLE catalog_field ADD COLUMN photometry_json TEXT")
+    release_cols = _table_columns(conn, "catalog_release")
+    if "citation" not in release_cols:
+        conn.execute("ALTER TABLE catalog_release ADD COLUMN citation TEXT")
+    conn.commit()
+
+
 def apply_star_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(STAR_DDL)
+    conn.executescript(STAR_TABLES_DDL)
+    migrate_star_schema(conn)
+    conn.executescript(STAR_VIEWS_DDL)
     conn.execute(
         "INSERT INTO star_meta(key, value) VALUES('schema_version', ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

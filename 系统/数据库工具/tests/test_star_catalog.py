@@ -1,7 +1,7 @@
 """阶段 B/D1 星表服务的离线回归测试（不联网、不依赖 7 MB 真实缓存）。
 
 测试数据是 `tests/fixtures/gaia_dr3_sample.csv`：真实 Gaia DR3 TAP 结果的小样本
-（234 行 / 7 个预设场），每次测试导入临时 SQLite。重点覆盖：
+（250 行 / 7 个预设场；行数由 N_FIXTURE_ROWS 动态校验），每次测试导入临时 SQLite。重点覆盖：
 
 - schema/列、release 版本/许可/参考历元；
 - Barnard 锥搜索与 known match：fixture 源按 PM 传播到 MJD 61210；
@@ -53,6 +53,7 @@ from db.star_schema import init_star_db
 from tools import import_gaia
 
 FIXTURE = DEFAULT_GAIA_FIXTURE
+N_FIXTURE_ROWS = len(read_fixture_rows(FIXTURE))
 BARNARD_SOURCE_ID = "4472832130942575872"  # Gaia DR3 Barnard's Star，pmdec≈10362 mas/yr
 PAIR_A = "4472820208110875136"  # 0.216″ 对（fixture 最近对）
 PAIR_B = "4472820212403005440"
@@ -134,12 +135,15 @@ class StarCatalogDataTest(unittest.TestCase):
             },
             "catalog_field": {
                 "release_id", "field_id", "field_name", "ra", "dec",
-                "radius_deg", "n_sources", "provenance", "imported_at",
+                "radius_deg", "n_sources", "provenance", "photometry_json",
+                "imported_at",
             },
             "catalog_source": {
                 "source_id", "release_id", "catalog_id", "ra", "dec",
                 "pmra", "pmdec", "parallax", "ra_error", "dec_error",
-                "pmra_error", "pmdec_error", "gmag", "bp_rp", "jmag", "hmag",
+                "pmra_error", "pmdec_error", "parallax_error", "ruwe",
+                "astrometric_excess_noise", "phot_variable_flag",
+                "gmag", "bp_rp", "jmag", "hmag",
                 "kmag", "w1", "w2", "twomass_id", "wise_id", "epoch_ref",
                 "healpix", "object_type", "provenance", "created_at",
             },
@@ -196,11 +200,11 @@ class StarCatalogDataTest(unittest.TestCase):
         self.assertEqual(rel["provenance"], "fixture")
         self.assertEqual(rel["cache_radius_deg"], 0.25)
         self.assertEqual(rel["mag_limit"], 20.0)
-        self.assertEqual(rel["n_sources"], 234)
+        self.assertEqual(rel["n_sources"], N_FIXTURE_ROWS)
 
         releases = self.cat.releases()
         self.assertEqual(len(releases), 1)
-        self.assertEqual(releases[0]["n_sources_actual"], 234)
+        self.assertEqual(releases[0]["n_sources_actual"], N_FIXTURE_ROWS)
         self.assertEqual(releases[0]["n_fields"], 7)
         fields = self.cat.fields(releases[0]["release_id"])
         self.assertEqual(len(fields), 7)
@@ -215,7 +219,7 @@ class StarCatalogDataTest(unittest.TestCase):
         ).fetchone()
         self.assertEqual(run["status"], "ok")
         self.assertEqual(run["mode"], "fixture")
-        self.assertEqual(run["n_sources"], 234)
+        self.assertEqual(run["n_sources"], N_FIXTURE_ROWS)
         self.assertEqual(run["n_fields"], 7)
 
         health = self.cat.health()
@@ -224,11 +228,11 @@ class StarCatalogDataTest(unittest.TestCase):
         self.assertEqual(health["schema_version"], CATALOG_API_VERSION)
         self.assertEqual(health["star_schema_version"], STAR_SCHEMA_VERSION)
         self.assertEqual(health["db_schema_version"], STAR_SCHEMA_VERSION)
-        self.assertEqual(health["counts"]["sources"], 234)
+        self.assertEqual(health["counts"]["sources"], N_FIXTURE_ROWS)
 
     def test_fixture_csv_is_real_gaia_sample_with_license(self):
         rows = self.rows
-        self.assertEqual(len(rows), 234)
+        self.assertEqual(len(rows), N_FIXTURE_ROWS)
         self.assertEqual(len({r["field_id"] for r in rows}), 7)
         self.assertTrue(all(isinstance(r["catalog_id"], str) for r in rows))
         # Gaia source_id 是 64 位整数；必须以字符串过 API（D-09）。
@@ -244,10 +248,9 @@ class StarCatalogDataTest(unittest.TestCase):
         self.assertEqual(meta["tap_url"], GAIA_TAP_SYNC)
         self.assertEqual(meta["archive_url"], "https://gea.esac.esa.int/archive/")
         self.assertRegex(meta["fetched_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-        self.assertEqual(meta["n_fixture_rows"], 234)
+        self.assertEqual(meta["n_fixture_rows"], N_FIXTURE_ROWS)
         self.assertEqual(sum(meta["field_counts"].values()), 17_679)
-        self.assertEqual(meta["fetched_at"], "2026-11-15T00:47:26Z")
-        # 不得把 234 行样本说成全量/完整星表。
+        # 不得把 fixture 样本说成全量/完整星表。
         self.assertIn("不完整", meta["note"])
         self.assertIn("仅", meta["note"])
         self.assertNotIn("OSI", meta["license"])
@@ -261,7 +264,7 @@ class StarCatalogDataTest(unittest.TestCase):
             with StarCatalog(db) as cat:
                 rel = cat.get_release("gaia")
                 self.assertEqual(rel["provenance"], "fixture")
-                self.assertEqual(rel["n_sources"], 234)
+                self.assertEqual(rel["n_sources"], N_FIXTURE_ROWS)
                 self.assertEqual(rel["license"], "CC BY-NC 3.0 IGO")
                 self.assertIn("Not a full-sky catalog", rel["notes"])
                 self.assertEqual(cat.health()["counts"]["fields"], 7)
@@ -332,6 +335,10 @@ class StarCatalogDataTest(unittest.TestCase):
         self.assertAlmostEqual(source["dec_propagated"], dec_p, places=6)
         self.assertEqual(source["epoch"], OBS_MJD)
         self.assertEqual(source["object_type"], "star")
+        self.assertAlmostEqual(source["ruwe"], 1.0848505, places=6)
+        self.assertAlmostEqual(source["astrometric_excess_noise"], 0.20481846, places=7)
+        self.assertEqual(source["phot_variable_flag"], "NOT_AVAILABLE")
+        self.assertGreater(source["parallax_error"], 0.0)
         self.assertFalse(source["ambiguous"])
 
         # 用 J2000 目标坐标 + 传播历元 + 大锥：Barnard 应出现在约 275″ 处。
@@ -401,6 +408,93 @@ class StarCatalogDataTest(unittest.TestCase):
         cand2 = out2["matches"][0]["candidates"][0]
         self.assertLess(cand2["pm_residual"], 0.01)
         self.assertLess(abs(cand2["pa_residual"]), 0.01)
+
+    def test_gaia_quality_flags_and_2mass_wise(self):
+        src = self.by_id[BARNARD_SOURCE_ID]
+        self.assertAlmostEqual(src["ruwe"], 1.0848505, places=6)
+        self.assertAlmostEqual(src["astrometric_excess_noise"], 0.20481846, places=7)
+        self.assertEqual(src["phot_variable_flag"], "NOT_AVAILABLE")
+        self.assertGreater(src["parallax_error"], 0.0)
+
+        row = self.cat.conn.execute(
+            """SELECT ruwe, astrometric_excess_noise, phot_variable_flag,
+                      parallax_error, jmag, hmag, kmag, w1, w2
+               FROM catalog_source WHERE catalog_id=?""",
+            (BARNARD_SOURCE_ID,),
+        ).fetchone()
+        self.assertAlmostEqual(row["ruwe"], src["ruwe"], places=9)
+        self.assertAlmostEqual(
+            row["astrometric_excess_noise"], src["astrometric_excess_noise"], places=9
+        )
+        self.assertEqual(row["phot_variable_flag"], src["phot_variable_flag"])
+        self.assertAlmostEqual(row["parallax_error"], src["parallax_error"], places=9)
+
+        # 有真实 IRSA Gator 2MASS/WISE 值的行：DB 必须与 fixture 的真实值一致。
+        photo = next(
+            r for r in self.rows
+            if r.get("jmag") is not None and r.get("w1") is not None
+        )
+        prow = self.cat.conn.execute(
+            "SELECT jmag, hmag, kmag, w1, w2 FROM catalog_source WHERE catalog_id=?",
+            (photo["catalog_id"],),
+        ).fetchone()
+        for key in ("jmag", "hmag", "kmag", "w1", "w2"):
+            if photo.get(key) is not None:
+                self.assertAlmostEqual(prow[key], photo[key], places=6)
+
+        # null 边界：Barnard 本身没有 2MASS/WISE 交叉证认，全部为 null，不是 0。
+        self.assertIsNone(src["twomass_id"])
+        self.assertIsNone(src["wise_id"])
+        self.assertIsNone(row["jmag"])
+        self.assertIsNone(row["hmag"])
+        self.assertIsNone(row["kmag"])
+        self.assertIsNone(row["w1"])
+        self.assertIsNone(row["w2"])
+
+        fields = self.cat.fields(self.release["release_id"])
+        ph = {f["field_id"]: f["photometry"] for f in fields}
+        self.assertEqual(ph["barnard"]["status"], "fixture_sample")
+        self.assertGreater(ph["barnard"]["2mass"]["j_available"], 0)
+        self.assertGreater(ph["barnard"]["wise"]["w1_available"], 0)
+
+    def test_schema_migration_from_v1(self):
+        with tempfile.TemporaryDirectory() as td:
+            db = Path(td) / "v1.sqlite"
+            init_star_db(db)
+            conn = sqlite3.connect(db)
+            try:
+                conn.execute("DROP VIEW IF EXISTS v_catalog_source")
+                conn.execute("DROP VIEW IF EXISTS v_catalog_release")
+                for col in (
+                    "parallax_error",
+                    "ruwe",
+                    "astrometric_excess_noise",
+                    "phot_variable_flag",
+                ):
+                    conn.execute(f"ALTER TABLE catalog_source DROP COLUMN {col}")
+                conn.execute("ALTER TABLE catalog_field DROP COLUMN photometry_json")
+                conn.execute(
+                    "UPDATE star_meta SET value='1' WHERE key='schema_version'"
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            init_star_db(db)  # 应幂等迁移，不删已有库
+            with StarCatalog(db) as cat:
+                self.assertEqual(cat.schema_version(), STAR_SCHEMA_VERSION)
+                cols = {
+                    r["name"]
+                    for r in cat.conn.execute("PRAGMA table_info(catalog_source)")
+                }
+                self.assertTrue(
+                    {"parallax_error", "ruwe", "astrometric_excess_noise", "phot_variable_flag"} <= cols
+                )
+                field_cols = {
+                    r["name"]
+                    for r in cat.conn.execute("PRAGMA table_info(catalog_field)")
+                }
+                self.assertIn("photometry_json", field_cols)
 
     def test_ambiguous_pair_0216_arcsec(self):
         a = self.by_id[PAIR_A]
@@ -533,7 +627,49 @@ class StarCatalogDataTest(unittest.TestCase):
             self.assertAlmostEqual(seps[1], 0.21627, places=4)
             self.assertTrue(all(r["confidence"] is not None for r in rows))
 
-            # 没有候选时不写行。
+            # 幂等：同一 analysis_id 整批重放不会累积重复行。
+            out_again = cat.match(
+                [
+                    {
+                        "detection_id": "pair-0216",
+                        "ra": a["ra"],
+                        "dec": a["dec"],
+                        "mjd": GAIA_EPOCH_MJD,
+                        "sigma_arcsec": 0.05,
+                    }
+                ],
+                radius_arcsec=0.5,
+                persist=True,
+                analysis_id="analysis:pair-0216",
+            )
+            self.assertEqual(out_again["persisted"], 2)
+            repeated = cat.conn.execute(
+                "SELECT COUNT(*) FROM catalog_match WHERE analysis_id=?",
+                ("analysis:pair-0216",),
+            ).fetchone()[0]
+            self.assertEqual(repeated, 2)
+
+            # 回滚：伪 source 让 INSERT 失败；上一版 2 行必须原样保留。
+            with self.assertRaises(CatalogError):
+                cat.record_matches(
+                    "analysis:pair-0216",
+                    [
+                        {
+                            "index": 0,
+                            "ambiguous": False,
+                            "candidates": [
+                                {"source_id": "gaia-dr3:does-not-exist", "sep_arcsec": 1.0}
+                            ],
+                        }
+                    ],
+                )
+            after_rollback = cat.conn.execute(
+                "SELECT COUNT(*) FROM catalog_match WHERE analysis_id=?",
+                ("analysis:pair-0216",),
+            ).fetchone()[0]
+            self.assertEqual(after_rollback, 2)
+
+            # 没有候选时清空该 analysis 的旧行（整批重放语义）。
             self.assertEqual(cat.record_matches("analysis:empty", [{"index": 0, "candidates": []}]), 0)
             cat.conn.execute(
                 "DELETE FROM catalog_match WHERE analysis_id LIKE 'analysis:%'"
@@ -565,7 +701,7 @@ class StarCatalogHTTPTest(unittest.TestCase):
         self.assertTrue(data["ok"])
         self.assertEqual(data["service"], "star-catalog")
         self.assertEqual(data["schema_version"], CATALOG_API_VERSION)
-        self.assertEqual(data["counts"]["sources"], 234)
+        self.assertEqual(data["counts"]["sources"], N_FIXTURE_ROWS)
         self.assertEqual(data["releases"][0]["license"], "CC BY-NC 3.0 IGO")
 
         code, data = http_json(self.port, "GET", "/api/v1/catalog/releases")
@@ -581,7 +717,7 @@ class StarCatalogHTTPTest(unittest.TestCase):
 
         code, data = http_json(self.port, "GET", "/api/v1/catalog/stats")
         self.assertEqual(code, 200)
-        self.assertEqual(data["counts"]["sources"], 234)
+        self.assertEqual(data["counts"]["sources"], N_FIXTURE_ROWS)
 
     def test_http_cone_barnard(self):
         src = read_fixture_rows(FIXTURE)
@@ -605,8 +741,15 @@ class StarCatalogHTTPTest(unittest.TestCase):
         self.assertEqual(data["epoch_ref_mjd"], 57388.5)
         self.assertEqual(data["catalog_status"], "partial")
         self.assertEqual(data["count"], 1)
-        self.assertEqual(data["sources"][0]["catalog_id"], BARNARD_SOURCE_ID)
-        self.assertLess(data["sources"][0]["sep_arcsec"], 0.01)
+        source = data["sources"][0]
+        self.assertEqual(source["catalog_id"], BARNARD_SOURCE_ID)
+        self.assertLess(source["sep_arcsec"], 0.01)
+        self.assertAlmostEqual(source["ruwe"], 1.0848505, places=6)
+        self.assertAlmostEqual(source["astrometric_excess_noise"], 0.20481846, places=7)
+        self.assertEqual(source["phot_variable_flag"], "NOT_AVAILABLE")
+        self.assertGreater(source["parallax_error"], 0.0)
+        self.assertIsNone(source["jmag"])
+        self.assertIsNone(source["w1"])
 
     def test_http_cone_unavailable_and_bad_request(self):
         code, data = http_json(
@@ -662,7 +805,11 @@ class StarCatalogHTTPTest(unittest.TestCase):
         self.assertEqual(data["releases"][0]["license"], "CC BY-NC 3.0 IGO")
         item = data["matches"][0]
         self.assertEqual(item["status"], "single_candidate")
-        self.assertEqual(item["candidates"][0]["catalog_id"], BARNARD_SOURCE_ID)
+        candidate = item["candidates"][0]
+        self.assertEqual(candidate["catalog_id"], BARNARD_SOURCE_ID)
+        self.assertAlmostEqual(candidate["ruwe"], 1.0848505, places=6)
+        self.assertEqual(candidate["phot_variable_flag"], "NOT_AVAILABLE")
+        self.assertIsNone(candidate["jmag"])
 
         pair = next(r for r in rows if r["catalog_id"] == PAIR_A)
         code, data = http_json(
@@ -741,6 +888,55 @@ class StarCatalogHTTPTest(unittest.TestCase):
         finally:
             conn.close()
         self.assertEqual(n, 2)
+
+        # 同一 analysis_id 重放：persisted 仍为 2，不累积重复行。
+        code, data_again = http_json(
+            self.port,
+            "POST",
+            "/api/v1/catalog/match",
+            {
+                "detections": [
+                    {
+                        "detection_id": "http-persist",
+                        "ra": pair["ra"],
+                        "dec": pair["dec"],
+                        "mjd": GAIA_EPOCH_MJD,
+                        "sigma_arcsec": 0.05,
+                    }
+                ],
+                "radius_arcsec": 0.5,
+                "persist": True,
+                "analysis_id": "analysis:http-persist",
+            },
+        )
+        self.assertEqual(code, 200)
+        self.assertEqual(data_again["persisted"], 2)
+        conn = sqlite3.connect(self.db)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM catalog_match WHERE analysis_id=?",
+                ("analysis:http-persist",),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(n, 2)
+
+        # persist=true 缺 analysis_id → 400，不写库。
+        code, bad = http_json(
+            self.port,
+            "POST",
+            "/api/v1/catalog/match",
+            {
+                "detections": [
+                    {"ra": pair["ra"], "dec": pair["dec"], "mjd": GAIA_EPOCH_MJD}
+                ],
+                "persist": True,
+            },
+        )
+        self.assertEqual(code, 400)
+        self.assertEqual(bad["code"], "BAD_REQUEST")
+        self.assertIn("analysis_id", bad["message"])
+
         code, stats = http_json(self.port, "GET", "/api/v1/catalog/stats")
         self.assertEqual(code, 200)
         self.assertGreaterEqual(stats["counts"]["matches"], 2)

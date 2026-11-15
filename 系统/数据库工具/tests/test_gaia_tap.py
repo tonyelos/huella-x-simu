@@ -14,6 +14,7 @@ from db.gaia_tap import (
     GaiaTAPError,
     fetch_gaia_cone,
     fetch_gaia_count,
+    parse_gaia_csv,
 )
 
 _DATA_2 = (
@@ -51,6 +52,16 @@ class GaiaTAPClientTest(unittest.TestCase):
         self.assertIn("source_id", raw)
         self.assertIn("CIRCLE", query)
         self.assertEqual({r["catalog_id"] for r in rows}, {"1001", "1002"})
+
+    def test_quality_columns_are_parsed(self):
+        rows = parse_gaia_csv(
+            "source_id,ra,dec,parallax_error,ruwe,astrometric_excess_noise,phot_variable_flag\n"
+            "1,10,20,0.04,1.08,0.20,NOT_AVAILABLE\n"
+        )
+        self.assertEqual(rows[0]["parallax_error"], 0.04)
+        self.assertEqual(rows[0]["ruwe"], 1.08)
+        self.assertEqual(rows[0]["astrometric_excess_noise"], 0.20)
+        self.assertEqual(rows[0]["phot_variable_flag"], "NOT_AVAILABLE")
 
     def test_truncated_cone_raises_not_silently_partial(self):
         # COUNT=2 但 join 查询只回 1 行 → 必须失败，不能落成“完整场缓存”。
