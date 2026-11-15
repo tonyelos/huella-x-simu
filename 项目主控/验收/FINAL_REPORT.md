@@ -117,12 +117,14 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 - 测试：app **171 tests OK**（含 fake catalog HTTP、503/partial、source_id 字符串、UI 文案）；DB **103 tests OK**。
 - 边界：B 的 7 MB Gaia 按场缓存不提交；真实演示需先 `import_gaia.py --rebuild`；RUWE/2MASS/WISE/持久化尚未接入。
 
-### 2.7 C-MVP 本地覆盖骨架
+### 2.7 C-P0 本地覆盖骨架
 
 - 独立只读服务 `系统/anyfield/`，默认 8798；只读 `catalog.sqlite`，不联网、不写库。
-- `/api/v1/field`：7 个预设场 200 + 本地 EpochRef；未知天区 **503 `INDEX_INCOMPLETE`**（不做 422 强断言）；顶部 `coverage_mode=center_approx`。
-- `/api/v1/health`/`/api/v1/epochs` 兼容；无 SIM/synthetic；测试 **18 tests OK**。
-- 明确边界：真实 WCS 足迹、按需 IRSA/S3、新历元 ingest、422 强断言仍未实现；C 仍不是“任意天区完成”。
+- **74 条有 header 的历元**用真实 WCS 四角足迹（TAN；未应用 SIP）；其余 5,819 帧仍 `center_approx`。
+- `/api/v1/field`：7 个预设场 200 + 本地 EpochRef；未知天区 **503 `INDEX_INCOMPLETE`**；422 只在显式 `coverage_region.complete=1` 的 fixture 中成立，生产库不假装“确认空白”。
+- `POST /api/v1/ingest`：本地 JSON manifest（metadata/measurement），202 异步、幂等、软回滚；**不下载像素、不做 FITS 检测/重投影**。
+- 测试 **29 tests OK**；app 171、DB 103。
+- 边界：完整天空索引、S3/IRSA、像素 ingest、重投影、series 重算、A/B/D 集成仍未实现；C 不是“任意天区完成”。
 
 ## 3. 工具定义（最终）
 
@@ -199,7 +201,7 @@ cd ../视图工具 && $PY tools/smoke.py
 
 1. 真实数据补齐：Barnard 未饱和波段、WISE 坐标歧义、RW/R Dra 更多真实历元。
 2. 102 波段/光谱：大切片 + LVF 插值；按 6 阵列合图。
-3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 171 tests）；C-MVP 本地覆盖骨架（8798，18 tests）已合并；C 的按需取数/增量仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
+3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 171 tests）；C-P0 本地覆盖骨架（8798，29 tests）已合并；C 的按需取数/像素 ingest 仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
 4. T1 截图自动化（Playwright/ego-browser 可选）。
 5. T6 readiness 阈值统一（180d vs 0.6yr）或删除旧字段。
 6. 公网部署：鉴权、限流、CORS 收紧、`include_truth=0`。
