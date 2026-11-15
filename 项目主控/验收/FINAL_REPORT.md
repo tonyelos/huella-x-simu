@@ -63,7 +63,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 | 组件 | 命令 | 结果 |
 |---|---|---|
-| app | `cd 系统/app && $PY -m unittest discover -s tests` | **171 tests OK** |
+| app | `cd 系统/app && $PY -m unittest discover -s tests` | **185 tests OK** |
 | DB | `cd 系统/数据库工具 && $PY -m unittest discover -s tests -t .` | **103 tests OK** |
 | DB 完整性 | `$PY cli.py verify --deep` | quick ok / 0 FK / 0 missing / 0 corrupt |
 | DB 导出对账 | `check_compat.py --root ..` | fields 5,893 / epochs 74 / targets 7 / weeks 151 全过 |
@@ -105,7 +105,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 - 自定义 Barnard = REAL/4/L2/S；自定义 RW = HYBRID/8/L2/V；未覆盖 = SIM + `NO_LOCAL_COVERAGE`。
 - sample 模式 = SAMPLE/U；非法 FOV 有可读提示、无 500；四种显示模式可切换；播放 slider 0→3。
 - 视图深链 `?ra=269.452077&dec=4.693365&fov=0.5&target=barnard` → 选中 Barnard；“在 MoveScope 打开”弹窗 → REAL/L2/S。
-- Ego 发现 1 个 P1 provenance 文案矛盾（Barnard fov=0.5 的“6 天/204 天”），已由 app `5d52472` 修复；修复后 T1 仍 45/0/1，app **171 tests**。
+- Ego 发现 1 个 P1 provenance 文案矛盾（Barnard fov=0.5 的“6 天/204 天”），已由 app `5d52472` 修复；修复后 T1 仍 45/0/1，app **185 tests**。
 
 截图：[evidence-ego/](evidence-ego/)。
 
@@ -114,7 +114,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
 - 状态：`known_star / ambiguous / uncatalogued_candidate / insufficient_data / catalog_unavailable`；全部 `discovery_claim=false`。
 - 已知源显示 `source_id`/release/角距/置信度；未匹配只标“未收录候选”，不是“新恒星”。
-- 测试：app **171 tests OK**（含 fake catalog HTTP、503/partial、source_id 字符串、UI 文案）；DB **103 tests OK**。
+- 测试：app **185 tests OK**（含 fake catalog HTTP、503/partial、source_id 字符串、UI 文案）；DB **103 tests OK**。
 - 边界：B 的 7 MB Gaia 按场缓存不提交；真实演示需先 `import_gaia.py --rebuild`；RUWE/2MASS/WISE/持久化尚未接入。
 
 ### 2.7 C-P0 本地覆盖骨架
@@ -123,8 +123,15 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 - **74 条有 header 的历元**用真实 WCS 四角足迹（TAN；未应用 SIP）；其余 5,819 帧仍 `center_approx`。
 - `/api/v1/field`：7 个预设场 200 + 本地 EpochRef；未知天区 **503 `INDEX_INCOMPLETE`**；422 只在显式 `coverage_region.complete=1` 的 fixture 中成立，生产库不假装“确认空白”。
 - `POST /api/v1/ingest`：本地 JSON manifest（metadata/measurement），202 异步、幂等、软回滚；**不下载像素、不做 FITS 检测/重投影**。
-- 测试 **29 tests OK**；app 171、DB 103。
+- 测试 **29 tests OK**；app 185、DB 103。
 - 边界：完整天空索引、S3/IRSA、像素 ingest、重投影、series 重算、A/B/D 集成仍未实现；C 不是“任意天区完成”。
+
+### 2.8 D-C P0 覆盖握手
+
+- app 新增 `core/anyfield.py` + `GET /api/field` 代理，调用 C 8798；超时 1.5s。
+- 200：显示 C 覆盖（Barnard 4 期、`footprint_method=wcs_header`）；422：确认无覆盖；503：显示“C 索引不完整，使用现有本地数据”；连接失败：显示 C 不可用。
+- **不阻塞分析**、不改变 A 源列表/D 识别；C 失败只影响覆盖卡。
+- 边界：C-native 源列表/像素/增量仍未做（C-P1）。
 
 ## 3. 工具定义（最终）
 
@@ -201,7 +208,7 @@ cd ../视图工具 && $PY tools/smoke.py
 
 1. 真实数据补齐：Barnard 未饱和波段、WISE 坐标歧义、RW/R Dra 更多真实历元。
 2. 102 波段/光谱：大切片 + LVF 插值；按 6 阵列合图。
-3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 171 tests）；C-P0 本地覆盖骨架（8798，29 tests）已合并；C 的按需取数/像素 ingest 仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
+3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 185 tests）；C-P0 本地覆盖骨架（8798，29 tests）已合并；C 的按需取数/像素 ingest 仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
 4. T1 截图自动化（Playwright/ego-browser 可选）。
 5. T6 readiness 阈值统一（180d vs 0.6yr）或删除旧字段。
 6. 公网部署：鉴权、限流、CORS 收紧、`include_truth=0`。
