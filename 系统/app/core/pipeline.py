@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -79,8 +79,19 @@ def epoch_products(epoch: Epoch):
     return img, var, flags, bad, soft, med, std, noise
 
 
-def detect_sources(epoch: Epoch, max_sources: int = 80, threshold: float = 6.0) -> list[Source]:
+def detect_sources(
+    epoch: Epoch,
+    max_sources: int = 80,
+    threshold: float = 6.0,
+    mask: np.ndarray | None = None,
+) -> list[Source]:
+    """单历元匹配滤波检测；``mask`` 为 True 的像素不参与探测/质心。"""
     img, var, flags, bad, soft, med, std, noise = epoch_products(epoch)
+    if mask is not None:
+        mask = np.asarray(mask, dtype=bool)
+        if mask.shape != img.shape:
+            raise ValueError("mask 必须与 image 同形")
+        bad = bad | mask
     snr = ph.matched_filter(img, noise, bad, sigma_px=0.7)
     peaks = ph.find_peaks(snr, threshold=threshold, min_sep=2, bad_mask=bad)
     out: list[Source] = []
@@ -561,3 +572,166 @@ def reproject_to_common(epochs: list[Epoch], common: WCS | None = None, order: i
         res[ok] = v[ok]
         out.append(res)
     return out
+
+
+# ------------------------------------------------------------------ 级联/残差层
+
+
+def _local_median(image: np.ndarray, x: int, y: int, r_in: int = 2, r_out: int = 5) -> float:
+    """L1 源周围环带的中值；用于局部背景替换，避免全图中值被亮源抬起。"""
+    h, w = image.shape
+    y0, y1 = max(0, y - r_out), min(h, y + r_out + 1)
+    x0, x1 = max(0, x - r_out), min(w, x + r_out + 1)
+    patch = np.asarray(image[y0:y1, x0:x1], float)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    rr = (yy - y) ** 2 + (xx - x) ** 2
+    ring = patch[(rr >= r_in * r_in) & (rr <= r_out * r_out) & np.isfinite(patch)]
+    if ring.size:
+        return float(np.median(ring))
+    finite = patch[np.isfinite(patch)]
+    return float(np.median(finite)) if finite.size else 0.0
+
+
+def _mask_l1(image: np.ndarray, sources: list[Source], radius: float = 2.0) -> tuple[np.ndarray, np.ndarray]:
+    """把 L1 源中心 radius 内替换为局部中值，并返回残差图/mask。"""
+    out = np.array(image, float, copy=True)
+    mask = np.zeros(out.shape, dtype=bool)
+    h, w = out.shape
+    r = max(0.5, float(radius))
+    for src in sources:
+        ix, iy = int(round(src.x)), int(round(src.y))
+        if ix < 0 or iy < 0 or ix >= w or iy >= h:
+            continue
+        med = _local_median(out, ix, iy)
+        y0, y1 = max(0, iy - int(math.ceil(r))), min(h, iy + int(math.ceil(r)) + 1)
+        x0, x1 = max(0, ix - int(math.ceil(r))), min(w, ix + int(math.ceil(r)) + 1)
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        disk = (yy - src.y) ** 2 + (xx - src.x) ** 2 <= r * r
+        blob = out[y0:y1, x0:x1]
+        blob[disk] = med
+        out[y0:y1, x0:x1] = blob
+        mask[y0:y1, x0:x1] |= disk
+    return out, mask
+
+
+def _source_row(
+    epoch: Epoch,
+    src: Source,
+    *,
+    stage: str,
+    source_id: str,
+    parent: str | None = None,
+    masked_by: str | None = None,
+    reason: str | None = None,
+    extra_quality=None,
+) -> dict:
+    shape = np.asarray(epoch.image).shape
+    snr_min = 4.5 if stage == "residual" else 5.0
+    quality = source_quality(src, shape, snr_min=snr_min)
+    quality = merge_quality(quality, extra_quality)
+    try:
+        ra, dec = epoch.wcs.pixel_to_world(src.x + 1.0, src.y + 1.0)
+        ra, dec = float(np.atleast_1d(ra)[0]), float(np.atleast_1d(dec)[0])
+    except Exception:  # noqa: BLE001 - 无 WCS 时保留像素坐标，不编造 RA/Dec
+        ra = dec = None
+    return {
+        "source_id": source_id,
+        "stage": stage,
+        "parent": parent,
+        "masked_by": masked_by,
+        "reason": reason,
+        "x": round(float(src.x), 3),
+        "y": round(float(src.y), 3),
+        "ra": None if ra is None else round(ra, 8),
+        "dec": None if dec is None else round(dec, 8),
+        "snr": round(float(src.snr), 2),
+        "flux": float(src.flux),
+        "flux_err": float(src.flux_err),
+        "saturated": bool(src.saturated),
+        "quality": quality,
+        "method": src.method,
+    }
+
+
+def cascade_layers(
+    epoch: Epoch,
+    *,
+    l1_threshold: float = 6.0,
+    residual_threshold: float = 4.5,
+    mask_radius_px: float = 2.0,
+    max_l1: int = 300,
+    max_residual: int = 300,
+) -> dict:
+    """单历元级联：L1 高召回检测 → 掩膜 L1 → 残差低阈值复检。
+
+    这是**纯函数**（不写 DB、不做运动拟合、不输出发现声明）。
+    残差候选只是“L1 之外的次级峰”，不等于新天体。
+    """
+    if epoch is None or np.asarray(epoch.image).size == 0:
+        return {
+            "l1": [],
+            "masked": [],
+            "residual": [],
+            "counts": {"l1": 0, "masked": 0, "residual": 0},
+            "l1_threshold": float(l1_threshold),
+            "residual_threshold": float(residual_threshold),
+            "mask_radius_px": float(mask_radius_px),
+        }
+    # detect_sources 的 find_peaks 可能在同一 PSF 上给出多个近邻峰；
+    # L1 源表先去重，避免 masked 计数被同一颗星放大。
+    l1 = dedupe_sources(detect_sources(epoch, max_sources=max_l1, threshold=l1_threshold))
+    residual_img, mask = _mask_l1(np.asarray(epoch.image, float), l1, radius=mask_radius_px)
+    residual_epoch = replace(epoch, image=residual_img)
+    raw_residual = detect_sources(
+        residual_epoch,
+        max_sources=max_residual,
+        threshold=residual_threshold,
+        mask=mask,
+    )
+    residual = []
+    for src in dedupe_sources(raw_residual):
+        if any(math.hypot(src.x - l1s.x, src.y - l1s.y) < max(2.0, mask_radius_px) for l1s in l1):
+            continue
+        residual.append(src)
+
+    l1_rows = [
+        _source_row(
+            epoch,
+            src,
+            stage="l1",
+            source_id=f"{epoch.id}:L1:{i:04d}",
+        )
+        for i, src in enumerate(l1)
+    ]
+    masked_rows = [
+        _source_row(
+            epoch,
+            src,
+            stage="masked",
+            source_id=f"{epoch.id}:MASK:{i:04d}",
+            parent=f"{epoch.id}:L1:{i:04d}",
+            masked_by=f"{epoch.id}:L1:{i:04d}",
+            reason="already_detected",
+            extra_quality=["MASKED"],
+        )
+        for i, src in enumerate(l1)
+    ]
+    residual_rows = [
+        _source_row(
+            epoch,
+            src,
+            stage="residual",
+            source_id=f"{epoch.id}:R:{i:04d}",
+            extra_quality=["RESIDUAL_CANDIDATE"],
+        )
+        for i, src in enumerate(residual)
+    ]
+    return {
+        "l1": l1_rows,
+        "masked": masked_rows,
+        "residual": residual_rows,
+        "counts": {"l1": len(l1_rows), "masked": len(masked_rows), "residual": len(residual_rows)},
+        "l1_threshold": float(l1_threshold),
+        "residual_threshold": float(residual_threshold),
+        "mask_radius_px": float(mask_radius_px),
+    }
