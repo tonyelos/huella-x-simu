@@ -129,6 +129,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 跨历元轨迹页已实现：`/tracks`（Barnard 4 期：D0 45 / D1 0 / D3 10 / D4 195；D1=0 因 B fixture partial；轨迹候选 ≠ 新天体）。见 [GUI链路测试.md](GUI链路测试.md) §6。
 
+三模块联动计划：[../架构/13_三模块联动计划.md](../架构/13_三模块联动计划.md)（View 选区/时间 → App cascade/tracks → DB epochs/coverage）。
+
 ### 2.6 D-MVP 已知/未知识别
 
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。

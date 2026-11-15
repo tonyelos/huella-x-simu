@@ -216,6 +216,7 @@ L0 数据源  IRSA 静态切片 · S3 公开桶 · SIMBAD 参考
 | [架构/10_层级识别与残差策略.md](架构/10_层级识别与残差策略.md) | L1 高召回检测 → 已知源 EPSF 扣除/掩膜 → residual 检测 → 星表/历表分类 |
 | [架构/11_多历元层级发现.md](架构/11_多历元层级发现.md) | 多历元 L1/residual 关联 → tracklet → D0–D5 候选分级；可行性与边界 |
 | [架构/12_跨历元轨迹发现计划.md](架构/12_跨历元轨迹发现计划.md) | 跨历元 tracklet 实施计划：D0–D4、API/UI、验收与排期 |
+| [架构/13_三模块联动计划.md](架构/13_三模块联动计划.md) | 视图选区域/时间 → 分析层 cascade/tracks → SQL 历元/覆盖；接口与验收 |
 | [验收/GUI链路测试.md](验收/GUI链路测试.md) | Ego GUI 链路 + `/cascade` + `/tracks` 页验收 |
 | [验收/STATUS.md](验收/STATUS.md) | T1 状态：WIP / BLOCKED |
 | [冻结/STATUS.md](冻结/STATUS.md) | T3 状态：PASS |
