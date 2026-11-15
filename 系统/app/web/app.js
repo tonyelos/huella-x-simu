@@ -114,6 +114,8 @@ function hideAnyfield() {
   if (btn) btn.classList.add("hidden");
   const batchBtn = $("#batchCSourcesBtn");
   if (batchBtn) batchBtn.classList.add("hidden");
+  const batchGroup = $("#anyfieldBatchActions");
+  if (batchGroup) batchGroup.classList.add("hidden");
   const batchNote = $("#anyfieldBatchNote");
   if (batchNote) { batchNote.classList.add("hidden"); batchNote.innerHTML = ""; }
   const list = $("#anyfieldSources");
@@ -142,6 +144,8 @@ function renderAnyfield(data, httpStatus) {
     if (loadBtn) loadBtn.classList.add("hidden");
     const batchBtn = $("#batchCSourcesBtn");
     if (batchBtn) batchBtn.classList.add("hidden");
+    const batchGroup = $("#anyfieldBatchActions");
+    if (batchGroup) batchGroup.classList.add("hidden");
     const batchNote = $("#anyfieldBatchNote");
     if (batchNote) { batchNote.classList.add("hidden"); batchNote.innerHTML = ""; }
     if (list) {
@@ -172,6 +176,8 @@ async function refreshAnyfield(ra, dec, fov) {
   state.anyfieldBatch = { byId: {}, counts: null, catalogStatus: null, error: null };
   const batchBtn = $("#batchCSourcesBtn");
   if (batchBtn) batchBtn.classList.add("hidden");
+  const batchGroup = $("#anyfieldBatchActions");
+  if (batchGroup) batchGroup.classList.add("hidden");
   const batchNote = $("#anyfieldBatchNote");
   if (batchNote) { batchNote.classList.add("hidden"); batchNote.innerHTML = ""; }
   const list = $("#anyfieldSources");
@@ -331,6 +337,8 @@ function renderCSources(data, httpStatus) {
     if (!all.length) {
       const batchBtn = $("#batchCSourcesBtn");
       if (batchBtn) batchBtn.classList.add("hidden");
+      const batchGroup = $("#anyfieldBatchActions");
+      if (batchGroup) batchGroup.classList.add("hidden");
       box.innerHTML = '<div class="anyfield-source-note">C 源列表为空：该场尚未 ingest，或源在搜索半径外。空列表不等于“没有天体”。</div>';
       return;
     }
@@ -351,6 +359,8 @@ function renderCSources(data, httpStatus) {
     box.innerHTML = head + rows + '<div class="anyfield-source-note">点击源 → 锁定并调用 /api/identify。批量 badge 只是星表身份，不是发现声明。</div>';
     const batchBtn = $("#batchCSourcesBtn");
     if (batchBtn) batchBtn.classList.remove("hidden");
+    const batchGroup = $("#anyfieldBatchActions");
+    if (batchGroup) batchGroup.classList.remove("hidden");
     ["#exportCSourcesBtn", "#exportCJsonBtn"].forEach((sel) => {
       const b = $(sel);
       if (b) { b.classList.toggle("hidden", !batch.counts); b.disabled = false; }
@@ -363,12 +373,15 @@ function renderCSources(data, httpStatus) {
     });
   } else if (status === "no_coverage" || httpStatus === 422) {
     const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
+    const bg = $("#anyfieldBatchActions"); if (bg) bg.classList.add("hidden");
     box.innerHTML = '<div class="anyfield-source-note">C 确认无覆盖，没有可加载的源列表。</div>';
   } else if (status === "index_incomplete" || httpStatus === 503) {
     const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
+    const bg = $("#anyfieldBatchActions"); if (bg) bg.classList.add("hidden");
     box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用（索引不完整）；旧分析和本地源列表不受影响。</div>';
   } else {
     const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
+    const bg = $("#anyfieldBatchActions"); if (bg) bg.classList.add("hidden");
     box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用；旧分析和本地源列表不受影响。</div>';
   }
 }

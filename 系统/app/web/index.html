@@ -55,12 +55,12 @@
         <summary>
           <span>A 检测源（本次分析）</span>
           <b id="aSourceCount" class="a-source-count">0</b> 个
-          <span class="a-source-actions">
-            <button id="batchASourcesBtn" class="ghost small" type="button">批量识别 A 源</button>
-            <button id="exportASourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
-            <button id="exportAJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
-          </span>
         </summary>
+        <div class="a-source-actions">
+          <button id="batchASourcesBtn" class="ghost small" type="button">批量识别 A 源</button>
+          <button id="exportASourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
+          <button id="exportAJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
+        </div>
         <div id="aSourceBatchNote" class="anyfield-source-note hidden" aria-live="polite"></div>
         <div id="aSourceTableWrap" class="a-source-table-wrap">
           <table class="a-source-table">
@@ -79,6 +79,8 @@
         <div id="anyfieldBody" class="anyfield-body"></div>
         <div class="anyfield-actions">
           <button id="loadCSourcesBtn" class="ghost small hidden" type="button">加载 C 源列表</button>
+        </div>
+        <div id="anyfieldBatchActions" class="anyfield-actions anyfield-batch-actions hidden">
           <button id="batchCSourcesBtn" class="ghost small hidden" type="button">批量识别 C 源</button>
           <button id="exportCSourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
           <button id="exportCJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
