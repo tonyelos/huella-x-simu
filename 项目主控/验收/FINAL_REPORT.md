@@ -63,7 +63,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 | 组件 | 命令 | 结果 |
 |---|---|---|
-| app | `cd 系统/app && $PY -m unittest discover -s tests` | **111 tests OK** |
+| app | `cd 系统/app && $PY -m unittest discover -s tests` | **125 tests OK** |
 | DB | `cd 系统/数据库工具 && $PY -m unittest discover -s tests -t .` | **76 tests OK** |
 | DB 完整性 | `$PY cli.py verify --deep` | quick ok / 0 FK / 0 missing / 0 corrupt |
 | DB 导出对账 | `check_compat.py --root ..` | fields 5,893 / epochs 74 / targets 7 / weeks 151 全过 |
@@ -105,7 +105,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 - 自定义 Barnard = REAL/4/L2/S；自定义 RW = HYBRID/8/L2/V；未覆盖 = SIM + `NO_LOCAL_COVERAGE`。
 - sample 模式 = SAMPLE/U；非法 FOV 有可读提示、无 500；四种显示模式可切换；播放 slider 0→3。
 - 视图深链 `?ra=269.452077&dec=4.693365&fov=0.5&target=barnard` → 选中 Barnard；“在 MoveScope 打开”弹窗 → REAL/L2/S。
-- Ego 发现 1 个 P1 provenance 文案矛盾（Barnard fov=0.5 的“6 天/204 天”），已由 app `5d52472` 修复；修复后 T1 仍 45/0/1，app **111 tests**。
+- Ego 发现 1 个 P1 provenance 文案矛盾（Barnard fov=0.5 的“6 天/204 天”），已由 app `5d52472` 修复；修复后 T1 仍 45/0/1，app **125 tests**。
 
 截图：[evidence-ego/](evidence-ego/)。
 
