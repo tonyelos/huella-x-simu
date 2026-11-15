@@ -338,3 +338,23 @@ known 130 / ambiguous 33 / no_match 48 / insufficient 4 / unavailable 0
 - no JS error；点击行仍锁定/单源识别。
 
 截图：[batch-a-c-badges.png](evidence-ego/batch-a-c-badges.png)。
+
+---
+
+## 14. 批量结果审计导出
+
+Barnard：
+
+```text
+A：批量 215 源 → 导出 CSV 215 行 + 表头；note：已导出 A 源 215 行 CSV（含表头）
+C：批量 111 源 → 导出 CSV 111 行 + 表头；note：已导出 C 源 111 行 CSV（含表头）
+JS error：无
+```
+
+- A/C 导出按钮批量成功后可见；
+- 导出不改变表格/badge/counts；
+- CSV 含 `ruwe/n_candidates/jmag/hmag/kmag/w1/w2`；
+- ambiguous 的 catalog_id 留空；no_match 标“未收录候选”；
+- 文件 UTF-8 BOM。
+
+截图：[batch-export.png](evidence-ego/batch-export.png)。

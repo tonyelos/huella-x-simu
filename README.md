@@ -123,7 +123,7 @@ http://127.0.0.1:8790/?target=barnard&ra=269.452077&dec=4.693365&fov=0.2
 - **真实数据（饱和案例）**：Barnard's Star 4 期，目标饱和（峰值 755–1782 MJy/sr，核心 NaN），
   位移约 5.3″（真值 5.8″）但质心误差 0.4 px；SPHEREx 实测未测出显著位移，采用 Gaia PM 先验标为 `L (catalog_prior)`，并保留 `SATURATED_SOURCE` 与“未独立测出”提示。
 - **弱目标**：WISE 0855 在可用波段只探测到 1 期，判 U；这是坐标歧义/深度问题，已写入限制。
-- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（268 项，覆盖 sample、FOV、quality 合并、
+- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（271 项，覆盖 sample、FOV、quality 合并、
   缓存版本键/损坏恢复、LRU、target 冲突、越界像素、schema 契约）。
 
 报告：`系统/docs/validation_report.json`。
