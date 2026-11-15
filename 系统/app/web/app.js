@@ -25,6 +25,18 @@ const state = {
   anyfieldSeq: 0, // C 覆盖握手请求序号：旧响应不得覆盖新坐标
   anyfieldContext: null, // {ra, dec, fov} 当前 C 覆盖卡对应的查询
   anyfieldSources: [],
+  layerMode: "browse", // browse | cascade | tracks
+  cascadeData: null,
+  tracksData: null,
+  layerKeys: { cascade: null, tracks: null },
+  layerLoading: false,
+  layerHits: [],
+  trackHits: [],
+  trackSegments: [],
+  selectedTrack: null,
+  layerVis: { l1: true, masked: true, residual: true },
+  fromView: false,
+  analysisFov: null,
 };
 
 const CLASS_META = {
@@ -309,6 +321,14 @@ async function init() {
     note("无法读取目标列表：" + e.message);
   }
   const params = new URLSearchParams(location.search);
+  const t0Param = params.get("t0");
+  const t1Param = params.get("t1");
+  if (t0Param) $("#t0").value = t0Param;
+  if (t1Param) $("#t1").value = t1Param;
+  state.fromView = params.get("from") === "view";
+  const layerParam = params.get("mode");
+  if (["browse", "cascade", "tracks"].includes(layerParam)) state.layerMode = layerParam;
+  setLayerModeUI(state.layerMode);
   if (params.get("ra") && params.get("dec")) {
     $("#ra").value = params.get("ra");
     $("#dec").value = params.get("dec");
@@ -342,6 +362,7 @@ function bindUI() {
       renderFrame();
     })
   );
+  $$(".layer-tabs button").forEach((b) => b.addEventListener("click", () => setLayerMode(b.dataset.layerMode)));
   $("#expert").addEventListener("change", (e) => document.body.classList.toggle("expert", e.target.checked));
   $("#theoryBtn").addEventListener("click", () => $("#theoryModal").classList.remove("hidden"));
   $("#closeTheory").addEventListener("click", () => $("#theoryModal").classList.add("hidden"));
@@ -435,6 +456,11 @@ async function analyze() {
     note("视场 FOV 需在 <b>0.02–3.0 度</b>之间（当前 " + $("#fov").value + "）。", "err");
     return;
   }
+  const win = readTimeWindow();
+  if (!win.ok) {
+    note(win.error, "err");
+    return;
+  }
   const payload = {
     target_id: preset && sameAsPreset ? preset.id : "custom",
     ra,
@@ -442,6 +468,8 @@ async function analyze() {
     fov,
     mode: $("#mode").value,
   };
+  if (win.t0 != null) payload.t0 = win.t0;
+  if (win.t1 != null) payload.t1 = win.t1;
   if (!Number.isFinite(payload.ra) || !Number.isFinite(payload.dec)) {
     note("请输入有效的 RA / Dec（度）。", "err");
     return;
@@ -470,9 +498,14 @@ async function analyze() {
     }
     const dt = ((performance.now() - t0) / 1000).toFixed(1);
     state.analysis = d;
+    state.analysisFov = fov;
     state.frame = 0;
     state.hover = null;
     state.hoverKey = null;
+    state.cascadeData = null;
+    state.tracksData = null;
+    state.layerKeys = { cascade: null, tracks: null };
+    state.selectedTrack = null;
     hideTip();
     await preload(d);
     renderAll(d, dt);
@@ -499,14 +532,25 @@ function loadImage(url) {
 }
 
 async function preload(d) {
+  if (!d.epochs || !d.epochs.length) {
+    state.main = [];
+    state.diff = [];
+    state.stack = null;
+    return;
+  }
   state.main = await Promise.all(d.epochs.map((e) => loadImage(e.main_url)));
   state.diff = await Promise.all(d.epochs.map((e) => loadImage(e.diff_url)));
-  state.stack = await loadImage(d.stack_url);
+  state.stack = d.stack_url ? await loadImage(d.stack_url) : null;
 }
 
 /* ------------------------------------------------------------------ 渲染 UI */
 
 function renderAll(d, dt) {
+  updateTimeBadge(d.time_filter);
+  if (!d.epochs || !d.epochs.length) {
+    renderEmptyAnalysis(d);
+    return;
+  }
   const r = d.result;
   const cls = CLASS_META[r.class] || CLASS_META.U;
   const isSample = d.data.mode === "sample";
@@ -603,6 +647,8 @@ function renderAll(d, dt) {
   $("#slider").max = Math.max(d.epochs.length - 1, 0);
   $("#canvasEmpty").classList.add("hidden");
   renderFrame();
+  renderLayerPanel();
+  if (state.layerMode !== "browse") loadLayerData(state.layerMode);
 }
 
 function renderMetrics(r) {
@@ -785,11 +831,511 @@ function renderTruth(d) {
     <b>回收</b> μ=${(d.result.mu_mas_yr / 1000).toFixed(2)}″/yr（${ratio.toFixed(0)}%）· PA=${Number(d.result.pa_deg || 0).toFixed(1)}°`;
 }
 
+
+/* ------------------------------------------------------------------ 主界面：时间窗口 / 模式栏 / 分析层 */
+
+function readTimeWindow() {
+  const t0 = $("#t0") ? $("#t0").value.trim() : "";
+  const t1 = $("#t1") ? $("#t1").value.trim() : "";
+  if (!t0 && !t1) return { ok: true, t0: null, t1: null };
+  if (!t0 || !t1) return { ok: false, error: "t0 与 t1 必须同时填写（MJD）。" };
+  const a = Number(t0), b = Number(t1);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: "t0/t1 必须是 MJD 数字。" };
+  if (a > b) return { ok: false, error: "t0 必须 ≤ t1。" };
+  return { ok: true, t0: a, t1: b };
+}
+
+function analysisTimeParams() {
+  const tf = state.analysis && state.analysis.time_filter;
+  if (tf && tf.filtered) return { ok: true, t0: Number(tf.t0), t1: Number(tf.t1) };
+  return readTimeWindow();
+}
+
+function analysisFov() {
+  return Number.isFinite(Number(state.analysisFov)) ? Number(state.analysisFov) : parseFloat($("#fov").value);
+}
+
+function timeFilterText(tf) {
+  if (!tf || !tf.filtered) return tf && tf.requested != null ? `全时段 ${tf.requested} 期` : "全时段";
+  const prefix = state.fromView ? "来自视图 · " : "";
+  return `${prefix}时间窗口 MJD ${Number(tf.t0).toFixed(3)}–${Number(tf.t1).toFixed(3)} · 保留 ${tf.kept}/${tf.requested} 期`;
+}
+
+function updateTimeBadge(tf) {
+  const el = $("#timeBadge");
+  if (!el) return;
+  if (!tf || !tf.filtered) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  el.textContent = timeFilterText(tf);
+  el.title = `${timeFilterText(tf)}${tf.kept < 2 ? " · insufficient" : ""}`;
+}
+
+function layerDetailURL(mode) {
+  const d = state.analysis;
+  if (!d || !d.target) return mode === "tracks" ? "/tracks" : "/cascade";
+  const q = new URLSearchParams();
+  q.set("ra", Number(d.target.ra).toFixed(6));
+  q.set("dec", Number(d.target.dec).toFixed(6));
+  q.set("fov", String(analysisFov() || 0.2));
+  const win = analysisTimeParams();
+  if (win.ok && win.t0 != null) {
+    q.set("t0", String(win.t0));
+    q.set("t1", String(win.t1));
+  }
+  return (mode === "tracks" ? "/tracks" : "/cascade") + "?" + q.toString();
+}
+
+function setLayerModeUI(mode) {
+  $$(".layer-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.layerMode === mode));
+  const link = $("#detailLink");
+  if (link) {
+    link.classList.toggle("hidden", mode === "browse");
+    link.href = layerDetailURL(mode);
+    link.textContent = mode === "tracks" ? "轨迹详细表格 ↗" : "级联详细表格 ↗";
+  }
+  const panel = $("#layerPanel");
+  if (panel && mode === "browse") panel.classList.add("hidden");
+}
+
+function setLayerMode(mode) {
+  if (!["browse", "cascade", "tracks"].includes(mode)) return;
+  state.layerMode = mode;
+  setLayerModeUI(mode);
+  if (state.analysis) {
+    if (mode === "browse") renderLayerPanel();
+    else loadLayerData(mode);
+    renderFrame();
+  }
+  syncURL();
+}
+
+const LAYER_API = { cascade: "/api/cascade", tracks: "/api/tracks" };
+
+function layerQueryString() {
+  const d = state.analysis;
+  if (!d || !d.target) return null;
+  const q = new URLSearchParams();
+  if (d.analysis_id) q.set("analysis_id", d.analysis_id);
+  q.set("ra", Number(d.target.ra));
+  q.set("dec", Number(d.target.dec));
+  q.set("fov", String(analysisFov() || 0.2));
+  const win = analysisTimeParams();
+  if (win.ok && win.t0 != null) {
+    q.set("t0", String(win.t0));
+    q.set("t1", String(win.t1));
+  }
+  if (state.fromView) q.set("from", "view");
+  return q.toString();
+}
+
+async function loadLayerData(mode) {
+  const d = state.analysis;
+  if (!d || mode === "browse") return;
+  if (!d.epochs || !d.epochs.length) {
+    renderLayerError("时间窗口内没有历元；没有可叠加的分析层。");
+    return;
+  }
+  const q = layerQueryString();
+  if (!q) return;
+  const key = `${mode}|${q}`;
+  if (state.layerKeys[mode] === key) {
+    renderLayerPanel();
+    renderFrame();
+    return;
+  }
+  state.layerLoading = true;
+  renderLayerPanel();
+  try {
+    const r = await fetch(`${LAYER_API[mode]}?${q}`);
+    const data = await r.json();
+    if (!r.ok || data.error) {
+      const e = data.error;
+      throw new Error((e && (e.message || e.code)) || `${mode} API 返回错误`);
+    }
+    if (mode === "cascade") state.cascadeData = data;
+    else state.tracksData = data;
+    state.layerKeys[mode] = key;
+    state.layerLoading = false;
+    renderLayerPanel();
+    renderFrame();
+  } catch (e) {
+    state.layerLoading = false;
+    renderLayerError(`${e.message}。没有伪造层数据。`);
+  }
+}
+
+function currentCascadeEpoch() {
+  const data = state.cascadeData;
+  const d = state.analysis;
+  if (!data || !d || !d.epochs || !d.epochs.length) return null;
+  const ep = d.epochs[currentFrameIndex()];
+  const id = ep && ep.id;
+  return (data.epochs || []).find((e) => e.epoch_id === id) || (data.epochs || [])[currentFrameIndex()] || null;
+}
+
+function renderLayerError(msg) {
+  const panel = $("#layerPanel");
+  if (!panel) return;
+  panel.classList.remove("hidden");
+  $("#layerTitle").textContent = state.layerMode === "tracks" ? "轨迹" : "级联/残差";
+  $("#layerBadge").className = "badge rose";
+  $("#layerBadge").textContent = "不可用";
+  $("#layerStats").innerHTML = "";
+  $("#layerToggles").innerHTML = "";
+  $("#layerDetail").innerHTML = `<div class="layer-tip">${esc(msg)}</div>`;
+  $("#layerDisclaimer").textContent = "候选不是新天体；不做发现声明。";
+}
+
+function renderLayerPanel() {
+  const panel = $("#layerPanel");
+  if (!panel) return;
+  if (state.layerMode === "browse") {
+    panel.classList.add("hidden");
+    return;
+  }
+  panel.classList.remove("hidden");
+  const isTracks = state.layerMode === "tracks";
+  $("#layerTitle").textContent = isTracks ? "轨迹 · D0–D4" : "级联/残差 · 当前帧";
+  $("#layerDisclaimer").textContent = isTracks
+    ? "轨迹候选不是新天体；D5 才需要人工/后续确认。"
+    : "residual 候选不是新天体；未匹配不等于新星。";
+  const badge = $("#layerBadge");
+  if (state.layerLoading) {
+    badge.className = "badge ghost";
+    badge.textContent = "加载中";
+    $("#layerStats").innerHTML = "";
+    $("#layerToggles").innerHTML = "";
+    $("#layerDetail").innerHTML = '<div class="layer-tip">读取分析层；不重跑 /api/analyze。</div>';
+    return;
+  }
+  if (isTracks) {
+    const data = state.tracksData;
+    if (!data) {
+      renderLayerError("轨迹数据尚未加载。");
+      return;
+    }
+    const c = data.counts || {};
+    badge.className = "badge " + (data.insufficient ? "rose" : "ghost");
+    badge.textContent = data.insufficient ? "insufficient" : "候选";
+    $("#layerStats").innerHTML = ["D0", "D1", "D2", "D3", "D4"].map((lv) =>
+      `<span class="layer-stat ${lv}">${lv} ${c[lv] ?? 0}</span>`
+    ).join("") + `<span class="layer-stat">共 ${(data.tracks || []).length}</span>`;
+    $("#layerToggles").innerHTML = '<span class="layer-tip">轨迹线按 D0–D4 配色；点击轨迹/节点查看详情。</span>';
+    const t = state.selectedTrack;
+    if (t) {
+      $("#layerDetail").innerHTML = `<b>${esc(t.track_id)}</b> · ${esc(t.level)} · ${esc(t.model)} · ${t.n_epochs} 期<br>
+        RA ${Number(t.ra).toFixed(5)}° · Dec ${Number(t.dec).toFixed(5)}°<br>
+        μ ${t.mu_arcsec_yr == null ? "—" : Number(t.mu_arcsec_yr).toFixed(2) + "″/yr"} · PA ${t.pa_deg == null ? "—" : Number(t.pa_deg).toFixed(1) + "°"} · catalog ${esc(t.catalog || "none")}<br>
+        <span class="layer-tip">${(t.caveats || []).map(esc).join(" · ") || "—"}</span>`;
+    } else {
+      $("#layerDetail").innerHTML = '<div class="layer-tip">点击轨迹线选中；点击节点跳帧并调用 /api/identify。</div>';
+    }
+  } else {
+    const data = state.cascadeData;
+    if (!data) {
+      renderLayerError("级联数据尚未加载。");
+      return;
+    }
+    const row = currentCascadeEpoch();
+    const counts = row ? row.counts : { l1: 0, masked: 0, residual: 0 };
+    badge.className = "badge ghost";
+    badge.textContent = row ? `当前帧 ${counts.l1}/${counts.masked}/${counts.residual}` : "无当前帧";
+    $("#layerStats").innerHTML = `<span class="layer-stat">L1 ${counts.l1}</span>
+      <span class="layer-stat">masked ${counts.masked}</span>
+      <span class="layer-stat">residual ${counts.residual}</span>
+      <span class="layer-stat">窗口 ${timeFilterText(data.time_filter)}</span>`;
+    $("#layerToggles").innerHTML = `
+      <label><input type="checkbox" id="lyrL1" ${state.layerVis.l1 ? "checked" : ""}> L1 实心</label>
+      <label><input type="checkbox" id="lyrMasked" ${state.layerVis.masked ? "checked" : ""}> masked 灰叉</label>
+      <label><input type="checkbox" id="lyrResidual" ${state.layerVis.residual ? "checked" : ""}> residual 空心</label>`;
+    ["l1", "masked", "residual"].forEach((k) => {
+      const el = document.getElementById("lyr" + k[0].toUpperCase() + k.slice(1));
+      if (el) el.addEventListener("change", () => { state.layerVis[k] = el.checked; renderFrame(); });
+    });
+    const locked = state.locked && (state.locked.cascade_source || state.locked.track_source) ? state.locked : null;
+    const ident = locked ? lockedIdentification() : null;
+    let detail = '<div class="layer-tip">L1 实心 · masked 灰叉/灰圈 · residual 空心琥珀；点击 residual 锁定并 /api/identify。</div>';
+    if (locked) {
+      detail += `<div class="layer-detail"><b>已选 ${esc(locked.layer || "节点")}</b> · ${esc(locked.source_id || "")}<br>
+        RA ${Number(locked.ra).toFixed(6)}° · Dec ${Number(locked.dec).toFixed(6)}° · S/N ${Number(locked.snr || 0).toFixed(1)}<br>`;
+      if (state.lockedIdentifying) detail += '<span class="layer-tip">正在查询星表…</span>';
+      else if (ident) detail += `<span class="catalog-badge ${esc(ident.status)}">${esc(catalogText(ident))}</span> <span class="layer-tip">${esc(catalogReasonText(ident))}</span>`;
+      detail += "</div>";
+    }
+    $("#layerDetail").innerHTML = detail;
+  }
+}
+
+function renderEmptyAnalysis(d) {
+  state.sources = [];
+  state.main = [];
+  state.diff = [];
+  state.stack = null;
+  state.cascadeData = null;
+  state.tracksData = null;
+  const mb = $("#modeBadge");
+  mb.className = "badge " + (d.data.mode || "synthetic");
+  mb.textContent = { real: "REAL 真实", hybrid: "HYBRID 混合", synthetic: "SIM 模拟", sample: "SAMPLE" }[d.data.mode] || d.data.mode;
+  const rb = $("#readyBadge");
+  rb.className = "badge l0";
+  rb.textContent = "L0 就绪度";
+  updateTimeBadge(d.time_filter);
+  note(`<b>TIME WINDOW</b> · ${timeFilterText(d.time_filter)}<br>${esc(d.data.note || "时间窗口内没有历元。")}`, "warn");
+  const cv = $("#sky");
+  const cx = cv.getContext("2d");
+  cx.clearRect(0, 0, cv.width, cv.height);
+  cx.fillStyle = "#03050a";
+  cx.fillRect(0, 0, cv.width, cv.height);
+  $("#canvasEmpty").classList.remove("hidden");
+  $("#canvasEmpty").innerHTML = `<div class="glyph">◌</div><p>时间窗口内没有历元</p><span>未做测量/拟合，不伪造轨迹；请扩大 t0–t1。</span>`;
+  $("#epochLabel").textContent = "窗口内无历元";
+  $("#timeLabel").textContent = "—";
+  $("#strip").innerHTML = "";
+  $("#slider").max = 0;
+  $("#slider").value = 0;
+  $("#verdict").className = "verdict empty";
+  $("#verdict").innerHTML = `<div class="eyebrow">MOTION FINGERPRINT · L0</div><div class="verdict-main"><div class="class-dot">U</div><div><h3>窗口内没有历元</h3><p>没有足够的图像，不能判断运动或变光。</p></div></div>`;
+  $("#publicText").classList.add("hidden");
+  $("#catalogCard").classList.add("hidden");
+  $("#metrics").classList.add("hidden");
+  $("#charts").classList.add("hidden");
+  $("#evidenceWrap").classList.add("hidden");
+  $("#download").disabled = true;
+  $("#copyLink").disabled = true;
+  if (state.layerMode !== "browse") renderLayerError("时间窗口内没有历元；没有可叠加的分析层。");
+  syncURL();
+}
+
+function layerScreenPoint(src, n, S) {
+  const cx = Number(src.common_x), cy = Number(src.common_y);
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+  return [((cx + 0.5) / n) * S, ((cy + 0.5) / n) * S];
+}
+
+function drawCascadeOverlay(ctx, n, S) {
+  state.layerHits = [];
+  const row = currentCascadeEpoch();
+  if (!row) return;
+  const draw = (list, kind) => {
+    for (const src of list || []) {
+      const p = layerScreenPoint(src, n, S);
+      if (!p) continue;
+      const [x, y] = p;
+      if (kind === "l1") {
+        ctx.beginPath(); ctx.arc(x, y, 3.4, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(95,214,232,.95)"; ctx.fill();
+      } else if (kind === "masked") {
+        ctx.strokeStyle = "rgba(150,162,188,.8)"; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(x - 4, y - 4); ctx.lineTo(x + 4, y + 4);
+        ctx.moveTo(x + 4, y - 4); ctx.lineTo(x - 4, y + 4); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.arc(x, y, 4.6, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(242,179,94,.95)"; ctx.lineWidth = 1.5; ctx.stroke();
+      }
+      state.layerHits.push({ x, y, src, kind, row });
+    }
+  };
+  if (state.layerVis.l1) draw(row.l1, "l1");
+  if (state.layerVis.masked) draw(row.masked, "masked");
+  if (state.layerVis.residual) draw(row.residual, "residual");
+  ctx.save();
+  ctx.fillStyle = "rgba(5,8,14,.72)";
+  ctx.fillRect(10, 10, 245, 25);
+  ctx.fillStyle = "#dbe3f2";
+  ctx.font = "600 12px 'SF Mono', Menlo, monospace";
+  ctx.fillText(`L1 ${row.counts.l1} · masked ${row.counts.masked} · residual ${row.counts.residual}`, 18, 27);
+  ctx.restore();
+}
+
+const TRACK_COLORS = { D0: "#ef8f9c", D1: "#6ee7a8", D2: "#8f9bb3", D3: "#f2b35e", D4: "#5fd6e8" };
+
+function drawTracksOverlay(ctx, n, S) {
+  state.layerHits = [];
+  state.trackSegments = [];
+  const data = state.tracksData;
+  if (!data) return;
+  const currentId = state.analysis.epochs[currentFrameIndex()] && state.analysis.epochs[currentFrameIndex()].id;
+  const shown = (data.tracks || []).slice(0, 200);
+  shown.forEach((track) => {
+    const selected = state.selectedTrack && state.selectedTrack.track_id === track.track_id;
+    const color = TRACK_COLORS[track.level] || "#8f9bb3";
+    const pts = (track.nodes || []).map((node) => ({ node, p: layerScreenPoint(node, n, S) })).filter((x) => x.p);
+    if (pts.length < 1) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = selected ? 1 : 0.42;
+    ctx.lineWidth = selected ? 3 : 1.2;
+    ctx.setLineDash(track.level === "D0" ? [3, 4] : track.level === "D4" ? [1, 3] : []);
+    if (pts.length > 1) {
+      ctx.beginPath();
+      pts.forEach((x, i) => (i ? ctx.lineTo(x.p[0], x.p[1]) : ctx.moveTo(x.p[0], x.p[1])));
+      ctx.stroke();
+      for (let i = 1; i < pts.length; i++) {
+        state.trackSegments.push({ x1: pts[i - 1].p[0], y1: pts[i - 1].p[1], x2: pts[i].p[0], y2: pts[i].p[1], track });
+      }
+    }
+    ctx.setLineDash([]);
+    pts.forEach(({ node, p }) => {
+      const here = node.epoch_id === currentId;
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], here ? 4.8 : 2.4, 0, Math.PI * 2);
+      ctx.fillStyle = here ? color : "rgba(5,8,14,.8)";
+      ctx.strokeStyle = color;
+      ctx.lineWidth = here ? 2 : 1;
+      if (here) ctx.fill(); else ctx.stroke();
+      state.layerHits.push({ x: p[0], y: p[1], src: node, kind: "track", track });
+    });
+    if (selected && pts.length) {
+      const first = pts[0].p;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = color;
+      ctx.font = "600 11px 'SF Mono', Menlo, monospace";
+      ctx.fillText(track.track_id, first[0] + 8, first[1] - 7);
+    }
+    ctx.restore();
+  });
+}
+
+function nearestLayerHit(sx, sy, radius = 12) {
+  let best = null, bestD = radius;
+  for (const hit of state.layerHits) {
+    const d = Math.hypot(hit.x - sx, hit.y - sy);
+    if (d <= bestD) { best = hit; bestD = d; }
+  }
+  return best;
+}
+
+function nearestTrackSegment(sx, sy, radius = 7) {
+  let best = null, bestD = radius;
+  for (const s of state.trackSegments) {
+    const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? ((sx - s.x1) * dx + (sy - s.y1) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const px = s.x1 + t * dx, py = s.y1 + t * dy;
+    const d = Math.hypot(sx - px, sy - py);
+    if (d <= bestD) { best = s; bestD = d; }
+  }
+  return best;
+}
+
+function layerHover(e) {
+  const [sx, sy] = canvasPoint(e);
+  const hit = nearestLayerHit(sx, sy, 14) || (state.layerMode === "tracks" ? null : null);
+  $("#sky").style.cursor = hit ? "pointer" : "default";
+  if (!hit) { hideTip(); return; }
+  const tip = $("#skyTip");
+  const src = hit.src;
+  const lines = [];
+  if (hit.kind === "track") {
+    lines.push(`<b>${esc(hit.track.level)} · ${esc(hit.track.model)}</b> · ${esc(hit.track.track_id)}`);
+    lines.push(`epoch ${esc(src.epoch_id)} · ${esc(src.stage)} · S/N ${Number(src.snr || 0).toFixed(1)}`);
+    lines.push('<span class="tip-ok">点击节点跳帧并调用 /api/identify</span>');
+  } else {
+    lines.push(`<b>${esc(hit.kind.toUpperCase())}</b> · ${esc(src.stage)} · S/N ${Number(src.snr || 0).toFixed(1)}`);
+    lines.push(`RA ${Number(src.ra).toFixed(6)}° · Dec ${Number(src.dec).toFixed(6)}°`);
+    lines.push('<span class="tip-ok">点击锁定并调用 /api/identify</span>');
+  }
+  tip.innerHTML = layerTipHTML(lines);
+  tip.classList.remove("hidden");
+  const wrap = $(".canvas-wrap").getBoundingClientRect();
+  const margin = 8;
+  const left = Math.min(Math.max(margin, e.clientX - wrap.left + 14), Math.max(margin, wrap.width - tip.offsetWidth - margin));
+  const top = Math.min(Math.max(margin, e.clientY - wrap.top + 14), Math.max(margin, wrap.height - tip.offsetHeight - margin));
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function layerTipHTML(lines) {
+  return lines.join("<br>");
+}
+
+function layerClick(e) {
+  const [sx, sy] = canvasPoint(e);
+  const hit = nearestLayerHit(sx, sy, 13);
+  if (hit) {
+    if (hit.kind === "track") {
+      selectTrackNode(hit.track, hit.src);
+    } else {
+      lockLayerSource(hit.src, hit.kind);
+    }
+    return;
+  }
+  if (state.layerMode === "tracks") {
+    const seg = nearestTrackSegment(sx, sy, 8);
+    if (seg) selectTrack(seg.track);
+  }
+}
+
+function selectTrack(track) {
+  state.selectedTrack = track;
+  const nodes = track.nodes || [];
+  if (nodes.length) {
+    const idx = state.analysis.epochs.findIndex((e) => e.id === nodes[0].epoch_id);
+    state.frame = idx >= 0 ? idx : Math.min(state.frame, state.analysis.epochs.length - 1);
+  }
+  renderFrame();
+  renderLayerPanel();
+}
+
+function selectTrackNode(track, node) {
+  state.selectedTrack = track;
+  const idx = state.analysis.epochs.findIndex((e) => e.id === node.epoch_id);
+  if (idx >= 0) state.frame = idx;
+  lockLayerSource(node, "track", track);
+  renderFrame();
+  renderLayerPanel();
+}
+
+function lockLayerSource(node, kind, track) {
+  if (!node || node.ra == null || node.dec == null) return;
+  const idx = state.analysis.epochs.findIndex((e) => e.id === node.epoch_id);
+  const frame = idx >= 0 ? idx : Math.min(state.frame, state.analysis.epochs.length - 1);
+  state.locked = {
+    ra: Number(node.ra),
+    dec: Number(node.dec),
+    mjd: Number(node.mjd),
+    x: Number(node.common_x != null ? node.common_x : node.x),
+    y: Number(node.common_y != null ? node.common_y : node.y),
+    frame,
+    epoch_id: node.epoch_id,
+    snr: Number(node.snr) || 0,
+    flux: Number(node.flux) || 0,
+    flux_err: Number(node.flux_err) || 0,
+    quality: Array.isArray(node.quality) ? node.quality : [],
+    saturated: !!node.saturated,
+    source_id: node.source_id || "",
+    sigma_arcsec: 0.5,
+    cascade_source: kind !== "track",
+    track_source: kind === "track",
+    layer: kind,
+    track_id: track ? track.track_id : null,
+  };
+  state.lockedIdentification = null;
+  state.lockedIdentificationKey = null;
+  state.lockRequest = null;
+  renderLockInfo();
+  hideTip();
+  sceneNoteForLayer(node, kind, track);
+  identifyLockedSource(state.locked);
+  renderFrame();
+  renderLayerPanel();
+}
+
+function sceneNoteForLayer(node, kind, track) {
+  const s = state.locked;
+  const label = kind === "track" ? `轨迹节点 ${track ? track.track_id : ""}` : `${kind} 源`;
+  note(`已锁定 <b>${esc(label)}</b>：RA ${Number(s.ra).toFixed(6)}° · Dec ${Number(s.dec).toFixed(6)}° · S/N ${Number(s.snr).toFixed(1)}；正在查询星表…`);
+}
+
 /* ------------------------------------------------------------------ 画布 */
 
 function renderFrame() {
   const d = state.analysis;
-  if (!d) return;
+  if (!d || !d.epochs || !d.epochs.length) return;
   const canvas = $("#sky");
   const ctx = canvas.getContext("2d");
   const S = canvas.width;
@@ -812,8 +1358,15 @@ function renderFrame() {
   const toPx = (p) => [((p[0] + 0.5) / n) * S, ((p[1] + 0.5) / n) * S];
   const pts = d.result.target_xy_common || [];
 
-  // 检测源标记（阶段 A：可点选/已锁定/灰显）
-  drawSources(ctx, i, n, S, toPx);
+  // 分析层叠加：同一画布，不换页
+  if (state.layerMode === "cascade") {
+    drawCascadeOverlay(ctx, n, S);
+  } else if (state.layerMode === "tracks") {
+    drawTracksOverlay(ctx, n, S);
+  } else {
+    // 普通模式：检测源标记（阶段 A：可点选/已锁定/灰显）
+    drawSources(ctx, i, n, S, toPx);
+  }
 
   // 轨迹
   if (pts.length > 1 && (state.mode === "track" || state.mode === "stack")) {
@@ -946,7 +1499,7 @@ const LOCK_MATCH_SEP_DEG = 0.00014; // ≈0.5″：跨帧按 RA/Dec 认出同一
 
 function currentFrameIndex() {
   const d = state.analysis;
-  if (!d) return 0;
+  if (!d || !d.epochs || !d.epochs.length) return 0;
   return Math.min(state.frame, d.epochs.length - 1);
 }
 
@@ -1042,6 +1595,10 @@ function drawSources(ctx, frame, n, S, toPx) {
 
 function onCanvasMove(e) {
   if (!state.analysis) return;
+  if (state.layerMode !== "browse") {
+    layerHover(e);
+    return;
+  }
   const i = currentFrameIndex();
   const [sx, sy] = canvasPoint(e);
   const S = $("#sky").width;
@@ -1084,6 +1641,10 @@ function onCanvasLeave() {
 
 function onCanvasClick(e) {
   if (!state.analysis || state.loading) return;
+  if (state.layerMode !== "browse") {
+    layerClick(e);
+    return;
+  }
   const [sx, sy] = canvasPoint(e);
   const S = $("#sky").width;
   const hit = SourcePick.sourceAt(state.sources, currentFrameIndex(), sx, sy, canvasNaxis(), S, SOURCE_PICK_RADIUS_PX);
@@ -1154,6 +1715,15 @@ function lockKey(src) {
 
 /** A 锁定源后单独调用 /api/identify；失败必须显示“星表不可用”，不能当成未匹配。 */
 function updateLockedSourceNote(src, ident) {
+  if (!src) return;
+  // 级联/轨迹节点：note 直接显示星表识别结果，绝不停留在“正在查询”。
+  if (src.cascade_source || src.track_source) {
+    const status = ident && ident.status ? ident.status : "catalog_unavailable";
+    const label = (ident && ident.label_zh) || CATALOG_TEXT[status] || "星表不可用";
+    const layer = src.track_source ? "轨迹节点" : (src.layer || "分析层节点");
+    note(`已锁定 <b>${esc(layer)}</b> · RA ${Number(src.ra).toFixed(6)}° · Dec ${Number(src.dec).toFixed(6)}° · ${esc(label)}（${esc(status)}）`);
+    return;
+  }
   // A 源锁定后的 note 由 analyze 负责（“正在以该坐标重新分析…”），这里只更新 C 源，
   // 避免 identify 晚到把 analyze 的状态覆盖掉。
   if (!src || !src.c_source) return;
@@ -1235,6 +1805,7 @@ async function identifyLockedSource(src) {
       state.lockedIdentifying = false;
       renderLockInfo();
       updateLockedSourceNote(src, state.lockedIdentification);
+      if (state.layerMode !== "browse") renderLayerPanel();
     }
   }
 }
@@ -1253,6 +1824,7 @@ function clearLock(showNote = true) {
   }
   renderLockInfo();
   if (state.analysis) renderFrame();
+  if (state.layerMode !== "browse") renderLayerPanel();
   if (showNote && had) note("已解除源锁定；坐标输入保留，可继续编辑或重新分析。");
 }
 
@@ -1325,14 +1897,20 @@ function renderLockInfo() {
           ${caveats.map((c) => `<div class="catalog-note">${esc(c)}</div>`).join("")}
         </div>`
       : "";
-  const origin = s.c_source ? `C ingested · ${String(s.source_id || "")}` : `第 ${Number(s.frame) + 1} 期`;
+  const origin = s.c_source
+    ? `C ingested · ${String(s.source_id || "")}`
+    : s.track_source
+      ? `轨迹 ${s.track_id || ""} · 第 ${Number(s.frame) + 1} 期`
+      : s.cascade_source
+        ? `${String(s.layer || "节点")} · 第 ${Number(s.frame) + 1} 期`
+        : `第 ${Number(s.frame) + 1} 期`;
   el.classList.remove("hidden");
   el.innerHTML = `
     <div class="lock-head"><span class="lock-dot"></span>已锁定源<button id="unlockBtn" class="ghost small" type="button">解除</button></div>
     <div class="lock-line">RA <b>${Number(s.ra).toFixed(6)}°</b> · Dec <b>${Number(s.dec).toFixed(6)}°</b></div>
     <div class="lock-line">S/N <b>${Number(s.snr).toFixed(1)}</b> · flux ${Number(s.flux).toFixed(2)} ± ${Number(s.flux_err).toFixed(2)} · ${esc(origin)} · ${SourcePick.qualityText(s)}</div>
     ${catLine}
-    <div class="lock-hint">坐标已填入上方并用于分析；C 源由 /api/identify 单独比对星表。</div>`;
+    <div class="lock-hint">${s.cascade_source || s.track_source ? "仅查询星表身份；不触发重新分析，残差/轨迹候选不是新天体。" : "坐标已填入上方并用于分析；C 源由 /api/identify 单独比对星表。"}</div>`;
 }
 
 function syncURL() {
@@ -1343,11 +1921,24 @@ function syncURL() {
   u.searchParams.set("target", isPreset ? d.target.id : "custom");
   u.searchParams.set("ra", Number(d.target.ra).toFixed(6));
   u.searchParams.set("dec", Number(d.target.dec).toFixed(6));
-  const fov = parseFloat($("#fov").value);
+  const fov = analysisFov();
   if (Number.isFinite(fov)) u.searchParams.set("fov", String(fov));
+  u.searchParams.set("mode", state.layerMode);
+  const win = analysisTimeParams();
+  if (win.ok && win.t0 != null) {
+    u.searchParams.set("t0", String(win.t0));
+    u.searchParams.set("t1", String(win.t1));
+  } else {
+    u.searchParams.delete("t0");
+    u.searchParams.delete("t1");
+  }
+  if (state.fromView) u.searchParams.set("from", "view");
+  else u.searchParams.delete("from");
   if (state.locked) u.searchParams.set("lock", "1");
   else u.searchParams.delete("lock");
   history.replaceState(null, "", u.toString());
+  updateTimeBadge(d.time_filter);
+  setLayerModeUI(state.layerMode);
 }
 
 /* ------------------------------------------------------------------ 播放 */
@@ -1543,7 +2134,12 @@ function copyLink() {
   else u.searchParams.set("target", "custom");
   u.searchParams.set("ra", d.target.ra);
   u.searchParams.set("dec", d.target.dec);
-  u.searchParams.set("fov", $("#fov").value);
+  u.searchParams.set("fov", String(analysisFov() || parseFloat($("#fov").value)));
+  u.searchParams.set("mode", state.layerMode);
+  const win = analysisTimeParams();
+  if (win.ok && win.t0 != null) { u.searchParams.set("t0", String(win.t0)); u.searchParams.set("t1", String(win.t1)); }
+  else { u.searchParams.delete("t0"); u.searchParams.delete("t1"); }
+  if (state.fromView) u.searchParams.set("from", "view");
   if (state.locked) u.searchParams.set("lock", "1");
   else u.searchParams.delete("lock");
   navigator.clipboard?.writeText(u.toString());
