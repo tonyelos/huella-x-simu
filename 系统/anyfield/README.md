@@ -132,6 +132,7 @@ curl -s "http://127.0.0.1:8798/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.1"
 ## 测试
 
 ```bash
+PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
 cd 系统/anyfield
 $PY -m unittest discover -s tests -t . -v
 ```
