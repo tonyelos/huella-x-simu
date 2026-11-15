@@ -70,6 +70,12 @@ $PY -m unittest discover -s tests -t . -v
 | 参考历元 | **J2016.0 = MJD 57388.5** |
 | 本地缓存文件 | `var/star_catalog.sqlite`（约 7 MB，**不提交**） |
 
+导入器对每个场先执行一次 `SELECT COUNT(*)` 校验，再拉带 2MASS/WISE join 的明细；
+若 TAP 返回 HTTP 200 但唯一 `source_id` 数少于 COUNT（服务端高负载时可能静默截断），
+会重试，仍不一致则抛 `GaiaTAPError` 并回退 fixture/中止，**不会把截断结果写成
+`provenance=tap` + `complete=true`**。因此 17,679 是可复验的完整场缓存行数，
+不是某次截断响应。
+
 **17,679 不是 Gaia 全量。** Gaia DR3 有 1,811,709,771 个源；本服务只在 7 个预设场、
 每个 0.25° 半径、G≤20 的范围内缓存，用于演示/验收天区。它也不是“全天天区可按需查询”
 的服务：缓存外查询返回 `CATALOG_UNAVAILABLE`（`no_cached_field`），不会偷偷回源。
@@ -490,8 +496,8 @@ B 的 `catalog_status` 与 D 的 `catalog_status` 对齐：
 - `var/star_catalog.sqlite`：Gaia 按场缓存（约 7 MB / 17,679 行），**本地保留、不提交**；
   `.gitignore` 已忽略主库与 `-wal/-shm`。
 - `var/catalog.sqlite`：SPHEREx 生产库，**本服务只读不写、也不改其 schema**。
-- `.tmp_hp/`：HEALPix 参考实现/依赖的临时安装目录（51 MB），**不提交**；
-  位于 worktree 根，已加入仓库忽略规则。测试不依赖它（`db/healpix.py` 是纯 Python）。
+- `.tmp_hp/`：验证 HEALPix 时临时安装的参考实现（51 MB），**已删除、不提交**；
+  根 `.gitignore` 保留忽略规则以防再次生成。测试不依赖它（`db/healpix.py` 是纯 Python）。
 - 端口：8799 是星表服务；8797 属于 SPHEREx 生产服务，不占用。
 - 单写者：SQLite WAL 支持多读；同一时刻只建议一个导入进程。
 - 重建：`tools/import_gaia.py --rebuild`；只重建一个场：`--fields barnard --rebuild`；
