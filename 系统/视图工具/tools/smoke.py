@@ -6,7 +6,7 @@
 检查项：
   1. index.html 里存在 main.js 引用的所有 DOM id；品牌标题正确；默认不是 M101
   2. 深链：search 优先 + hash 兜底 + 写回 search（含 t）
-  2b. 分析时间窗口 30/90/180/365/730 + t0/t1 + /cascade//tracks 入口
+  2b. 分析时间窗口 30/90/180/365/730 + t0/t1 + 单 MoveScope handoff
   3. data/fields.json 行数/列数/NaN/来源/生成元数据（不得再指向 header_cache）
   4. data/targets.json 字段齐全、生成物、与 app/data/targets.json 一致；rw_aur.truth 修正
   5. data/epoch_index.json 有策展历元（barnard 4 / rw_aur 1）
@@ -47,6 +47,8 @@ DISALLOWED_JS = (
 )
 OLD_HALF = "1." + "745"
 OLD_README = "5," + "857 次曝光"
+FORBIDDEN_ENTRY = ("analysis" + "Url", "btn-" + "cascade", "btn-" + "tracks")
+FORBIDDEN_PATHS = ("cascade: '" + "/cascade'", "tracks: '" + "/tracks'")
 
 
 def ok(msg: str) -> None:
@@ -146,54 +148,33 @@ if "分析层过滤范围" not in html or "数据时相" not in html:
 else:
     ok("页面明确：时间窗口 = 分析层过滤范围（≠ 数据时相）")
 
-for key in ("cascade: '/cascade'", "tracks: '/tracks'"):
-    if key not in main_js:
-        fail(f"分析入口缺路径：{key}")
-am = re.search(r"function analysisUrl\(kind\)[\s\S]*?\n\}", main_js)
-if not am:
-    fail("找不到 analysisUrl()")
+for key in FORBIDDEN_PATHS:
+    if key in main_js:
+        fail(f"main.js 仍保留独立分析路径：{key}")
+for token in FORBIDDEN_ENTRY:
+    if token in html or token in main_js:
+        fail(f"仍保留独立分析入口：{token}")
+if "btn-movescope" not in html or "$('btn-movescope')" not in main_js:
+    fail("缺少唯一的 MoveScope 入口")
 else:
-    body = am.group(0)
-    needs = (
-        "String(state.ra)",
-        "String(state.dec)",
-        "String(state.fov)",
-        "p.set('t0'",
-        "p.set('t1'",
-        "p.set('from', 'view')",
-    )
-    miss = [x for x in needs if x not in body]
-    if miss:
-        fail(f"analysisUrl 缺参数/不是全精度：{miss}")
-    else:
-        ok("分析入口 URL：全精度 ra/dec/fov + t0/t1 + from=view")
+    ok("只有 MoveScope 一个分析入口")
 
-for bid in ("btn-cascade", "btn-tracks", "btn-movescope"):
-    if f'id="{bid}"' not in html:
-        fail(f"index.html 缺按钮 #{bid}")
-for call in (
-    "openMoveScopePage(analysisUrl('cascade')",
-    "openMoveScopePage(analysisUrl('tracks')",
-    "openMoveScopePage(moveScopeUrl()",
-):
-    if call not in main_js:
-        fail(f"main.js 缺入口绑定：{call}")
-if "$('btn-movescope')" not in main_js or "$('btn-cascade')" not in main_js or "$('btn-tracks')" not in main_js:
-    fail("分析入口没有绑定点击事件")
+if "进入 MoveScope 后切换" not in html or "普通" not in html or "级联" not in html or "轨迹" not in html:
+    fail("页面没有明确“进入 MoveScope 后切换普通/级联/轨迹”")
 else:
-    ok("三个入口并存：MoveScope / 级联-残差 / 轨迹发现")
+    ok("页面文案：进入 MoveScope 后切换普通/级联/轨迹")
 
 if "不是数据时相" not in main_js:
     fail("分析提示没有区分“分析窗口”和“数据时相”")
 else:
     ok("分析提示区分分析窗口与数据时相")
 
-readme_needs = ("分析时间窗口", "t0", "t1", "/cascade?", "/tracks?", "from=view", "分析层过滤范围")
+readme_needs = ("分析时间窗口", "t0", "t1", "from=view", "分析层过滤范围", "进入 MoveScope 后切换")
 missing_readme = [s for s in readme_needs if s not in readme]
 if missing_readme:
-    fail(f"README 缺分析窗口/入口说明：{missing_readme}")
+    fail(f"README 缺分析窗口/交接说明：{missing_readme}")
 else:
-    ok("README 记录分析窗口与 /cascade、/tracks 入口")
+    ok("README 记录分析窗口与单 MoveScope handoff")
 
 # ---------------------------------------------------------------- 2. fields.json
 fields_doc = json.loads(read(os.path.join(TOOL, "data", "fields.json")))
@@ -393,18 +374,29 @@ elif "/api/health" not in main_js or "mode: 'no-cors'" not in main_js:
 else:
     ok("MoveScope 交接：MOVESCOPE_ORIGIN 默认 8790 + GET 探活")
 
-# 传给 MoveScope 的坐标必须全精度，并带上 target
+# 传给 MoveScope 的一次 handoff：全精度坐标 + t0/t1/from=view，不传 mode
 m = re.search(r"function moveScopeUrl\(\)[\s\S]*?\n\}", main_js)
 if not m:
     fail("找不到 moveScopeUrl()")
-elif "toFixed" in m.group(0):
-    fail("moveScopeUrl 里仍有 toFixed 舍入")
-elif "String(t.ra)" not in m.group(0) or "String(state.ra)" not in m.group(0):
-    fail("moveScopeUrl 未使用全精度坐标")
-elif "p.set('target', t.id)" not in m.group(0):
-    fail("moveScopeUrl 未把 target 交给 MoveScope")
 else:
-    ok("MoveScope URL：全精度坐标 + target")
+    body = m.group(0)
+    needs = (
+        "p.set('ra', String(state.ra))",
+        "p.set('dec', String(state.dec))",
+        "p.set('fov', String(state.fov))",
+        "p.set('t0'",
+        "p.set('t1'",
+        "p.set('from', 'view')",
+    )
+    miss = [x for x in needs if x not in body]
+    if miss:
+        fail(f"moveScopeUrl 缺参数/不是全精度：{miss}")
+    elif "p.set('mode'" in body or "mode=" in body:
+        fail("moveScopeUrl 不应传 mode")
+    elif "p.set('target'" in body:
+        fail("moveScopeUrl 不应再传 target")
+    else:
+        ok("MoveScope URL：全精度 ra/dec/fov + t0/t1 + from=view，无 mode/target")
 
 # ---------------------------------------------------------------- 6. 文案
 all_text = html + main_js + readme

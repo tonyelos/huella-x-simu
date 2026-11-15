@@ -11,10 +11,9 @@ const MOVESCOPE_ORIGIN = String(
   window.MOVESCOPE_ORIGIN || 'http://127.0.0.1:8790'
 ).replace(/\/+$/, '');
 const PRESET_FOV = { barnard: 0.5, epsind_b: 0.5, wise0855: 0.2, rw_aur: 0.5, r_dra: 0.5, m101: 0.1, campo_a: 0.1 };
-// 分析层时间窗口：以当前数据时相为中心，过滤级联/轨迹的历元范围。
+// 分析层时间窗口：以当前数据时相为中心，过滤 MoveScope 分析层历元范围。
 const WINDOW_OPTIONS = [30, 90, 180, 365, 730];
 const DEFAULT_WINDOW_DAYS = 365;
-const ANALYSIS_PATHS = { cascade: '/cascade', tracks: '/tracks' };
 
 // 覆盖口径：单片 3.49° 方视场的半对角线 2.47°（中心落在这个半径里才算“这帧拍到了该天区”）
 const HIT_RADIUS_DEG = 2.47;
@@ -224,26 +223,8 @@ function updatePresetState() {
 }
 
 // ---------------------------------------------------------------- MoveScope 交接
-/** 传给 MoveScope 的 URL：命中目标时带 target + 预设全精度坐标；否则只带自定义坐标。 */
+/** 一次 handoff：当前天区 + 分析时间窗口交给 MoveScope 主界面。 */
 function moveScopeUrl() {
-  const t = matchedTarget();
-  const p = new URLSearchParams();
-  if (t) {
-    p.set('target', t.id);
-    p.set('ra', String(t.ra));
-    p.set('dec', String(t.dec));
-  } else {
-    p.set('ra', String(state.ra));
-    p.set('dec', String(state.dec));
-  }
-  p.set('fov', String(state.fov));
-  return `${MOVESCOPE_ORIGIN}/?${p.toString()}`;
-}
-
-/** 分析入口：当前天区全精度坐标 + 分析时间窗口 t0/t1 + 来源标记。 */
-function analysisUrl(kind) {
-  const path = ANALYSIS_PATHS[kind];
-  if (!path) throw new Error(`unknown analysis page: ${kind}`);
   const p = new URLSearchParams();
   p.set('ra', String(state.ra));
   p.set('dec', String(state.dec));
@@ -251,11 +232,11 @@ function analysisUrl(kind) {
   p.set('t0', state.t0.toFixed(4));
   p.set('t1', state.t1.toFixed(4));
   p.set('from', 'view');
-  return `${MOVESCOPE_ORIGIN}${path}?${p.toString()}`;
+  return `${MOVESCOPE_ORIGIN}/?${p.toString()}`;
 }
 
-/** 打开 MoveScope 页面；先 GET 探活，失败时复制链接并给出可读提示。 */
-async function openMoveScopePage(url, label, copyLabel = `${label} 链接`) {
+/** 打开 MoveScope；先 GET 探活，失败时复制链接并给出可读提示。 */
+async function openMoveScope(url) {
   const win = window.open('about:blank', '_blank');
   const alive = await moveScopeAlive();
   if (alive) {
@@ -263,16 +244,16 @@ async function openMoveScopePage(url, label, copyLabel = `${label} 链接`) {
       win.location.replace(url);
       return;
     }
-    const copied = await copy(url, copyLabel, { silent: true });
-    toast(copied ? `浏览器拦截了新标签页，${copyLabel}已复制` : `浏览器拦截了新标签页；请手动打开 ${label}`, 4200);
+    const copied = await copy(url, 'MoveScope 链接', { silent: true });
+    toast(copied ? '浏览器拦截了新标签页，MoveScope 链接已复制' : '浏览器拦截了新标签页；请手动打开 MoveScope', 4200);
     return;
   }
   if (win) win.close();
-  const copied = await copy(url, copyLabel, { silent: true });
+  const copied = await copy(url, 'MoveScope 链接', { silent: true });
   toast(
     copied
-      ? `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），${copyLabel}已复制`
-      : `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），${label}未打开`,
+      ? `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py），链接已复制`
+      : `连不上 ${MOVESCOPE_ORIGIN}：先启动 MoveScope（app/server.py）`,
     5200,
   );
 }
@@ -281,12 +262,11 @@ function updateMoveScopeHint() {
   const t = matchedTarget();
   const el = $('ms-hint');
   if (!el) return;
+  el.classList.remove('warn');
   if (t) {
-    el.innerHTML = `将打开 <b>${t.name}</b>（REAL 预设 · ${t.id}）`;
-    el.classList.remove('warn');
+    el.innerHTML = `将打开 <b>${t.name}</b> 天区；MoveScope 按坐标分析，进入后可切换模式。`;
   } else {
-    el.innerHTML = '自定义天区 → MoveScope 会走 <b>SIM</b> 路径（数据桥接未完成前如此）';
-    el.classList.add('warn');
+    el.innerHTML = '自定义天区；MoveScope 按坐标分析（有真实历元则 REAL，否则 SIM），进入后可切换模式。';
   }
 }
 
@@ -356,12 +336,10 @@ function syncWindowUI() {
 function updateAnalysisHint() {
   const el = $('analysis-hint');
   if (!el) return;
-  const t0 = Number.isFinite(state.t0) ? state.t0 : state.mjd - state.windowDays;
-  const t1 = Number.isFinite(state.t1) ? state.t1 : state.mjd + state.windowDays;
   const fovWarn = state.fov > 3.0
     ? `<br><span style="color:var(--amber)">当前 FOV ${state.fov.toFixed(2)}° 超出 MoveScope 分析页 3.0° 上限，请先调小 FOV。</span>`
     : '';
-  el.innerHTML = `级联/轨迹入口：当前天区 + 分析窗口 <b>${A.fmtUtc(t0).slice(0, 10)} → ${A.fmtUtc(t1).slice(0, 10)}</b>；窗口是分析层过滤范围，不是数据时相。${fovWarn}`;
+  el.innerHTML = `一次 handoff：进入 MoveScope 后切换 <b>普通 / 级联-残差 / 轨迹</b>；t0–t1 是分析层过滤范围，不是数据时相。${fovWarn}`;
 }
 
 // ---------------------------------------------------------------- 时间
@@ -724,12 +702,7 @@ async function boot() {
 
   $('btn-link').addEventListener('click', () => copy(location.href, '链接'));
 
-  $('btn-movescope').addEventListener('click', () =>
-    openMoveScopePage(moveScopeUrl(), 'MoveScope', 'MoveScope 链接'));
-  $('btn-cascade').addEventListener('click', () =>
-    openMoveScopePage(analysisUrl('cascade'), '级联 / 残差页', '级联/残差链接'));
-  $('btn-tracks').addEventListener('click', () =>
-    openMoveScopePage(analysisUrl('tracks'), '轨迹发现页', '轨迹发现链接'));
+  $('btn-movescope').addEventListener('click', () => openMoveScope(moveScopeUrl()));
 
   window.addEventListener('keydown', (e) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
