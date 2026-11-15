@@ -79,6 +79,12 @@ class ASourceBatchUiStaticTest(unittest.TestCase):
         self.assertIn("chunks(items, 200)", js)
         self.assertIn("A 源表和已有 badge 保持不变", js)
         self.assertIn("no_match = 未收录候选", html)
+        self.assertIn("<th>epoch</th><th>S/N</th><th>RA / Dec</th><th>catalog</th>", html)
+        self.assertIn("a-coord", js)
+        with open(os.path.join(APP, "web", "style.css"), encoding="utf-8") as fh:
+            css = fh.read()
+        self.assertIn(".a-source-table { width: 100%; max-width: 100%; table-layout: fixed;", css)
+        self.assertIn("grid-template-columns: 46px minmax(0, 1fr) 62px", css)
         self.assertNotIn("新恒星", html + js)
         self.assertNotIn("新行星", html + js)
 
