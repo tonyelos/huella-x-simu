@@ -35,6 +35,9 @@
 
   function canonical(result) {
     if (!result || !result.status) return "unknown";
+    // B 原始 match_status 是 no_match 时，即使 identification 因 partial
+    // 返回 insufficient_data，也必须在审计目录保留 no_match。
+    if (result.match_status === "no_match") return "no_match";
     if (result.status === "known_star") return "known";
     if (result.status === "ambiguous") return "ambiguous";
     if (result.status === "uncatalogued_candidate") return "no_match";
