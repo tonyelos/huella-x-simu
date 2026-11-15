@@ -68,6 +68,8 @@ $PY -m unittest discover -s tests -t . -v
 | 真实 TAP 缓存行数 | **17,679**（7 场合计） |
 | 场计数 | barnard 9,603；epsind_b 813；wise0855 1,210；rw_aur 4,684；r_dra 651；m101 458；campo_a 260 |
 | 参考历元 | **J2016.0 = MJD 57388.5** |
+| 派生 2MASS | `2mass-derived-gaia-dr3`：**8,278** unique（输入 8,419 行，141 个跨场重复 ID 折叠） |
+| 派生 WISE | `wise-derived-gaia-dr3`：**7,898** unique（输入 8,052 行，154 个跨场重复 ID 折叠） |
 | 本地缓存文件 | `var/star_catalog.sqlite`（约 7 MB，**不提交**） |
 
 导入器对每个场先执行一次 `SELECT COUNT(*)` 校验，再拉带 2MASS/WISE join 的明细；
@@ -121,6 +123,19 @@ fixture 的 `field_counts` 记录的是当时 TAP 缓存场的完整计数（合
 | 许可页 | <https://www.cosmos.esa.int/web/gaia-users/license> |
 | DOI | <https://doi.org/10.1051/0004-6361/202243940> |
 
+第二/第三目录：
+
+| release | 内容 | provenance | 许可/引用 |
+|---|---|---|---|
+| `2mass-derived-gaia-dr3` | 8,278 个唯一 2MASS ID + J/H/K（来自 Gaia 缓存交叉证认） | `derived_from_gaia_cache` | 2MASS 公共领域；Skrutskie et al. 2006 |
+| `wise-derived-gaia-dr3` | 7,898 个唯一 WISE ID + W1/W2（同上） | `derived_from_gaia_cache` | AllWISE 公共领域；Wright et al. 2010 / Cutri et al. 2021 |
+| `target_name`（表，不是 release） | 7 个 preset target 名称/别名/SIMBAD ID | `preset_target_names` | 名称是项目元数据；SIMBAD 引用/ODbL 仅在在线查询时适用 |
+
+- 2MASS/WISE 派生目录**不是完整目录**，只含 Gaia 缓存中带交叉证认 ID 与所需星等的源；
+  坐标/PM 沿用 Gaia J2016.0，不是 2MASS J2000 或 AllWISE 2010 原生位置。
+- SIMBAD 本轮只做名称 enrichment；`simbad=unavailable` 时没有 `simbad` release，
+  名称仍是 preset 元数据，不能用于 3σ 位置匹配。
+
 - **Gaia 数据不是 OSI 开源许可**：CC BY-NC 3.0 IGO 允许非商业使用/再分发（带署名与许可），
   不能商业使用，不能暗示 ESA 背书。本项目只做非商业挑战赛演示，且仓库只提交 250 行
   fixture 子集，不重新分发全量星表。
@@ -129,7 +144,7 @@ fixture 的 `field_counts` 记录的是当时 TAP 缓存场的完整计数（合
   `source_url`；release 更新时新增版本，不允许隐式漂移。
 - 第三方材料总表：根目录 `THIRD_PARTY_NOTICES.md` §5.1。
 
-SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **3**），
+SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **4**），
 API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 ---
@@ -138,9 +153,10 @@ API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 `var/star_catalog.sqlite` 是**可重建缓存**，不是原始数据归档。删掉后用
 `tools/import_gaia.py --rebuild` 重建（联网 TAP；失败回退 fixture）。
-当前 **star schema v3**：v2 增加 `parallax_error/ruwe/astrometric_excess_noise/
+当前 **star schema v4**：v2 增加 `parallax_error/ruwe/astrometric_excess_noise/
 phot_variable_flag` 与 `catalog_field.photometry_json`；v3 增加
-`catalog_source.field_id`（场级 upsert 的归属键）及 `(release_id, field_id)` 索引。
+`catalog_source.field_id`（场级 upsert 的归属键）及 `(release_id, field_id)` 索引；
+v4 增加 `target_name`（7 个 preset target 名称/SIMBAD 状态，名称不是 SIMBAD 场目录）。
 旧库用 `apply_star_schema()` 做 `ADD COLUMN` + 最近场心回填迁移（保留已有行），
 也可直接 `--rebuild` 重建；两条路径都有测试。
 
@@ -152,6 +168,7 @@ phot_variable_flag` 与 `catalog_field.photometry_json`；v3 增加
 | `catalog_source` | 星表源：位置、PM、视差、误差、G/BP-RP、J/H/K/W1/W2、2MASS/WISE ID、HEALPix、object_type |
 | `catalog_match` | D 侧匹配产物：analysis_id、detection_id、release_id、source_id、sep、PM/PA 残差、ambiguity、confidence、检测位置/MJD |
 | `catalog_import_run` | 导入审计：状态、模式、场数、行数 |
+| `target_name` | 7 个 preset target 名称/别名/SIMBAD ID enrichment；不是场目录 |
 | `v_catalog_source` / `v_catalog_release` | 对外列别名视图（`"2mass"`、`release`、`n_sources_actual`） |
 
 关键列（`catalog_source`）：
@@ -201,9 +218,10 @@ phot_variable_flag` 与 `catalog_field.photometry_json`；v3 增加
   "ok": true,
   "service": "star-catalog",
   "schema_version": "1.0",
-  "star_schema_version": 3,
-  "db_schema_version": 3,
+  "star_schema_version": 4,
+  "db_schema_version": 4,
   "counts": {"releases": 1, "sources": 250, "fields": 7, "matches": 0, "import_runs": 1},
+  "simbad": "unavailable",
   "releases": [{
     "release": "gaia-dr3", "version": "dr3", "catalog": "gaia",
     "epoch_ref": "J2016.0", "epoch_ref_mjd": 57388.5,
@@ -211,7 +229,7 @@ phot_variable_flag` 与 `catalog_field.photometry_json`；v3 增加
     "provenance": "fixture", "n_sources": 250, "n_sources_actual": 250
   }],
   "db": {"path": ".../var/star_catalog.sqlite", "disk_bytes": 7340032,
-         "schema_version": 3, "api_schema_version": "1.0"},
+         "schema_version": 4, "api_schema_version": "1.0"},
   "generated_at": "2026-11-15T01:02:43Z"
 }
 ```
@@ -224,6 +242,7 @@ DB 不存在/损坏时 HTTP **503** `CATALOG_UNAVAILABLE`（不是 200 空健康
 `catalog`、`version`、`epoch_ref`、`epoch_mjd`、`imported_at`、`license`、
 `citation`、`source_url`、`provenance`、`cache_radius_deg`、`mag_limit`、
 `n_sources`、`n_sources_actual`、`n_fields`。
+`GET /api/v1/catalog/targets` 给 7 个 preset target 名称/SIMBAD 状态（见 §5.10）。
 
 ### 5.4 `GET /api/v1/catalog/fields?catalog=gaia&version=dr3`
 
@@ -245,7 +264,7 @@ DB 不存在/损坏时 HTTP **503** `CATALOG_UNAVAILABLE`（不是 200 空健康
 | `dec` | float | 必填 | ICRS 赤纬 [deg]，[-90,90] |
 | `radius_deg` | float | `0.1` | 锥半径，(0, 5]；也接受别名 `radius` |
 | `epoch` | float | 省略 | 观测 MJD；给定时按 PM 传播到该历元 |
-| `catalog` | str | `gaia` | 目前只有 `gaia` |
+| `catalog` | str | `gaia` | `gaia` / `2mass`（派生）/ `wise`（派生） |
 | `version` | str | 最新 | 固定 release 版本，如 `dr3` |
 | `limit` | int | 500 | 分页大小，最大 2000 |
 | `offset` | int | 0 | 分页偏移 |
@@ -352,7 +371,7 @@ D-03 建议锥半径 ≥0.3°，B 支持到 5°。
 | `detections[].mjd` / `epoch` | 省略→顶层 `epoch` | 观测 MJD |
 | `detections[].sigma_arcsec` | 1.0 | 位置误差；有效半径 `max(radius_arcsec, 3σ)`，上限 60″ |
 | `detections[].pmra_mas_yr` / `pmdec_mas_yr` | 省略 | 有值时算 PM 大小/方向残差 |
-| `catalogs` | `["gaia"]` | 可多目录；当前只有 gaia 有数据 |
+| `catalogs` | `["gaia"]` | 可多目录：`["gaia","2mass","wise"]`；2mass/wise 是 Gaia 缓存派生子集 |
 | `radius_arcsec` | 3.0 | 基础匹配半径，(0, 60] |
 | `persist` | false | 写 `catalog_match`；必须同时给 `analysis_id` |
 | `analysis_id` | — | 持久化主键（D 的分析批次 ID） |
@@ -562,6 +581,52 @@ TAP 失败示例：
 **不变量：** 502 后数据库计数/字段/import_run 均不变化；客户端必须把这次 ingest
 当成“未缓存”，不能把随后 match 的 no_match 当新天体。
 
+
+### 5.10 第二/第三目录：2MASS/WISE 派生 + SIMBAD 名称
+
+**2MASS/WISE 派生**（可复现、不联网）：
+
+```bash
+$PY tools/derive_secondary_catalogs.py --db var/star_catalog.sqlite
+```
+
+- 从 `gaia-dr3` 缓存中抽 `twomass_id + jmag/hmag/kmag` → `2mass` release；
+  抽 `wise_id + w1/w2` → `wise` release；
+- 真实缓存：2MASS 输入 8,419 行、唯一 8,278（141 个跨场重复 ID 折叠）；
+  WISE 输入 8,052、唯一 7,898（154 折叠）；
+- 7 个 `catalog_field` 全部复制，`provenance=derived_from_gaia_cache`；
+- 坐标/PM 沿用 Gaia J2016.0；**不是**完整 2MASS/WISE，也不是原始 survey 历元位置；
+- 派生场的 `coverage.complete=false`，match 顶层 `catalog_status=partial`。
+
+查询：
+
+```bash
+curl 'http://127.0.0.1:8799/api/v1/catalog/cone?ra=269.44756&dec=4.69609&radius_deg=0.001&catalog=2mass'
+curl 'http://127.0.0.1:8799/api/v1/catalog/cone?ra=269.44756&dec=4.69609&radius_deg=0.001&catalog=wise'
+curl -X POST 'http://127.0.0.1:8799/api/v1/catalog/match' \
+  -H 'Content-Type: application/json' \
+  -d '{"detections":[{"ra":269.44756,"dec":4.69609,"mjd":61210,"sigma_arcsec":0.3}],
+       "catalogs":["gaia","2mass","wise"],"radius_arcsec":1.0}'
+```
+
+每个候选带 `catalog/catalog_id` 与真实星等；2MASS 候选有 `jmag/hmag/kmag`、W1/W2 为 null；
+WISE 候选相反；Gaia 候选保留自己的全部列。
+
+**SIMBAD 名称 enrichment**：
+
+```bash
+$PY tools/import_simbad.py --db var/star_catalog.sqlite   # 会探测 TAP；失败标 unavailable
+$PY tools/import_simbad.py --db var/star_catalog.sqlite --offline
+curl 'http://127.0.0.1:8799/api/v1/catalog/targets'
+```
+
+- 只做 7 个 preset target 的 `name/simbad_id/aliases/object_type`；
+- 不建 `simbad` release，不把 SIMBAD 坐标用于 match/3σ；
+- TAP 不可用：`simbad=unavailable`，名称 `provenance=preset_target_names`；
+  不能把本地名称说成 SIMBAD 在线结果；
+- 若 TAP 可达：`simbad=available_names_only`，场锥搜索仍未接入；
+- `campo_a` 是演示场，`simbad_id=null`，不伪造 SIMBAD 对象。
+
 ---
 
 ## 6. PM 传播：B 做了什么、边界在哪
@@ -634,6 +699,8 @@ B 的 `catalog_status` 与 D 的 `catalog_status` 对齐：
 - 单写者：SQLite WAL 支持多读；同一时刻只建议一个导入进程。
 - 重建：`tools/import_gaia.py --rebuild`；只重建一个场：`--fields barnard --rebuild`；
   只导出可提交样本：`--export-sample`。
+- 派生：`tools/derive_secondary_catalogs.py --db var/star_catalog.sqlite`；
+  名称：`tools/import_simbad.py --db var/star_catalog.sqlite [--offline]`。
 - release 更新：当前导入器对同名 `catalog+version` 做 replace。冻结演示应改用新
   `version`/`release_key`，不要覆盖旧快照（D 设计要求旧结果可复现）。见 §10。
 
@@ -648,9 +715,10 @@ $PY -m unittest discover -s tests -t . -v
 
 覆盖：
 
-- schema/列/视图/外键、`schema_version=3`、release 的 epoch/license/citation/source_url；
-- v1/v2→v3 迁移：旧库缺 `ruwe/astrometric_excess_noise/phot_variable_flag/parallax_error/
+- schema/列/视图/外键、`schema_version=4`、release 的 epoch/license/citation/source_url；
+- v1/v2/v3→v4 迁移：旧库缺 `ruwe/astrometric_excess_noise/phot_variable_flag/parallax_error/
   field_id/photometry_json` 时 `ADD COLUMN` 安全迁移，并按最近场心回填 `field_id`；
+  v4 新增 `target_name` 表并 seed 7 个 preset 名称；
 - fixture 250 行、7 场、`fetched_at=2026-11-15T02:28:40Z`、`field_counts` 合计 17,679；
 - `ruwe=1.0848505`、`astrometric_excess_noise=0.20481846`、`phot_variable_flag=
   NOT_AVAILABLE`、`parallax_error>0` 在 DB 与 HTTP cone/match 都返回；
@@ -671,7 +739,14 @@ $PY -m unittest discover -s tests -t . -v
 - `POST /api/v1/catalog/ingest`（fake TAP，离线）：200 落库、重复幂等、相邻场保留、
   TAP 失败 502 且计数不变、非法参数 400、photometry partial 不阻塞 Gaia 落库；
 - `upsert_field` 新场/重入/相邻场保留/追加模式；UPSERT 不删仍在新列表的 source，
-  `catalog_match` 不被级联清空。
+  `catalog_match` 不被级联清空；
+- 2MASS/WISE 派生：fixture 2MASS 167 唯一 / WISE 146 唯一；7 场复制；
+  只含 JHK/W1W2 完整行；重复 ID 折叠；重复 derive 幂等；
+- 多目录 match：`catalogs=["gaia","2mass","wise"]` 返回三类候选，
+  2MASS 候选 W1/W2=null、WISE 候选 J/H/K=null，派生目录 `catalog_status=partial`；
+- SIMBAD：7 个 preset target 名称/ID；TAP 不可用 `simbad=unavailable`；
+  不生成 `simbad` release，`match(catalogs=["simbad"])` 返回 `CATALOG_UNAVAILABLE`；
+  `campo_a` 无 SIMBAD ID，不伪造。
 
 **真实缓存复验（可选，本地有 7 MB 库时）：**
 
@@ -691,24 +766,27 @@ PY
 
 ## 10. 未完成/已知限制（交给 lead/D 决策）
 
-1. **2MASS/WISE 是“附加测光”，不是独立目录。** J/H/K/W1/W2 通过 IRSA Gator
-   对回 Gaia 交叉证认 ID；真实 7 场缓存覆盖 2MASS 8,419/17,679、WISE 8,052/17,679。
-   未覆盖行保持 null；没有 2MASS/WISE 自己的 `source_id` 行、误差列、质量标志
-   （`ph_qual` 只用于对回，不落库）。Gator 失败时整列为 null 且
-   `photometry.status=partial`，不伪造。
+1. **2MASS/WISE 是派生交叉证认子集，不是完整目录。** J/H/K/W1/W2 通过 IRSA Gator
+   对回 Gaia 交叉证认 ID；真实 7 场缓存覆盖 2MASS 8,419/17,679、WISE 8,052/17,679；
+   派生 release 去重后 2MASS 8,278、WISE 7,898 唯一 ID。坐标/PM 用 Gaia J2016.0，
+   **不是 2MASS J2000 / AllWISE 2010 原始位置**。没有 2MASS/WISE 自身误差列/质量标志；
+   缺失交叉证认/星等的源不进派生目录，不能声称全量。
 2. **RUWE/astrometric_excess_noise/phot_variable_flag 已接入；仍缺**
    `visibility_periods_used`、`astrometric_excess_noise_sig`、2MASS/WISE 误差列。
    D 可以用 `ruwe` 做降级，但不能把 `phot_variable_flag` 当成 D 的变星结论。
-3. **PM 只做一阶线性、不含视差/协方差**（§6）。高视差近星（Barnard ϖ=547 mas）
+3. **SIMBAD 只做名称 enrichment。** 当前 TAP 不可用，`simbad=unavailable`；
+   7 个名称/ID 是 preset 元数据，没有 `simbad` release，也不参与位置匹配。
+   TAP 恢复后仍需实现场锥搜索；不能把名称/文献坐标当 3σ 天体测量。
+4. **PM 只做一阶线性、不含视差/协方差**（§6）。高视差近星（Barnard ϖ=547 mas）
    D 应加视差项或明确标注。
-4. **release 替换语义**：导入器对 `gaia+dr3` 做 replace；没有 checksum 列。
+5. **release 替换语义**：导入器对 `gaia+dr3` 做 replace；没有 checksum 列。
    冻结/复现要求“旧 release 不覆盖”时，需要新版本号或冻结 manifest（C/D 阶段）。
-5. **不是全天服务**：只有 7 个 0.25° 场；锥半径上限 5°，`_query_rows` 扫描上限 20 万行；
+6. **不是全天服务**：只有 7 个 0.25° 场；锥半径上限 5°，`_query_rows` 扫描上限 20 万行；
    没有按 HEALPix 分片/懒加载，没有 TAP 异步大查询。
-6. **fixture 不完整**：250/17,679 行，且每场是抽样；任何基于 fixture 的
+7. **fixture 不完整**：250/17,679 行，且每场是抽样；任何基于 fixture 的
    “complete” 都被强制 false。不要用 fixture 做“全星表”演示。
-7. **服务无鉴权/TLS**，只适合本机/内网；公网需反代。
-8. **D 的分类实现不在本分支**：B 只提供契约、候选与 `catalog_match` 持久化；
+8. **服务无鉴权/TLS**，只适合本机/内网；公网需反代。
+9. **D 的分类实现不在本分支**：B 只提供契约、候选与 `catalog_match` 持久化；
    `identify` 状态机等 D 代码由 D owner 完成。
 
 ---

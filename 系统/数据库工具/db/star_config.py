@@ -21,7 +21,7 @@ CATALOG_DOC = TOOL_ROOT / "docs" / "CATALOG.md"
 
 SERVICE_NAME = "star-catalog"
 CATALOG_API_VERSION = "1.0"
-STAR_SCHEMA_VERSION = 3
+STAR_SCHEMA_VERSION = 4
 CATALOG_PORT = 8799
 
 # 每个预设场的缓存半径。0.25° 覆盖 app 默认 0.25° 视场（半对角线约 0.177°），
@@ -65,4 +65,54 @@ PRESET_FIELDS: dict[str, dict[str, object]] = {
     "r_dra": {"name": "R Draconis", "ra": 248.167611, "dec": 66.754979, "official": True},
     "m101": {"name": "M101 field", "ra": 210.80227, "dec": 54.34895, "official": False},
     "campo_a": {"name": "Field A (DR1)", "ra": 160.617, "dec": 30.67, "official": False},
+}
+
+
+# 已知预设目标的名称/SIMBAD 标识 enrichment。
+# provenance 一律是 preset_target_names：这是项目策展的名称，不是 SIMBAD 场目录；
+# SIMBAD TAP 不可用时不能把这些名字伪装成在线 SIMBAD 查询结果。
+PRESET_TARGET_NAMES: dict[str, dict] = {
+    "barnard": {
+        "name": "Barnard's Star",
+        "simbad_id": "NAME Barnard's Star",
+        "aliases": ["GJ 699", "HIP 87937", "BD+04 3561a", "V* V2500 Oph"],
+        "object_type": "star",
+    },
+    "epsind_b": {
+        "name": "Epsilon Indi B",
+        "simbad_id": "* eps Ind B",
+        "aliases": ["GJ 845 B", "TIC 219570174"],
+        "object_type": "brown_dwarf",
+    },
+    "wise0855": {
+        "name": "WISE 0855-0714",
+        "simbad_id": "WISE J085510.83-071442.5",
+        "aliases": ["WISE 0855-0714"],
+        "object_type": "brown_dwarf",
+    },
+    "rw_aur": {
+        "name": "RW Aurigae",
+        "simbad_id": "V* RW Aur",
+        "aliases": ["HD 240764", "HIP 25195"],
+        "object_type": "star",
+    },
+    "r_dra": {
+        "name": "R Draconis",
+        "simbad_id": "V* R Dra",
+        "aliases": ["HD 149730", "HIP 81181"],
+        "object_type": "star",
+    },
+    "m101": {
+        "name": "M101",
+        "simbad_id": "M 101",
+        "aliases": ["NGC 5457", "UGC 8981"],
+        "object_type": "galaxy",
+    },
+    "campo_a": {
+        "name": "Field A (DR1)",
+        "simbad_id": None,
+        "aliases": [],
+        "object_type": "field",
+        "note": "演示场，不是 SIMBAD 天体；无 SIMBAD ID。",
+    },
 }

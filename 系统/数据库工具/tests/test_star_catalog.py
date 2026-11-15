@@ -466,6 +466,7 @@ class StarCatalogDataTest(unittest.TestCase):
                 conn.execute("DROP VIEW IF EXISTS v_catalog_source")
                 conn.execute("DROP VIEW IF EXISTS v_catalog_release")
                 conn.execute("DROP INDEX IF EXISTS idx_catalog_source_field")
+                conn.execute("DROP TABLE IF EXISTS target_name")
                 for col in (
                     "parallax_error",
                     "ruwe",
@@ -502,6 +503,10 @@ class StarCatalogDataTest(unittest.TestCase):
                     "SELECT COUNT(*) FROM catalog_source WHERE field_id IS NULL"
                 ).fetchone()[0]
                 self.assertEqual(nulls, 0)
+                self.assertEqual(
+                    cat.conn.execute("SELECT COUNT(*) FROM target_name").fetchone()[0],
+                    7,
+                )
 
     def test_ambiguous_pair_0216_arcsec(self):
         a = self.by_id[PAIR_A]
