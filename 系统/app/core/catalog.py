@@ -31,6 +31,7 @@ import urllib.request
 
 DEFAULT_CATALOG_BASE_URL = "http://127.0.0.1:8799"
 DEFAULT_TIMEOUT_S = 2.5
+DEFAULT_INGEST_TIMEOUT_S = 60.0
 CATALOG = "gaia"
 IDENTIFICATION_SCHEMA_VERSION = "1.0"
 IDENTIFICATION_ENGINE_VERSION = "d-identify/0.1"
@@ -78,6 +79,23 @@ def catalog_timeout_s() -> float:
     except (TypeError, ValueError):
         return DEFAULT_TIMEOUT_S
     return value if math.isfinite(value) and value > 0 else DEFAULT_TIMEOUT_S
+
+
+def ingest_timeout_s() -> float:
+    """B ingest 的超时；TAP 可能较慢，默认 60s。"""
+    raw = os.environ.get("MOVESCOPE_CATALOG_INGEST_TIMEOUT")
+    if raw is None:
+        return DEFAULT_INGEST_TIMEOUT_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_INGEST_TIMEOUT_S
+    return value if math.isfinite(value) and value > 0 else DEFAULT_INGEST_TIMEOUT_S
+
+
+def auto_ingest_enabled() -> bool:
+    """是否允许因 field 未缓存自动触发 ingest；默认关闭。"""
+    return str(os.environ.get("CATALOG_AUTO_INGEST", "")).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _finite(value):
@@ -262,12 +280,31 @@ def normalize_match(raw: dict) -> dict:
     }
 
 
+def _should_auto_ingest(result: dict) -> bool:
+    if not auto_ingest_enabled():
+        return False
+    status = str((result or {}).get("catalog_status") or "")
+    if status not in ("partial", "unavailable"):
+        return False
+    reason = str((result or {}).get("catalog_reason") or (result or {}).get("reason") or "").lower()
+    # normalize_match 把 B 的 no_cached_field 归为 NO_CACHED_FIELD；
+    # partial 状态本身也允许尝试一次补场。
+    return status == "partial" or reason in ("no_cached_field", "catalog_partial", "partial")
+
+
 class CatalogClient:
     """B 星表服务的最小 stdlib HTTP 客户端；任何异常都转成 unavailable。"""
 
-    def __init__(self, base_url: str | None = None, timeout: float | None = None, opener=None):
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float | None = None,
+        opener=None,
+        ingest_timeout: float | None = None,
+    ):
         self.base_url = (base_url or "").rstrip("/") or None
         self.timeout = float(timeout) if timeout is not None else None
+        self.ingest_timeout = float(ingest_timeout) if ingest_timeout is not None else None
         self._opener = opener
 
     def _resolved_base_url(self) -> str:
@@ -276,7 +313,10 @@ class CatalogClient:
     def _resolved_timeout(self) -> float:
         return self.timeout if self.timeout is not None else catalog_timeout_s()
 
-    def _post_json(self, path: str, payload: dict) -> dict:
+    def _resolved_ingest_timeout(self) -> float:
+        return self.ingest_timeout if self.ingest_timeout is not None else ingest_timeout_s()
+
+    def _post_json(self, path: str, payload: dict, timeout: float | None = None) -> dict:
         url = self._resolved_base_url() + path
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
@@ -286,9 +326,132 @@ class CatalogClient:
             method="POST",
         )
         opener = self._opener or urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(req, timeout=self._resolved_timeout()) as resp:
+        with opener.open(req, timeout=(timeout if timeout is not None else self._resolved_timeout())) as resp:
             raw = resp.read()
         return json.loads(raw.decode("utf-8"))
+
+    def ingest(
+        self,
+        *,
+        ra: float,
+        dec: float,
+        radius_deg: float = 0.25,
+        mag_limit: float = 20.0,
+        field_id: str | None = None,
+        include_photometry: bool = False,
+    ) -> dict:
+        """请求 B 从 Gaia TAP 接收一个场并写 SQL。
+
+        任何失败都返回结构化结果，不抛异常、不伪造场已写入：
+        ok=False + catalog_status=ingest_failed + reason/http_status/detail。
+        """
+        ra = _finite(ra)
+        dec = _finite(dec)
+        radius = _finite(radius_deg)
+        mag = _finite(mag_limit)
+        if ra is None or dec is None or radius is None or mag is None:
+            return {
+                "ok": False,
+                "catalog": CATALOG,
+                "catalog_status": "ingest_failed",
+                "reason": "INVALID_INGEST_REQUEST",
+                "detail": "ra/dec/radius_deg/mag_limit 必须是有限数字。",
+                "http_status": None,
+                "field_id": field_id,
+            }
+        payload = {
+            "catalog": CATALOG,
+            "ra": float(ra),
+            "dec": float(dec),
+            "radius_deg": float(radius),
+            "mag_limit": float(mag),
+            "include_photometry": bool(include_photometry),
+            "replace_field": True,
+        }
+        if field_id:
+            payload["field_id"] = str(field_id)
+        try:
+            raw = self._post_json("/api/v1/catalog/ingest", payload, timeout=self._resolved_ingest_timeout())
+        except urllib.error.HTTPError as exc:
+            status = int(getattr(exc, "code", 0) or 0)
+            body = {}
+            try:
+                body = json.loads(exc.read().decode("utf-8"))
+            except Exception:  # noqa: BLE001
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            err = body.get("error")
+            return {
+                "ok": False,
+                "catalog": CATALOG,
+                "catalog_status": "ingest_failed",
+                "reason": str(body.get("reason") or body.get("code") or "INGEST_HTTP_ERROR"),
+                "detail": body.get("message") or (err.get("message") if isinstance(err, dict) else None),
+                "http_status": status,
+                "field_id": field_id,
+                "response": body,
+            }
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            return {
+                "ok": False,
+                "catalog": CATALOG,
+                "catalog_status": "ingest_failed",
+                "reason": "INGEST_UNREACHABLE",
+                "detail": str(exc),
+                "http_status": None,
+                "field_id": field_id,
+            }
+        except ValueError as exc:
+            return {
+                "ok": False,
+                "catalog": CATALOG,
+                "catalog_status": "ingest_failed",
+                "reason": "INGEST_MALFORMED_RESPONSE",
+                "detail": str(exc),
+                "http_status": None,
+                "field_id": field_id,
+            }
+        except Exception as exc:  # noqa: BLE001 - 分析不能被 ingest 拖垮
+            return {
+                "ok": False,
+                "catalog": CATALOG,
+                "catalog_status": "ingest_failed",
+                "reason": "INGEST_CLIENT_ERROR",
+                "detail": str(exc),
+                "http_status": None,
+                "field_id": field_id,
+            }
+        if not isinstance(raw, dict) or not raw.get("ok"):
+            reason = "INGEST_REJECTED"
+            detail = None
+            if isinstance(raw, dict):
+                reason = str(raw.get("reason") or raw.get("code") or reason)
+                detail = raw.get("message") or raw.get("detail")
+            return {
+                "ok": False,
+                "catalog": CATALOG,
+                "catalog_status": "ingest_failed",
+                "reason": reason,
+                "detail": detail,
+                "http_status": 200,
+                "field_id": field_id,
+                "response": raw if isinstance(raw, dict) else None,
+            }
+        return {
+            "ok": True,
+            "catalog": CATALOG,
+            "catalog_status": "ok",
+            "reason": None,
+            "detail": None,
+            "http_status": 200,
+            "field_id": raw.get("field_id") or field_id,
+            "release": raw.get("release"),
+            "counts": raw.get("counts") or {},
+            "provenance": raw.get("provenance"),
+            "complete": raw.get("complete"),
+            "warnings": raw.get("warnings") or [],
+        }
 
     def match(
         self,
@@ -304,8 +467,12 @@ class CatalogClient:
         persist: bool = False,
         pmra_mas_yr: float | None = None,
         pmdec_mas_yr: float | None = None,
+        _allow_auto: bool = True,
     ) -> dict:
-        """按目标检测坐标/MJD/误差查询 B；PM 传播由 B 按 ``epoch`` 完成。"""
+        """按目标检测坐标/MJD/误差查询 B；PM 传播由 B 按 ``epoch`` 完成。
+
+        ``_allow_auto`` 仅内部用于重试，防止 ingest 后再次触发。
+        """
         sigma = _finite(sigma_arcsec) or 1.0
         sigma = max(sigma, 0.01)
         radius = _finite(radius_arcsec)
@@ -362,6 +529,45 @@ class CatalogClient:
         result = normalize_match(raw)
         if not result.get("release") and raw.get("release"):
             result["release"] = raw.get("release")
+        if _allow_auto and _should_auto_ingest(result):
+            ingested = self.ingest(
+                ra=float(ra),
+                dec=float(dec),
+                radius_deg=0.25,
+                mag_limit=20.0,
+                include_photometry=False,
+            )
+            if ingested.get("ok"):
+                retry = self.match(
+                    ra=ra,
+                    dec=dec,
+                    mjd=mjd,
+                    sigma_arcsec=sigma_arcsec,
+                    radius_arcsec=radius_arcsec,
+                    catalogs=catalogs,
+                    detection_id=detection_id,
+                    analysis_id=analysis_id,
+                    persist=persist,
+                    pmra_mas_yr=pmra_mas_yr,
+                    pmdec_mas_yr=pmdec_mas_yr,
+                    _allow_auto=False,
+                )
+                retry["auto_ingest"] = {
+                    "attempted": True,
+                    "ok": True,
+                    "field_id": ingested.get("field_id"),
+                    "reason": None,
+                    "http_status": ingested.get("http_status"),
+                }
+                return retry
+            # ingest 失败/超时：保留原 match 状态，绝不伪造
+            result["auto_ingest"] = {
+                "attempted": True,
+                "ok": False,
+                "reason": ingested.get("reason"),
+                "detail": ingested.get("detail"),
+                "http_status": ingested.get("http_status"),
+            }
         return result
 
 
