@@ -321,3 +321,20 @@ JS error：无
 - 点击行仍单源 `/api/identify`。
 
 截图：[batch-c-sources.png](evidence-ego/batch-c-sources.png)。
+
+---
+
+## 13. A 源表批量识别与 badge 可见性
+
+Barnard 4 期 A 源 215 个（200+15 两批）：
+
+```text
+known 130 / ambiguous 33 / no_match 48 / insufficient 4 / unavailable 0
+```
+
+- A 表 4 列：epoch / S/N / RA·Dec / catalog；
+- badge 在左栏内完整可见（A: right 303.75 < wrap 320；C: right 285.35 < 310）；
+- C 111 源仍为 `known 61 / ambiguous 7 / no_match 43`；
+- no JS error；点击行仍锁定/单源识别。
+
+截图：[batch-a-c-badges.png](evidence-ego/batch-a-c-badges.png)。

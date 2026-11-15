@@ -63,7 +63,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 | 组件 | 命令 | 结果 |
 |---|---|---|
-| app | `cd 系统/app && $PY -m unittest discover -s tests` | **266 tests OK** |
+| app | `cd 系统/app && $PY -m unittest discover -s tests` | **268 tests OK** |
 | DB | `cd 系统/数据库工具 && $PY -m unittest discover -s tests -t .` | **126 tests OK** |
 | DB 完整性 | `$PY cli.py verify --deep` | quick ok / 0 FK / 0 missing / 0 corrupt |
 | DB 导出对账 | `check_compat.py --root ..` | fields 5,893 / epochs 74 / targets 7 / weeks 151 全过 |
@@ -105,7 +105,7 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 - 自定义 Barnard = REAL/4/L2/S；自定义 RW = HYBRID/8/L2/V；未覆盖 = SIM + `NO_LOCAL_COVERAGE`。
 - sample 模式 = SAMPLE/U；非法 FOV 有可读提示、无 500；四种显示模式可切换；播放 slider 0→3。
 - 视图深链 `?ra=269.452077&dec=4.693365&fov=0.5&target=barnard` → 选中 Barnard；“在 MoveScope 打开”弹窗 → REAL/L2/S。
-- Ego 发现 1 个 P1 provenance 文案矛盾（Barnard fov=0.5 的“6 天/204 天”），已由 app `5d52472` 修复；修复后 T1 仍 45/0/1，app **266 tests**。
+- Ego 发现 1 个 P1 provenance 文案矛盾（Barnard fov=0.5 的“6 天/204 天”），已由 app `5d52472` 修复；修复后 T1 仍 45/0/1，app **268 tests**。
 
 截图：[evidence-ego/](evidence-ego/)。
 
@@ -143,13 +143,15 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 数据接收接口：[../架构/17_数据接收接口与自动缓存.md](../架构/17_数据接收接口与自动缓存.md)（Gaia TAP → SQL ingest → app 自动重试）。
 
-数据接收接口已实现：B `POST /api/v1/catalog/ingest` 场级 TAP→SQL；app `CATALOG_AUTO_INGEST=1` 可自动 ingest+重试一次；DB 126 tests / app 266 tests。TAP 当前超时只验证 502 不写，fake TAP 路径通过。
+数据接收接口已实现：B `POST /api/v1/catalog/ingest` 场级 TAP→SQL；app `CATALOG_AUTO_INGEST=1` 可自动 ingest+重试一次；DB 126 tests / app 268 tests。TAP 当前超时只验证 502 不写，fake TAP 路径通过。
 
 全量缓存功能验证：B 17,679 源/7 场/schema v3；C 47 源 → 31 single/6 ambiguous/10 no_match；tracks D1=11；官方基准 4 PASS + 1 DATA_LIMITED（WISE 20.3″ 候选被 6.15″ 门限拒绝）。见 [官方案例基准_fullcache.md](官方案例基准_fullcache.md)、[星表识别覆盖率.md](星表识别覆盖率.md)。
 
 批量星表识别计划：[../架构/18_批量星表识别.md](../架构/18_批量星表识别.md)（C 源表 47 源批量匹配 → known/ambiguous/no_match UI）。
 
 批量星表识别已实现：C 源表 111 源 → known 61 / ambiguous 7 / no_match 43；UI badge + 计数；47 单期基线为 31/6/10。见 [GUI链路测试.md](GUI链路测试.md) §12。
+
+A 源表批量识别已实现：215 源 → known 130 / ambiguous 33 / no_match 48 / insufficient 4；A/C badge 在左栏内可见；见 [GUI链路测试.md](GUI链路测试.md) §13。
 
 A 源表批量识别计划：[../架构/19_A源表批量识别.md](../架构/19_A源表批量识别.md)（Barnard 215 源分 200+15 批）。
 
@@ -166,7 +168,7 @@ A 源表批量识别计划：[../架构/19_A源表批量识别.md](../架构/19_
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
 - 状态：`known_star / ambiguous / uncatalogued_candidate / insufficient_data / catalog_unavailable`；全部 `discovery_claim=false`。
 - 已知源显示 `source_id`/release/角距/置信度；未匹配只标“未收录候选”，不是“新恒星”。
-- 测试：app **266 tests OK**（含 fake catalog HTTP、503/partial、source_id 字符串、UI 文案）；DB **126 tests OK**。
+- 测试：app **268 tests OK**（含 fake catalog HTTP、503/partial、source_id 字符串、UI 文案）；DB **126 tests OK**。
 - B v2：RUWE/astrometric excess noise/phot_variable_flag + 2MASS/WISE 测光；D 对 `RUWE>2` 降级为 ambiguous，`CATALOG_PERSIST=1` 时可选写 `catalog_match`。
 - 边界：B 的 7 MB Gaia 按场缓存不提交；真实演示需先 `import_gaia.py --rebuild`；2MASS/WISE 覆盖约 47.6%/45.5%，缺失保持 null；持久化默认关闭，`CATALOG_PERSIST=1` 才写。
 
@@ -178,7 +180,7 @@ A 源表批量识别计划：[../架构/19_A源表批量识别.md](../架构/19_
 - `POST /api/v1/ingest`：P0 支持本地 JSON manifest；P1A 支持本地 NPZ/FITS（allowed roots、202 异步、幂等、软回滚），用 app `detect_sources` 产出源列表。
 - `/api/v1/sources`：C-native 检测源；实测 Barnard 4 期 ingest 后 215 sources。
 - P1B：`/api/v1/discover`（week_index + S3 64KB 头）与 `/api/v1/fetch`（单张 S3/IRSA cutout，allowlist/大小上限）；源 `source_origin=on_demand_s3`。
-- 测试 **45 tests OK**；app 266、DB 126。
+- 测试 **45 tests OK**；app 268、DB 126。
 - 边界：完整天空索引、多历元重投影/共同网格、series 重算仍未实现；C 不是“任意天区完成”。
 
 ### 2.8 D-C P0 覆盖握手
@@ -270,7 +272,7 @@ cd ../视图工具 && $PY tools/smoke.py
 
 1. 真实数据补齐：Barnard 未饱和波段、WISE 坐标歧义、RW/R Dra 更多真实历元。
 2. 102 波段/光谱：大切片 + LVF 插值；按 6 阵列合图。
-3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 266 tests）；C-P0/P1A/P1B（8798，45 tests）已合并；多历元重投影/series 仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
+3. 星点选择与已知/未知恒星识别：A 已合并、D-MVP 已合并（app 268 tests）；C-P0/P1A/P1B（8798，45 tests）已合并；多历元重投影/series 仍未实现，见 [../架构/05_星点选择与识别路线图.md](../架构/05_星点选择与识别路线图.md)。
 4. T1 截图自动化（Playwright/ego-browser 可选）。
 5. T6 readiness 阈值统一（180d vs 0.6yr）或删除旧字段。
 6. 公网部署：鉴权、限流、CORS 收紧、`include_truth=0`。
