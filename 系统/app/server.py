@@ -1028,6 +1028,35 @@ class Handler(BaseHTTPRequestHandler):
         code = 200 if status == "ok" else 422 if status == "no_coverage" else 503
         return self._json(result, code)
 
+    def _handle_sources(self, q: dict) -> None:
+        """GET /api/sources：代理 C 的本地 ingested 源列表；不改 /api/analyze。"""
+        ra_raw = (q.get("ra") or [None])[0]
+        dec_raw = (q.get("dec") or [None])[0]
+        fov_raw = (q.get("fov") or ["0.2"])[0]
+        epoch = (q.get("epoch") or [None])[0]
+        limit_raw = (q.get("limit") or ["200"])[0]
+        if ra_raw is None or dec_raw is None:
+            raise ApiError(400, "MISSING_COORDINATE", "需要同时提供 ra 和 dec（度）。")
+        try:
+            ra = float(ra_raw)
+            dec = float(dec_raw)
+            fov = float(fov_raw)
+            limit = int(limit_raw)
+        except (TypeError, ValueError):
+            raise ApiError(400, "INVALID_QUERY", "ra/dec/fov/limit 必须是数字。")
+        if not (math.isfinite(ra) and 0.0 <= ra < 360.0):
+            raise ApiError(400, "INVALID_RA", "ra 必须在 [0, 360) 度。")
+        if not (math.isfinite(dec) and -90.0 <= dec <= 90.0):
+            raise ApiError(400, "INVALID_DEC", "dec 必须在 [-90, 90] 度。")
+        if not (math.isfinite(fov) and 0.02 <= fov <= 3.0):
+            raise ApiError(400, "INVALID_FOV", "fov 必须在 [0.02, 3.0] 度。")
+        if limit < 1 or limit > 5000:
+            raise ApiError(400, "INVALID_LIMIT", "limit 必须在 [1, 5000]。")
+        result = ANYFIELD_CLIENT.sources(ra=ra, dec=dec, fov=fov, epoch=epoch, limit=limit)
+        status = result.get("status")
+        code = 200 if status == "ok" else 422 if status == "no_coverage" else 503
+        return self._json(result, code)
+
     def do_GET(self):
         u = urlparse(self.path)
         path = u.path
@@ -1050,6 +1079,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/field":
                 q = parse_qs(u.query)
                 return self._handle_field(q)
+            if path == "/api/sources":
+                q = parse_qs(u.query)
+                return self._handle_sources(q)
             if path == "/api/targets":
                 return self._json({"targets": data_layer.load_targets()})
             if path == "/api/epochs":
