@@ -153,6 +153,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 A 源表批量识别已实现：215 源 → known 130 / ambiguous 33 / no_match 48 / insufficient 4；A/C badge 在左栏内可见；见 [GUI链路测试.md](GUI链路测试.md) §13。
 
+批量结果审计导出计划：[../架构/20_批量结果审计导出.md](../架构/20_批量结果审计导出.md)（CSV/JSON，含 RUWE 与 J/H/K/W1/W2）。
+
 A 源表批量识别计划：[../架构/19_A源表批量识别.md](../架构/19_A源表批量识别.md)（Barnard 215 源分 200+15 批）。
 
 星表识别覆盖审查：[星表识别覆盖率.md](星表识别覆盖率.md)（当前 B 250 行 fixture → 0/47；完整 17,679 缓存 → 37/47 有候选；检测仅覆盖约 1.8% 真实星）。
