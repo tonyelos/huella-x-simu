@@ -114,6 +114,42 @@ class AnalyzeTimeWindowTest(unittest.TestCase):
         self.assertEqual(body["time_filter"]["requested"], 4)
         self.assertEqual(body["time_filter"]["kept"], 4)
 
+    def test_analyze_applies_catalog_prior_without_fake_motion(self):
+        fake_ident = {
+            "status": "known_star",
+            "catalog_id": "4472832130942575872",
+            "candidates": [{
+                "catalog": "gaia", "release": "gaia-dr3",
+                "catalog_id": "4472832130942575872",
+                "pmra": -801.551, "pmdec": 10362.394,
+                "pmra_error": 0.0318, "pmdec_error": 0.0361,
+                "separation_arcsec": 3.5253,
+            }],
+        }
+        result = server._empty_result("S", "静止（无明显位移）", "L2")
+        result.update({
+            "mu_mas_yr": 12240.665, "mu_err_mas_yr": 9898.931,
+            "moving": False, "confidence": 0.72,
+            "fingerprint": {"mu_signif": 1.2366, "mu_mas_yr": 12240.665},
+            "sources": [],
+        })
+        meta = {"mode": "real", "fallback_reason": None, "note": "test"}
+        with (
+            mock.patch.object(server.data_layer, "build_dataset", return_value=(self.target, self.epochs, None, meta)),
+            mock.patch.object(server.pipeline, "run_pipeline", return_value=result),
+            mock.patch.object(server, "build_identification", return_value=fake_ident),
+        ):
+            status, body = self._post({"target_id": "barnard", "fov": 0.2, "mode": "auto"})
+        self.assertEqual(status, 200, body)
+        r = body["result"]
+        self.assertEqual(r["class"], "L")
+        self.assertEqual(r["catalog_motion"]["basis"], "catalog_prior")
+        self.assertFalse(r["moving"])
+        self.assertEqual(r["mu_mas_yr"], 12240.665)
+        self.assertEqual(r["fingerprint"]["mu_signif"], 1.2366)
+        self.assertIn("CATALOG_PRIOR_MOTION", r["quality"])
+        self.assertIn("SPHEREx 本次未独立测出", r["public_text"])
+
     def test_cascade_reuses_analysis_epochs_without_refetch(self):
         p1, p2 = self._mock_analysis()
         with p1, p2:
