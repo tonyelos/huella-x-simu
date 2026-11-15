@@ -103,6 +103,45 @@ class MultiCatalogGroupingTest(unittest.TestCase):
         self.assertEqual(result["n_candidates"], 2)
         self.assertTrue(result["ambiguous"])
 
+    def test_r_dra_like_same_source_2mass_offset_between_0p5_and_2_arcsec(self):
+        # 0° declination makes the arcsecond <-> degree conversion trivial.
+        target = {"ra": 10.0, "dec": 0.0}
+        gaia = _cand("g1", "gaia", 0.2, 10.0, 0.0)
+        twomass = _cand("t1", "2mass", 0.7, 10.0 + 1.2 / 3600.0, 0.0)
+        normalized = cat.normalize_match(_response([gaia, twomass]))
+        self.assertEqual(normalized["n_candidates"], 1)
+        self.assertFalse(normalized["ambiguous"])
+        ident = cat.identify(normalized, target=target, motion={"moving": False, "n_epochs": 8})
+        self.assertEqual(ident["status"], "known_star")
+        self.assertEqual(len(ident["candidates"][0]["crossmatches"]), 1)
+
+    def test_wise_like_20_arcsec_multi_catalog_stays_insufficient(self):
+        target = {"ra": 10.0, "dec": 0.0}
+        off = 20.0 / 3600.0
+        normalized = cat.normalize_match(_response([
+            _cand("g1", "gaia", 20.0, 10.0 + off, 0.0),
+            _cand("t1", "2mass", 20.4, 10.0 + off + 0.4 / 3600.0, 0.0),
+            _cand("w1", "wise", 20.2, 10.0 + off + 0.2 / 3600.0, 0.0),
+        ]))
+        self.assertEqual(normalized["n_candidates"], 1)
+        ident = cat.identify(normalized, target=target, motion={"moving": False, "n_epochs": 8})
+        self.assertEqual(ident["status"], "insufficient_data")
+        self.assertEqual(ident["reason"], "CATALOG_OFFSET_TOO_LARGE")
+        self.assertFalse(ident["ambiguous"] if "ambiguous" in ident else False)
+        self.assertEqual(len(ident["candidates"]), 1)
+        self.assertIn("20.", " ".join(ident["caveats"]))
+
+    def test_two_physical_groups_more_than_2_arcsec_are_ambiguous(self):
+        target = {"ra": 10.0, "dec": 0.0}
+        normalized = cat.normalize_match(_response([
+            _cand("g1", "gaia", 0.2, 10.0, 0.0),
+            _cand("g2", "gaia", 0.4, 10.0 + 3.0 / 3600.0, 0.0),
+        ]))
+        self.assertEqual(normalized["n_candidates"], 2)
+        self.assertTrue(normalized["ambiguous"])
+        ident = cat.identify(normalized, target=target, motion={"moving": False, "n_epochs": 8})
+        self.assertEqual(ident["status"], "ambiguous")
+
     def test_single_target_build_identification_uses_three_catalogs(self):
         result = {
             "measurements": [{"mjd": 60916.6, "xi_arcsec": 0.0, "eta_arcsec": 0.0, "sigma_arcsec": 0.5}],
