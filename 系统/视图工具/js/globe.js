@@ -189,6 +189,9 @@ export function createGlobe(canvas, opts = {}) {
     onPick: opts.onPick || (() => {}),
     onHover: opts.onHover || null,
   };
+  // 地球自转 tween：最短路径、ease-out，结束精确等于目标 GMST 角。
+  let rotTween = null;
+  const ROTATE_MS = 700;
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -583,9 +586,17 @@ export function createGlobe(canvas, opts = {}) {
   }
 
   // ---------- 更新 ----------
-  function setClock(mjd) {
+  function setClock(mjd, { animate = false } = {}) {
     state.clock = mjd;
-    earthGroup.rotation.y = gmstDeg(mjd) * DEG;
+    const targetAngle = gmstDeg(mjd) * DEG;
+    if (animate) {
+      const from = earthGroup.rotation.y;
+      const turn = ((targetAngle - from + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+      rotTween = { from, delta: turn, target: targetAngle, start: performance.now(), duration: ROTATE_MS };
+    } else {
+      rotTween = null;
+      earthGroup.rotation.y = targetAngle;
+    }
 
     const s = sunRaDec(mjd);
     sunDir.value.copy(lonLatToVec3(s.dec, s.ra, 1)).normalize();
@@ -671,6 +682,16 @@ export function createGlobe(canvas, opts = {}) {
   function frame(now) {
     raf = requestAnimationFrame(frame);
     const t = (now - t0) / 1000;
+
+    if (rotTween) {
+      const p = Math.min(1, (now - rotTween.start) / rotTween.duration);
+      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      earthGroup.rotation.y = rotTween.from + rotTween.delta * eased;
+      if (p >= 1) {
+        earthGroup.rotation.y = rotTween.target;
+        rotTween = null;
+      }
+    }
 
     if (orbit.tween) {
       orbit.yaw += (orbit.targetYaw - orbit.yaw) * 0.1;

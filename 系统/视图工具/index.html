@@ -149,9 +149,25 @@
     <svg viewBox="0 0 16 16" class="ico-pause" hidden><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>
   </button>
   <div class="time-main">
-    <canvas id="density" height="26"></canvas>
-    <input id="time" type="range" min="0" max="1000" value="1000" step="0.1" />
-    <div class="time-ticks"><span id="t-start">—</span><span id="t-end">—</span></div>
+    <div class="timepick">
+      <span class="tp-axis">UTC 时间轴</span>
+      <input id="in-utc" type="text" placeholder="YYYY-MM-DD HH:MM" aria-label="UTC 时间（YYYY-MM-DD HH:MM）" />
+      <button class="sbtn" id="btn-utc-go">定位</button>
+      <span class="tp-steps">
+        <button class="sbtn" data-hours="-24">−1d</button>
+        <button class="sbtn" data-hours="-1">−1h</button>
+        <button class="sbtn" data-hours="1">+1h</button>
+        <button class="sbtn" data-hours="24">+1d</button>
+      </span>
+      <span class="tp-playnote">播放 = 观测序列，不是连续时间</span>
+    </div>
+    <div class="time-track">
+      <canvas id="density" height="26"></canvas>
+      <input id="time" type="range" min="0" max="1000" value="1000" step="0.1" />
+    </div>
+    <div class="time-ticks">
+      <span id="t-start">—</span><span id="t-25">—</span><span id="t-mid">—</span><span id="t-75">—</span><span id="t-end">—</span>
+    </div>
   </div>
   <div class="windowbox">
     <div class="window-head">
@@ -171,9 +187,9 @@
   <div class="time-side">
     <div class="speed">
       <span>速度</span>
-      <button data-speed="0.15" class="sbtn">0.15×</button>
-      <button data-speed="0.6" class="sbtn active">1×</button>
-      <button data-speed="2.4" class="sbtn">4×</button>
+      <button data-speed="0.5" class="sbtn">0.5×</button>
+      <button data-speed="1" class="sbtn active">1×</button>
+      <button data-speed="2" class="sbtn">2×</button>
     </div>
     <div class="tracknote" id="tracknote">轨迹窗口 ±12 h</div>
   </div>

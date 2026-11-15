@@ -7,6 +7,7 @@
   1. index.html 里存在 main.js 引用的所有 DOM id；品牌标题正确；默认不是 M101
   2. 深链：search 优先 + hash 兜底 + 写回 search（含 t）
   2b. 分析时间窗口 30/90/180/365/730 + t0/t1 + 单 MoveScope handoff
+  2c. 统一时间入口：commitTime、UTC 输入/±快捷、5 刻度 UTC 轴、观测序列播放、地球 tween
   3. data/fields.json 行数/列数/NaN/来源/生成元数据（不得再指向 header_cache）
   4. data/targets.json 字段齐全、生成物、与 app/data/targets.json 一致；rw_aur.truth 修正
   5. data/epoch_index.json 有策展历元（barnard 4 / rw_aur 1）
@@ -175,6 +176,70 @@ if missing_readme:
     fail(f"README 缺分析窗口/交接说明：{missing_readme}")
 else:
     ok("README 记录分析窗口与单 MoveScope handoff")
+
+# ---------------------------------------------------------------- 1d. 时间选择 / 播放 / tween
+for tid in ("in-utc", "btn-utc-go", "t-start", "t-25", "t-mid", "t-75", "t-end"):
+    if f'id="{tid}"' not in html:
+        fail(f"index.html 缺时间控件/刻度 #{tid}")
+if "UTC 时间轴" not in html:
+    fail("时间轴没有标注 UTC 时间轴")
+if "播放 = 观测序列" not in html:
+    fail("页面没有标注“播放 = 观测序列，不是连续时间”")
+hours = re.findall(r'data-hours="(-?\d+)"', html)
+speeds = re.findall(r'data-speed="([\d.]+)"', html)
+if hours != ["-24", "-1", "1", "24"]:
+    fail(f"±快捷按钮不是 -1d/-1h/+1h/+1d：{hours}")
+elif speeds != ["0.5", "1", "2"]:
+    fail(f"播放速度不是 0.5×/1×/2×：{speeds}")
+else:
+    ok("时间选择：UTC 输入 + ±1d/±1h + 5 个 UTC 刻度 + 0.5×/1×/2×")
+
+if "function commitTime(mjd" not in main_js or "source = 'set'" not in main_js:
+    fail("没有统一时间提交 commitTime(mjd, {animate, source})")
+elif main_js.count("state.mjd =") != 1:
+    fail(f"state.mjd 有 {main_js.count('state.mjd =')} 处直接赋值，应只有 commitTime")
+elif main_js.count("globe?.setClock") != 1:
+    fail(f"globe.setClock 有 {main_js.count('globe?.setClock')} 处，应只有 commitTime")
+elif "dt * state.speed" in main_js or "state.mjd = m" in main_js:
+    fail("仍存在连续时间播放路径")
+else:
+    ok("统一时间源：state.mjd/globe.setClock 只在 commitTime，无连续播放路径")
+
+if "parseUtcInput" not in main_js or "locateUtc" not in main_js:
+    fail("缺 UTC 输入解析/定位逻辑")
+if "$('btn-utc-go').addEventListener" not in main_js or "$('in-utc').addEventListener" not in main_js:
+    fail("UTC 输入/定位按钮没有绑定")
+if "data-hours" not in main_js or "source: 'step'" not in main_js:
+    fail("±快捷按钮没有走 commitTime")
+if "source: 'slider'" not in main_js:
+    fail("滑杆没有走 commitTime")
+else:
+    ok("UTC 输入、±按钮、滑杆、键盘都走 commitTime")
+
+if "observationTimes = [...new Set(fields.map((f) => f.mjd))]" not in main_js:
+    fail("observationTimes 不是从 fields 的 mjd 去重排序")
+if "STEP_MS = { 0.5: 2400, 1: 1200, 2: 600 }" not in main_js:
+    fail("播放停留时间不是 2.4s/1.2s/0.6s")
+if "startPlayback" not in main_js or "playbackStep" not in main_js or "stopPlayback" not in main_js:
+    fail("缺观测序列播放调度器")
+elif "已到最后一个观测" not in main_js:
+    fail("播放到末尾没有停止提示/逻辑")
+else:
+    ok("播放 = 观测序列：去重 mjd、2.4/1.2/0.6s 每步、末尾停止")
+
+globe_js = read(os.path.join(TOOL, "js", "globe.js"))
+if "ROTATE_MS = 700" not in globe_js or "rotTween" not in globe_js:
+    fail("globe 没有 0.7s 自转 tween")
+elif "Math.pow(1 - p, 3)" not in globe_js or "rotTween.target" not in globe_js:
+    fail("地球 tween 不是 ease-out / 结束不精确")
+else:
+    ok("地球 tween：0.7s、最短路径、ease-out、结束精确")
+
+missing_readme_time = [key for key in ("UTC 时间轴", "播放 = 观测序列", "观测序列") if key not in readme]
+if missing_readme_time:
+    fail(f"README 缺时间交互说明：{missing_readme_time}")
+else:
+    ok("README 同步 UTC 时间轴与观测序列播放")
 
 # ---------------------------------------------------------------- 2. fields.json
 fields_doc = json.loads(read(os.path.join(TOOL, "data", "fields.json")))

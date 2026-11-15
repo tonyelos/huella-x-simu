@@ -300,7 +300,8 @@ body::before {
 .play.playing .ico-play { display: none; }
 .play.playing .ico-pause { display: block; }
 
-.time-main { flex: 1; position: relative; min-width: 0; }
+.time-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.time-track { position: relative; height: 26px; }
 #density { position: absolute; left: 0; top: 1px; width: 100%; height: 26px; opacity: 0.55; pointer-events: none; }
 #time {
   position: relative; width: 100%; height: 26px; margin: 0; background: transparent;
@@ -317,7 +318,30 @@ body::before {
   width: 9px; height: 26px; background: var(--amber); border: 0; border-radius: 1px;
   box-shadow: 0 0 12px rgba(255, 180, 84, 0.7);
 }
-.time-ticks { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 8.5px; color: var(--dim2); margin-top: 1px; }
+.time-ticks {
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  font-family: var(--mono); font-size: 8.5px; color: var(--dim2); margin-top: 1px;
+}
+.time-ticks span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time-ticks span:nth-child(1) { text-align: left; }
+.time-ticks span:nth-child(5) { text-align: right; }
+.time-ticks span:not(:first-child):not(:last-child) { text-align: center; }
+
+.timepick {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 8px; color: var(--dim2);
+}
+.tp-axis { color: var(--cyan); letter-spacing: 0.1em; font-size: 8px; white-space: nowrap; }
+#in-utc {
+  width: 118px; font-family: var(--mono); font-size: 9px; color: var(--ink);
+  background: rgba(255, 255, 255, 0.045); border: 1px solid var(--line2);
+  border-radius: 2px; padding: 2px 5px;
+}
+#in-utc::placeholder { color: var(--dim2); }
+#in-utc:focus { outline: none; border-color: var(--cyan); }
+.timepick .sbtn { padding: 1px 5px; }
+.tp-steps { display: inline-flex; gap: 3px; }
+.tp-playnote { color: var(--amber); font-size: 7.8px; letter-spacing: 0.02em; margin-left: auto; white-space: nowrap; }
 
 .windowbox {
   flex: none; width: 272px;
