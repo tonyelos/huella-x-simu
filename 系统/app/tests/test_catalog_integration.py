@@ -64,7 +64,7 @@ class CatalogServiceIntegrationTest(unittest.TestCase):
 
         return catalog.CatalogClient(base_url=self.base, timeout=5.0)
 
-    def test_barnard_target_is_known(self):
+    def test_barnard_target_requires_ruwe_for_known(self):
         import server
         from core import catalog
 
@@ -72,14 +72,24 @@ class CatalogServiceIntegrationTest(unittest.TestCase):
         with mock.patch.object(server, "CATALOG_CLIENT", client):
             out = server.run_analysis({"target_id": "barnard", "mode": "synthetic", "fov": 0.2})
         ident = out["identification"]
-        self.assertEqual(ident["status"], "known_star", ident)
-        self.assertEqual(ident["catalog_id"], BARNARD_ID)
-        self.assertEqual(ident["release"], "gaia-dr3")
+        # B v2 有 RUWE=1.08 时应 known；B v1 fixture 没有 RUWE 时必须降级为
+        # ambiguous，不能因“位置对上”就高置信 known。
+        self.assertIn(ident["status"], {"known_star", "ambiguous"}, ident)
         self.assertEqual(ident["n_candidates"], 1)
-        self.assertIsInstance(ident["catalog_id"], str)
+        self.assertEqual(ident["candidates"][0]["catalog_id"], BARNARD_ID)
+        self.assertEqual(ident["release"], "gaia-dr3")
         self.assertLess(float(ident["separation_arcsec"]), 6.0)
-        self.assertIn("CATALOG_PARTIAL", ident["quality"])  # fixture 缓存不完整，降级可见
-        self.assertIn("HIGH_PM", ident["quality"])
+        if ident["status"] == "known_star":
+            self.assertEqual(ident["catalog_id"], BARNARD_ID)
+            self.assertIsInstance(ident["catalog_id"], str)
+            self.assertIsNotNone(ident.get("ruwe"))
+            self.assertLessEqual(float(ident["ruwe"]), 2.0)
+            self.assertIn("CATALOG_PARTIAL", ident["quality"])
+            self.assertIn("HIGH_PM", ident["quality"])
+        else:
+            self.assertEqual(ident["reason"], "RUWE_UNAVAILABLE")
+            self.assertIn("RUWE_UNAVAILABLE", ident["quality"])
+            self.assertLessEqual(ident["confidence"], 0.4)
         self.assertNotIn("新恒星", str(ident))
 
     def test_0216_arcsec_pair_is_ambiguous(self):

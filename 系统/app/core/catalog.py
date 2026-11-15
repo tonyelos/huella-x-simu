@@ -119,8 +119,19 @@ def _candidate(raw: dict) -> dict | None:
         "pmra_error": _round(raw.get("pmra_error")),
         "pmdec_error": _round(raw.get("pmdec_error")),
         "parallax": _round(raw.get("parallax")),
+        "parallax_error": _round(raw.get("parallax_error"), 6),
+        "ruwe": _round(raw.get("ruwe"), 6),
+        "astrometric_excess_noise": _round(raw.get("astrometric_excess_noise"), 6),
+        "phot_variable_flag": raw.get("phot_variable_flag"),
         "gmag": _round(raw.get("gmag"), 6),
         "bp_rp": _round(raw.get("bp_rp"), 6),
+        "jmag": _round(raw.get("jmag"), 6),
+        "hmag": _round(raw.get("hmag"), 6),
+        "kmag": _round(raw.get("kmag"), 6),
+        "w1": _round(raw.get("w1"), 6),
+        "w2": _round(raw.get("w2"), 6),
+        "twomass_id": raw.get("twomass_id") or raw.get("2mass"),
+        "wise_id": raw.get("wise_id") or raw.get("wise"),
         "object_type": raw.get("object_type"),
         "confidence": _round(raw.get("confidence"), 6),
         "pm_residual": _round(raw.get("pm_residual"), 3),
@@ -128,6 +139,29 @@ def _candidate(raw: dict) -> dict | None:
         "ambiguous": bool(raw.get("ambiguous")),
         "n_within_ambiguity_arcsec": int(raw.get("n_within_ambiguity_arcsec") or 0),
     }
+
+
+def _photometry(candidate: dict) -> dict | None:
+    """只输出真实存在的 2MASS/WISE 数值/交叉证认，缺失不补 0/不猜测。"""
+    keys = ("jmag", "hmag", "kmag", "w1", "w2")
+    values = {k: candidate.get(k) for k in keys if candidate.get(k) is not None}
+    twomass_id = candidate.get("twomass_id")
+    wise_id = candidate.get("wise_id")
+    if not values and not twomass_id and not wise_id:
+        return None
+    colors = {}
+    if values.get("jmag") is not None and values.get("hmag") is not None:
+        colors["j_h"] = round(float(values["jmag"]) - float(values["hmag"]), 3)
+    if values.get("hmag") is not None and values.get("kmag") is not None:
+        colors["h_k"] = round(float(values["hmag"]) - float(values["kmag"]), 3)
+    if values.get("w1") is not None and values.get("w2") is not None:
+        colors["w1_w2"] = round(float(values["w1"]) - float(values["w2"]), 3)
+    out = {**values, "colors": colors}
+    if twomass_id:
+        out["twomass_id"] = str(twomass_id)
+    if wise_id:
+        out["wise_id"] = str(wise_id)
+    return out
 
 
 def _unavailable(reason: str, *, detail: str | None = None, http_status=None) -> dict:
@@ -144,6 +178,9 @@ def _unavailable(reason: str, *, detail: str | None = None, http_status=None) ->
         "detail": detail,
         "http_status": http_status,
         "coverage": None,
+        "catalog_schema_version": None,
+        "persisted": False,
+        "persisted_rows": 0,
     }
 
 
@@ -204,11 +241,13 @@ def normalize_match(raw: dict) -> dict:
                 release = item["release"]
                 break
 
+    persisted_rows = int(raw.get("persisted") or 0)
     return {
         "ok": True,
         "catalog_status": catalog_status,
         "catalog": CATALOG,
         "release": release,
+        "catalog_schema_version": raw.get("star_schema_version") or raw.get("db_schema_version"),
         "n_candidates": len(candidates),
         "ambiguous": bool(match.get("ambiguous")) or len(candidates) >= 2,
         "candidates": candidates[:MAX_CANDIDATES],
@@ -218,6 +257,8 @@ def normalize_match(raw: dict) -> dict:
         "http_status": None,
         "coverage": coverage or None,
         "match_status": match.get("status"),
+        "persisted": bool(persisted_rows > 0),
+        "persisted_rows": persisted_rows,
     }
 
 
@@ -260,6 +301,7 @@ class CatalogClient:
         catalogs=("gaia",),
         detection_id: str = "target",
         analysis_id: str | None = None,
+        persist: bool = False,
         pmra_mas_yr: float | None = None,
         pmdec_mas_yr: float | None = None,
     ) -> dict:
@@ -287,10 +329,16 @@ class CatalogClient:
             "catalogs": list(catalogs),
             "radius_arcsec": float(radius),
             "epoch": float(mjd),
-            "persist": False,
+            "persist": bool(persist),
         }
         if analysis_id:
             payload["analysis_id"] = str(analysis_id)
+        if persist and not analysis_id:
+            return _unavailable(
+                "PERSIST_ANALYSIS_ID_MISSING",
+                detail="persist=true 需要稳定 analysis_id。",
+                http_status=None,
+            )
 
         try:
             raw = self._post_json("/api/v1/catalog/match", payload)
@@ -370,6 +418,7 @@ def _base(catalog: dict | None) -> dict:
         "discovery_claim": False,
         "disclaimer": DISCLAIMER,
         "catalog": (catalog or {}).get("catalog") or CATALOG,
+        "catalog_schema_version": (catalog or {}).get("catalog_schema_version"),
         "catalog_id": None,
         "source_id": None,
         "release": (catalog or {}).get("release"),
@@ -382,6 +431,9 @@ def _base(catalog: dict | None) -> dict:
         "quality": [],
         "caveats": [],
         "reason": None,
+        "persisted": bool((catalog or {}).get("persisted")),
+        "persisted_rows": int((catalog or {}).get("persisted_rows") or 0),
+        "persist_requested": False,
     }
 
 
@@ -400,6 +452,9 @@ def _finish(out: dict) -> dict:
         out["source_id"] = None
     out["sep_arcsec"] = out.get("separation_arcsec")
     out["caveats"] = [str(c) for c in (out.get("caveats") or []) if c]
+    out["persisted"] = bool(out.get("persisted"))
+    out["persisted_rows"] = int(out.get("persisted_rows") or 0)
+    out["persist_requested"] = bool(out.get("persist_requested"))
     return out
 
 
@@ -527,6 +582,43 @@ def _identify(
             return insufficient("CATALOG_ID_MISSING", catalog=catalog)
         release = candidate.get("release") or catalog.get("release")
         base["release"] = release
+        ruwe = _finite(candidate.get("ruwe"))
+        if ruwe is None or ruwe <= 0:
+            return {
+                **base,
+                "status": "ambiguous",
+                "label_zh": LABELS_ZH["ambiguous"],
+                "confidence": 0.35,
+                "catalog_id": None,
+                "separation_arcsec": candidate.get("separation_arcsec"),
+                "candidates": candidates,
+                "reason": "RUWE_UNAVAILABLE",
+                "quality": ["RUWE_UNAVAILABLE"],
+                "ruwe": None,
+                "astrometric_excess_noise": candidate.get("astrometric_excess_noise"),
+                "phot_variable_flag": candidate.get("phot_variable_flag"),
+                "caveats": [
+                    "B 未提供可用的 RUWE/天体测量质量；无法确认 Gaia 解可靠，known 降级为 ambiguous。",
+                ],
+            }
+        if ruwe > 2.0:
+            return {
+                **base,
+                "status": "ambiguous",
+                "label_zh": LABELS_ZH["ambiguous"],
+                "confidence": 0.3,
+                "catalog_id": None,
+                "separation_arcsec": candidate.get("separation_arcsec"),
+                "candidates": candidates,
+                "reason": "RUWE_HIGH",
+                "quality": ["HIGH_RUWE"],
+                "ruwe": ruwe,
+                "astrometric_excess_noise": candidate.get("astrometric_excess_noise"),
+                "phot_variable_flag": candidate.get("phot_variable_flag"),
+                "caveats": [
+                    f"Gaia RUWE={ruwe:.2f} > 2.0（项目阈值）；5 参数解可能受伴星/污染影响，known 降级为 ambiguous。",
+                ],
+            }
         pm_ok, pm_metrics = pm_consistency(motion, candidate)
         base["pm_consistent"] = pm_ok
         if pm_metrics:
@@ -578,6 +670,19 @@ def _identify(
             confidence = min(confidence, 0.9)
         if "HIGH_PM" in quality:
             caveats.append("高自行目标：已按星表 PM 传播到观测历元；残余偏差仍可能来自星表解。")
+        photometry = _photometry(candidate)
+        excess = _finite(candidate.get("astrometric_excess_noise"))
+        if excess is not None and excess > 2.0:
+            caveats.append(
+                f"Gaia astrometric_excess_noise={excess:.2f} mas > 2；天体测量质量需谨慎，未据此自动升级置信度。"
+            )
+        phot_flag = candidate.get("phot_variable_flag")
+        if phot_flag and str(phot_flag).upper() not in ("NOT_AVAILABLE", "CONSTANT", "UNKNOWN", "NONE"):
+            caveats.append(
+                f"Gaia phot_variable_flag={phot_flag}；仅作目录备注，不构成 D 的变星结论。"
+            )
+        if photometry:
+            caveats.append("2MASS/WISE 红外数值仅作颜色/交叉证认；不单独据此做天体分类。")
         return {
             **base,
             "status": "known_star",
@@ -591,6 +696,11 @@ def _identify(
             "quality": quality,
             "caveats": caveats,
             "object_type": candidate.get("object_type"),
+            "ruwe": ruwe,
+            "astrometric_excess_noise": candidate.get("astrometric_excess_noise"),
+            "phot_variable_flag": phot_flag,
+            "parallax_error": candidate.get("parallax_error"),
+            "photometry": photometry,
         }
 
     # 0 候选：只有“查询成功且覆盖完整”才允许进入未收录候选流程。

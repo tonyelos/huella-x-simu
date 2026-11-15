@@ -49,8 +49,19 @@ def _candidate(cid="4472832130942575872", sep=0.12, **overrides):
         "pmra_error": 0.03182,
         "pmdec_error": 0.03607,
         "parallax": 546.97594,
+        "parallax_error": 0.0401,
+        "ruwe": 1.0848505,
+        "astrometric_excess_noise": 0.2048,
+        "phot_variable_flag": "NOT_AVAILABLE",
         "gmag": 8.19397,
         "bp_rp": 2.8337,
+        "jmag": 5.24,
+        "hmag": 4.63,
+        "kmag": 4.39,
+        "w1": 4.10,
+        "w2": 3.90,
+        "2mass": "2MASS J17574849+0441405",
+        "wise": "WISEA J175748.51+044132.9",
         "object_type": "star",
         "confidence": 0.99,
     }
@@ -64,6 +75,7 @@ def _response(candidates=None, *, catalog_status="ok", field_id="barnard", match
         match_status = "ambiguous" if len(candidates) > 1 else ("single_candidate" if candidates else "no_match")
     return {
         "schema_version": "1.0",
+        "star_schema_version": 2,
         "service": "star-catalog",
         "release": "gaia-dr3",
         "version": "dr3",
@@ -162,6 +174,23 @@ class ClientTransportTest(unittest.TestCase):
         det = json.loads(opener.last_request.data.decode("utf-8"))["detections"][0]
         self.assertEqual(det["pmra_mas_yr"], -801.55)
         self.assertEqual(det["pmdec_mas_yr"], 10362.39)
+
+    def test_persist_true_passes_stable_analysis_id(self):
+        client, opener = self._client(payload=_response([_candidate()]))
+        out = client.match(
+            ra=TARGET["ra"], dec=TARGET["dec"], mjd=TARGET["mjd"],
+            analysis_id="d-identify:abc", persist=True,
+        )
+        self.assertTrue(out["ok"])
+        payload = json.loads(opener.last_request.data.decode("utf-8"))
+        self.assertTrue(payload["persist"])
+        self.assertEqual(payload["analysis_id"], "d-identify:abc")
+
+    def test_persist_without_analysis_id_is_unavailable(self):
+        client, _ = self._client(payload=_response([_candidate()]))
+        out = client.match(ra=TARGET["ra"], dec=TARGET["dec"], mjd=TARGET["mjd"], persist=True)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["catalog_reason"], "PERSIST_ANALYSIS_ID_MISSING")
 
     def test_http_503_is_catalog_unavailable_not_empty(self):
         body = json.dumps(
@@ -275,6 +304,50 @@ class ClassificationTest(unittest.TestCase):
         result = cat.normalize_match(_response([_candidate(cid=4472832130942575872)]))
         ident = cat.identify(result, target=TARGET, motion=MOTION)
         self.assertIsInstance(ident["catalog_id"], str)
+
+    def test_high_ruwe_is_ambiguous_not_high_confidence_known(self):
+        result = cat.normalize_match(_response([_candidate(ruwe=4.29554)]))
+        ident = cat.identify(result, target=TARGET, motion=MOTION)
+        self.assertEqual(ident["status"], "ambiguous")
+        self.assertEqual(ident["reason"], "RUWE_HIGH")
+        self.assertLessEqual(ident["confidence"], 0.4)
+        self.assertIn("HIGH_RUWE", ident["quality"])
+        self.assertEqual(ident["candidates"][0]["ruwe"], 4.29554)
+
+    def test_missing_ruwe_downgrades_known(self):
+        cand = _candidate()
+        cand.pop("ruwe", None)
+        result = cat.normalize_match(_response([cand]))
+        ident = cat.identify(result, target=TARGET, motion=MOTION)
+        self.assertEqual(ident["status"], "ambiguous")
+        self.assertEqual(ident["reason"], "RUWE_UNAVAILABLE")
+        self.assertLessEqual(ident["confidence"], 0.4)
+
+    def test_infrared_photometry_passthrough(self):
+        result = cat.normalize_match(_response([_candidate()]))
+        ident = cat.identify(result, target=TARGET, motion=MOTION)
+        self.assertEqual(ident["status"], "known_star")
+        photo = ident["photometry"]
+        self.assertEqual(photo["jmag"], 5.24)
+        self.assertEqual(photo["hmag"], 4.63)
+        self.assertEqual(photo["w1"], 4.10)
+        self.assertEqual(photo["w2"], 3.90)
+        self.assertAlmostEqual(photo["colors"]["j_h"], 0.61, places=3)
+        self.assertAlmostEqual(photo["colors"]["w1_w2"], 0.20, places=3)
+        self.assertTrue(photo["twomass_id"].startswith("2MASS"))
+        self.assertTrue(photo["wise_id"].startswith("WISEA"))
+        self.assertEqual(ident["catalog_schema_version"], 2)
+
+    def test_null_photometry_is_not_fabricated(self):
+        cand = _candidate(
+            jmag=None, hmag=None, kmag=None, w1=None, w2=None,
+            **{"2mass": None, "wise": None},
+        )
+        result = cat.normalize_match(_response([cand]))
+        ident = cat.identify(result, target=TARGET, motion=MOTION)
+        self.assertEqual(ident["status"], "known_star")
+        self.assertIsNone(ident["photometry"])
+        self.assertIsNone(ident["candidates"][0]["jmag"])
 
     def test_status_enum_has_no_discovery_values(self):
         statuses = set(cat.IDENTIFICATION_STATUSES)
