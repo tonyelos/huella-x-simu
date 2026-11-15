@@ -263,8 +263,7 @@ async function batchIdentifyCSources() {
   const note = $("#anyfieldBatchNote");
   if (!sources.length) return;
   if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
-  const exportBtn = $("#exportCSourcesBtn");
-  if (exportBtn) exportBtn.disabled = true;
+  ["#exportCSourcesBtn", "#exportCJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = true; });
   if (note) {
     note.classList.remove("hidden");
     note.textContent = `正在批量识别 ${sources.length} 个 C 源…`;
@@ -317,8 +316,7 @@ async function batchIdentifyCSources() {
     }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "批量识别 C 源"; }
-    const ex = $("#exportCSourcesBtn");
-    if (ex) ex.disabled = false;
+    ["#exportCSourcesBtn", "#exportCJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = false; });
   }
 }
 
@@ -353,11 +351,10 @@ function renderCSources(data, httpStatus) {
     box.innerHTML = head + rows + '<div class="anyfield-source-note">点击源 → 锁定并调用 /api/identify。批量 badge 只是星表身份，不是发现声明。</div>';
     const batchBtn = $("#batchCSourcesBtn");
     if (batchBtn) batchBtn.classList.remove("hidden");
-    const exportBtn = $("#exportCSourcesBtn");
-    if (exportBtn) {
-      exportBtn.classList.toggle("hidden", !batch.counts);
-      exportBtn.disabled = false;
-    }
+    ["#exportCSourcesBtn", "#exportCJsonBtn"].forEach((sel) => {
+      const b = $(sel);
+      if (b) { b.classList.toggle("hidden", !batch.counts); b.disabled = false; }
+    });
     box.querySelectorAll(".anyfield-source").forEach((el) => {
       el.addEventListener("click", () => {
         const idx = Number(el.dataset.cIndex);
@@ -496,9 +493,13 @@ function bindUI() {
   const aBatchBtn = $("#batchASourcesBtn");
   if (aBatchBtn) aBatchBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); batchIdentifyASources(); });
   const exportABtn = $("#exportASourcesBtn");
-  if (exportABtn) exportABtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); exportABatchCsv(); });
+  if (exportABtn) exportABtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); exportBatchServer("a", "csv"); });
+  const exportAJson = $("#exportAJsonBtn");
+  if (exportAJson) exportAJson.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); exportBatchServer("a", "json"); });
   const exportCBtn = $("#exportCSourcesBtn");
-  if (exportCBtn) exportCBtn.addEventListener("click", exportCBatchCsv);
+  if (exportCBtn) exportCBtn.addEventListener("click", () => exportBatchServer("c", "csv"));
+  const exportCJson = $("#exportCJsonBtn");
+  if (exportCJson) exportCJson.addEventListener("click", () => exportBatchServer("c", "json"));
   const batchBtn = $("#batchCSourcesBtn");
   if (batchBtn) batchBtn.addEventListener("click", batchIdentifyCSources);
   document.addEventListener("keydown", (e) => {
@@ -1516,11 +1517,10 @@ function renderASources(d) {
   $("#aSourceSummary").textContent = c
     ? `known ${c.known_star || 0} / ambiguous ${c.ambiguous || 0} / no_match ${c.no_match || 0} / insufficient ${c.insufficient_data || 0} / unavailable ${c.catalog_unavailable || 0}`
     : (sources.length > 50 ? `显示前 50 / 共 ${sources.length} 个；批量识别计数为全量。` : "共 " + sources.length + " 个；可批量识别星表身份。");
-  const exportBtn = $("#exportASourcesBtn");
-  if (exportBtn) {
-    exportBtn.classList.toggle("hidden", !batch.counts);
-    exportBtn.disabled = false;
-  }
+  ["#exportASourcesBtn", "#exportAJsonBtn"].forEach((sel) => {
+    const b = $(sel);
+    if (b) { b.classList.toggle("hidden", !batch.counts); b.disabled = false; }
+  });
   $("#aSourceBatchNote").classList.add("hidden");
   if (batch.error) {
     $("#aSourceBatchNote").classList.remove("hidden");
@@ -1538,8 +1538,7 @@ async function batchIdentifyASources() {
   const batches = window.ASourceBatch.chunks(items, 200);
   const old = state.aSourceBatch;
   if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
-  const exportBtn = $("#exportASourcesBtn");
-  if (exportBtn) exportBtn.disabled = true;
+  ["#exportASourcesBtn", "#exportAJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = true; });
   if (note) { note.classList.remove("hidden"); note.textContent = `正在批量识别 A 源 ${sources.length} 个（${batches.length} 批）…`; }
   const merged = {};
   let counts = {};
@@ -1574,8 +1573,7 @@ async function batchIdentifyASources() {
     }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "批量识别 A 源"; }
-    const ex = $("#exportASourcesBtn");
-    if (ex) ex.disabled = false;
+    ["#exportASourcesBtn", "#exportAJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = false; });
   }
 }
 
@@ -1588,6 +1586,66 @@ function downloadTextFile(name, text, mime) {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+function batchExportPayload(kind) {
+  if (kind === "a") {
+    const sources = window.ASourceBatch.buildBatchSources(state.sources || [], (state.analysis && state.analysis.epochs) || []);
+    return { sources, catalogs: ["gaia"], radius_arcsec: 3.0 };
+  }
+  const sources = (state.anyfieldSources || []).filter((s) => Number.isFinite(Number(s.ra)) && Number.isFinite(Number(s.dec)) && Number.isFinite(Number(s.mjd))).map((s) => ({
+    source_id: String(s.source_id || ""),
+    epoch_id: s.epoch_id != null ? String(s.epoch_id) : "",
+    frame: Number.isInteger(Number(s.frame)) ? Number(s.frame) : "",
+    x: s.x,
+    y: s.y,
+    ra: Number(s.ra),
+    dec: Number(s.dec),
+    mjd: Number(s.mjd),
+    sigma_arcsec: 0.5,
+  }));
+  return { sources, catalogs: ["gaia"], radius_arcsec: 3.0 };
+}
+
+async function exportBatchServer(kind, format) {
+  const isA = kind === "a";
+  const note = $(isA ? "#aSourceBatchNote" : "#anyfieldBatchNote");
+  const batch = isA ? state.aSourceBatch : state.anyfieldBatch;
+  const n = isA ? (state.sources || []).length : (state.anyfieldSources || []).length;
+  if (!batch.counts || !n) {
+    if (note) { note.classList.remove("hidden"); note.textContent = `尚未批量识别 ${isA ? "A" : "C"} 源`; }
+    return;
+  }
+  try {
+    const payload = batchExportPayload(kind);
+    const q = new URLSearchParams({ format, kind: isA ? "A" : "C", target: state.analysis?.target?.id || "target" });
+    const r = await fetch(`/api/identify/batch/export?${q.toString()}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      let msg = "导出失败";
+      try { const e = await r.json(); msg = e.error?.message || e.error?.code || msg; } catch (err) { /* ignore */ }
+      throw new Error(msg);
+    }
+    const blob = await r.blob();
+    const cd = r.headers.get("Content-Disposition") || "";
+    const m = cd.match(/filename="([^"]+)"/);
+    const name = m ? m[1] : (window.BatchExport ? window.BatchExport.downloadName(isA ? "A" : "C", state.analysis?.target?.id || "target", format) : `movescope_${kind}.${format}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name; a.style.display = "none";
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+    if (note) {
+      note.classList.remove("hidden");
+      note.textContent = `已导出 ${isA ? "A" : "C"} 源 ${n} 个源（CSV 按候选展开；JSON 保留 candidates/byId）。`;
+    }
+  } catch (e) {
+    if (note) {
+      note.classList.remove("hidden");
+      note.textContent = `导出失败：${e.message}。表格和 badge 未改变。`;
+    }
+  }
 }
 
 function exportABatchCsv() {
