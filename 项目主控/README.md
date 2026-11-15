@@ -213,6 +213,7 @@ L0 数据源  IRSA 静态切片 · S3 公开桶 · SIMBAD 参考
 | [架构/07_已知未知识别与数据比对设计.md](架构/07_已知未知识别与数据比对设计.md) | D 阶段设计：Gaia/2MASS/WISE 比对、PM/视差传播、known/ambiguous/uncatalogued、DB 同步与验收 |
 | [架构/08_官方识别方法调研.md](架构/08_官方识别方法调研.md) | 官方 Source Discovery/MOST/分光工具 + Backyard Worlds/WiseView 识别方法调研 |
 | [架构/09_图像与多波段策略.md](架构/09_图像与多波段策略.md) | 图像 cutout/饱和/深度诊断；102 波段/6 阵列/光谱/多图叠加的正确用法 |
+| [架构/10_层级识别与残差策略.md](架构/10_层级识别与残差策略.md) | L1 高召回检测 → 已知源 EPSF 扣除/掩膜 → residual 检测 → 星表/历表分类 |
 | [验收/STATUS.md](验收/STATUS.md) | T1 状态：WIP / BLOCKED |
 | [冻结/STATUS.md](冻结/STATUS.md) | T3 状态：PASS |
 | [启动/STATUS.md](启动/STATUS.md) | T5 状态：PASS（sandbox） |

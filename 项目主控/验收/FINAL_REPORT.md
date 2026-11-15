@@ -119,6 +119,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 图像/多波段策略：[../架构/09_图像与多波段策略.md](../架构/09_图像与多波段策略.md)（cutout/饱和/深度诊断；不要找“更饱和”的图；分 detector stack + SED）。
 
+层级识别/残差策略：[../架构/10_层级识别与残差策略.md](../架构/10_层级识别与残差策略.md)（L1 检测 → 已知源 PSF 扣除 → residual 再检测；不是删除已知源）。
+
 ### 2.6 D-MVP 已知/未知识别
 
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
