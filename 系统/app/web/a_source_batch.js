@@ -29,6 +29,10 @@
   function buildBatchSources(sources, epochs) {
     return (sources || []).map((src) => ({
       source_id: sourceKey(src),
+      epoch_id: src.epoch_id != null ? String(src.epoch_id) : "",
+      frame: Number.isInteger(Number(src.frame)) ? Number(src.frame) : "",
+      x: src.x,
+      y: src.y,
       ra: Number(src.ra),
       dec: Number(src.dec),
       mjd: sourceMjd(src, epochs),

@@ -37,6 +37,7 @@ sys.path.insert(0, HERE)
 from core import anyfield as anyfield_layer  # noqa: E402
 from core import catalog as catalog_layer  # noqa: E402
 from core import catalog_prior  # noqa: E402
+from core import audit_export  # noqa: E402
 from core import tracks as tracks_layer  # noqa: E402
 from core import data as data_layer  # noqa: E402
 from core import epoch_source  # noqa: E402
@@ -1001,6 +1002,41 @@ def run_identify_batch(payload: dict) -> dict:
     }
 
 
+def run_identify_batch_export(payload: dict) -> dict:
+    """导出专用：允许 >200 源时分块识别，合并 results/counts；不写 DB。"""
+    sources = payload.get("sources") if isinstance(payload, dict) else None
+    if not isinstance(sources, list) or len(sources) <= 200:
+        return run_identify_batch(payload)
+    counts = {}
+    results = []
+    statuses = []
+    for start in range(0, len(sources), 200):
+        chunk = dict(payload)
+        chunk["sources"] = sources[start : start + 200]
+        out = run_identify_batch(chunk)
+        results.extend(out.get("results") or [])
+        for k, v in (out.get("counts") or {}).items():
+            counts[k] = counts.get(k, 0) + int(v or 0)
+        statuses.append(out.get("catalog_status"))
+    if all(s == "unavailable" for s in statuses):
+        catalog_status = "unavailable"
+    elif any(s == "partial" for s in statuses):
+        catalog_status = "partial"
+    elif any(s == "unavailable" for s in statuses):
+        catalog_status = "partial"
+    else:
+        catalog_status = statuses[0] if statuses else "unavailable"
+    return {
+        "schema_version": "1.0",
+        "n": len(results),
+        "counts": counts,
+        "results": results,
+        "catalog_status": catalog_status,
+        "discovery_claim": False,
+        "disclaimer": catalog_layer.DISCLAIMER,
+    }
+
+
 def _parse_time_window(q: dict):
     """解析 t0/t1 或 mjd_min/mjd_max；返回 (t0,t1,requested)。无过滤返回 (None,None,False)。"""
     def first(*names):
@@ -1539,6 +1575,15 @@ class Handler(BaseHTTPRequestHandler):
     def _api_error(self, exc: ApiError):
         return self._json({"error": {"code": exc.code, "message": exc.message}}, exc.status)
 
+    def _attachment(self, body: bytes, ctype: str, filename: str):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _handle_field(self, q: dict) -> None:
         """GET /api/field：代理 C 的 /api/v1/field，保留 200/422/503 语义。"""
         ra_raw = (q.get("ra") or [None])[0]
@@ -1698,6 +1743,40 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/identify/batch/export":
+            try:
+                q = parse_qs(u.query)
+                fmt = str((q.get("format") or ["csv"])[0]).lower()
+                if fmt not in ("csv", "json"):
+                    raise ApiError(400, "INVALID_FORMAT", "format 必须是 csv 或 json。")
+                kind = str((q.get("kind") or ["batch"])[0])[:20]
+                target = str((q.get("target") or ["target"])[0])[:200]
+                n = int(self.headers.get("Content-Length", 0))
+                try:
+                    payload = json.loads(self.rfile.read(n) or b"{}")
+                except json.JSONDecodeError:
+                    raise ApiError(400, "BAD_JSON", "请求体不是合法 JSON。")
+                out = run_identify_batch_export(payload)
+                sources = payload.get("sources") if isinstance(payload, dict) else []
+                if fmt == "csv":
+                    body = audit_export.to_csv(sources, out.get("results") or []).encode("utf-8")
+                    return self._attachment(body, "text/csv; charset=utf-8", audit_export.filename(kind, target, "csv"))
+                body = audit_export.to_json(
+                    sources,
+                    out.get("results") or [],
+                    kind=kind,
+                    counts=out.get("counts"),
+                    catalog_status=out.get("catalog_status"),
+                    disclaimer=out.get("disclaimer"),
+                ).encode("utf-8")
+                return self._attachment(body, "application/json; charset=utf-8", audit_export.filename(kind, target, "json"))
+            except ApiError as exc:
+                return self._api_error(exc)
+            except Exception as exc:  # noqa: BLE001
+                import traceback
+
+                traceback.print_exc()
+                return self._json({"error": {"code": "EXPORT_ERROR", "message": str(exc)}}, 500)
         if u.path == "/api/identify/batch":
             try:
                 n = int(self.headers.get("Content-Length", 0))
