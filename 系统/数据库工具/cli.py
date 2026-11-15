@@ -122,13 +122,16 @@ def cmd_query(args) -> int:
                 include_cutouts=args.cutouts,
             )
         elif args.q == "coverage":
-            out = cat.coverage(args.ra, args.dec, args.radius)
+            out = cat.coverage(
+                args.ra, args.dec, args.radius,
+                mjd_min=args.mjd_min, mjd_max=args.mjd_max,
+            )
         elif args.q == "epochs":
             radius = args.radius if args.radius is not None else (
                 COVERAGE_RADIUS_DEG if args.v1 else 0.2
             )
             if args.v1:
-                # 与 HTTP `/api/v1/epochs` 完全同一条代码路径（含去重、目标感知）。
+                # 与 HTTP `/api/v1/epochs` 完全同一条代码路径（含去重、目标感知、时间窗）。
                 out = cat.epochs_v1(
                     target_id=args.target,
                     ra=args.ra,
@@ -136,11 +139,18 @@ def cmd_query(args) -> int:
                     fov=args.fov,
                     radius=radius,
                     limit=args.limit,
+                    mjd_min=args.mjd_min,
+                    mjd_max=args.mjd_max,
                 )
             elif args.target:
                 out = {"target_id": args.target, "epochs": cat.epochs_for_target(args.target)}
             elif args.ra is not None and args.dec is not None:
-                out = {"epochs": cat.cone(args.ra, args.dec, radius, limit=args.limit, order="mjd")["frames"]}
+                out = {
+                    "epochs": cat.cone(
+                        args.ra, args.dec, radius, limit=args.limit, order="mjd",
+                        mjd_min=args.mjd_min, mjd_max=args.mjd_max,
+                    )["frames"]
+                }
             else:
                 raise SystemExit("query epochs 需要 --target 或 --ra/--dec")
         elif args.q == "target":
@@ -322,6 +332,8 @@ def build_parser() -> argparse.ArgumentParser:
     cov.add_argument("--ra", type=float, required=True)
     cov.add_argument("--dec", type=float, required=True)
     cov.add_argument("--radius", type=float, default=COVERAGE_RADIUS_DEG)
+    cov.add_argument("--mjd-min", type=float, default=None, help="可选 MJD 窗口下界（含）")
+    cov.add_argument("--mjd-max", type=float, default=None, help="可选 MJD 窗口上界（含）")
     cov.set_defaults(func=cmd_query)
     ep = qsub.add_parser("epochs", help="历元；--v1 走契约（两入口同形）")
     _add_common(ep, suppress=True)
@@ -330,6 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
     ep.add_argument("--dec", type=float, default=None)
     ep.add_argument("--radius", type=float, default=None, help="覆盖半径；--v1 默认 2.47，旧形状默认 0.2")
     ep.add_argument("--fov", type=float, default=0.25, help="仅 --v1：slice_url 的 size")
+    ep.add_argument("--mjd-min", type=float, default=None, help="可选 MJD 窗口下界（含）")
+    ep.add_argument("--mjd-max", type=float, default=None, help="可选 MJD 窗口上界（含）")
     ep.add_argument("--limit", type=int, default=500)
     ep.add_argument("--v1", action="store_true", help="输出契约 v1 响应（去重 + 目标感知）")
     ep.set_defaults(func=cmd_query)

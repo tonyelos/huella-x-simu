@@ -63,6 +63,8 @@ class RemoteCatalog:
         release: str | None = None,
         limit: int = 500,
         offset: int = 0,
+        mjd_min: float | None = None,
+        mjd_max: float | None = None,
     ) -> dict:
         return self._get(
             "/api/v1/epochs",
@@ -75,11 +77,30 @@ class RemoteCatalog:
                 "release": release,
                 "limit": limit,
                 "offset": offset,
+                "mjd_min": mjd_min,
+                "mjd_max": mjd_max,
             },
         )
 
-    def coverage_v1(self, ra: float, dec: float, radius: float = 2.47) -> dict:
-        return self._get("/api/v1/coverage", {"ra": ra, "dec": dec, "radius": radius})
+    def coverage_v1(
+        self,
+        ra: float,
+        dec: float,
+        radius: float = 2.47,
+        *,
+        mjd_min: float | None = None,
+        mjd_max: float | None = None,
+    ) -> dict:
+        return self._get(
+            "/api/v1/coverage",
+            {
+                "ra": ra,
+                "dec": dec,
+                "radius": radius,
+                "mjd_min": mjd_min,
+                "mjd_max": mjd_max,
+            },
+        )
 
     def cone(
         self,
@@ -115,8 +136,19 @@ class RemoteCatalog:
             },
         )
 
-    def coverage(self, ra: float, dec: float, radius: float = 0.2) -> dict:
-        return self._get("/api/coverage", {"ra": ra, "dec": dec, "radius": radius})
+    def coverage(
+        self,
+        ra: float,
+        dec: float,
+        radius: float = 0.2,
+        *,
+        mjd_min: float | None = None,
+        mjd_max: float | None = None,
+    ) -> dict:
+        return self._get(
+            "/api/coverage",
+            {"ra": ra, "dec": dec, "radius": radius, "mjd_min": mjd_min, "mjd_max": mjd_max},
+        )
 
     def frame(self, obs_id: str, detector: int) -> dict:
         return self._get(f"/api/frames/{urllib.parse.quote(obs_id)}/{int(detector)}")

@@ -135,6 +135,93 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(self.get("/api/v1/targets/nope")[0], 404)
         self.assertEqual(self.get("/api/v1/targets/test_target/epochs")[0], 200)
 
+    def test_v1_epochs_mjd_window(self):
+        # 无参数：不回归
+        code, body, _ = self.get("/api/v1/epochs?target_id=test_target")
+        self.assertEqual(code, 200)
+        full = json.loads(body)
+        self.assertEqual(full["count"], 6)
+        self.assertFalse(full["time_filter"]["applied"])
+
+        code, body, _ = self.get(
+            "/api/v1/epochs?target_id=test_target&mjd_min=61000&mjd_max=61080"
+        )
+        self.assertEqual(code, 200)
+        data = json.loads(body)
+        self.assertEqual(data["count"], 3)
+        self.assertEqual(
+            data["time_filter"], {"mjd_min": 61000.0, "mjd_max": 61080.0, "applied": True}
+        )
+        self.assertEqual(data["query"]["mjd_min"], 61000.0)
+        self.assertEqual(data["query"]["mjd_max"], 61080.0)
+        self.assertEqual([e["mjd"] for e in data["epochs"]], [61000.0, 61040.0, 61080.0])
+
+        # 与 ra/dec 入口兼容（同一目标同一窗口 → 同一组历元）
+        code, body, _ = self.get(
+            "/api/v1/epochs?ra=150.05&dec=20.025&mjd_min=61040&mjd_max=61120"
+        )
+        self.assertEqual(code, 200)
+        by_coords = json.loads(body)
+        self.assertEqual(by_coords["count"], 3)
+        self.assertEqual(by_coords["matched_target_id"], "test_target")
+        self.assertEqual(
+            [(e["obsid"], e["detector"]) for e in by_coords["epochs"]],
+            [(e["obsid"], e["detector"]) for e in json.loads(
+                self.get("/api/v1/epochs?target_id=test_target&mjd_min=61040&mjd_max=61120")[1]
+            )["epochs"]],
+        )
+
+        # 单边窗口
+        code, body, _ = self.get("/api/v1/epochs?target_id=test_target&mjd_min=61160")
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)["count"], 2)
+
+    def test_v1_coverage_mjd_window(self):
+        code, body, _ = self.get("/api/v1/coverage?ra=150.05&dec=20.025")
+        self.assertEqual(code, 200)
+        full = json.loads(body)
+        self.assertEqual((full["n_frames"], full["n_epochs"]), (12, 6))
+        self.assertFalse(full["time_filter"]["applied"])
+
+        code, body, _ = self.get(
+            "/api/v1/coverage?ra=150.05&dec=20.025&mjd_min=61000&mjd_max=61040"
+        )
+        self.assertEqual(code, 200)
+        win = json.loads(body)
+        self.assertEqual(win["n_frames"], 4)
+        self.assertEqual(win["n_epochs"], 2)
+        self.assertEqual(win["mjd_min"], 61000.0)
+        self.assertEqual(win["mjd_max"], 61040.0)
+        self.assertTrue(win["time_filter"]["applied"])
+        self.assertEqual(win["query"]["mjd_min"], 61000.0)
+        # 旧字段不破坏
+        for key in (
+            "radius_deg", "coverage_level", "coverage_label", "header_available",
+            "n_local_cutouts", "releases", "detectors", "baseline_days",
+        ):
+            self.assertIn(key, win)
+        self.assertNotIn("readiness", win)
+
+        # 目录外窗口 → 0 期（200，不是 500/400）
+        code, body, _ = self.get(
+            "/api/v1/coverage?ra=150.05&dec=20.025&mjd_min=70000&mjd_max=70001"
+        )
+        self.assertEqual(code, 200)
+        empty = json.loads(body)
+        self.assertEqual((empty["n_frames"], empty["n_epochs"]), (0, 0))
+        self.assertEqual(empty["coverage_level"], "C0")
+
+    def test_mjd_window_errors(self):
+        for path in (
+            "/api/v1/epochs?target_id=test_target&mjd_min=abc",
+            "/api/v1/epochs?target_id=test_target&mjd_max=nan",
+            "/api/v1/epochs?target_id=test_target&mjd_min=61120&mjd_max=61000",
+            "/api/v1/coverage?ra=150.05&dec=20.025&mjd_min=abc",
+            "/api/v1/coverage?ra=150.05&dec=20.025&mjd_min=61120&mjd_max=61000",
+            "/api/coverage?ra=150.05&dec=20.025&mjd_min=inf",
+        ):
+            self.assertEqual(self.get(path)[0], 400, path)
+
     def test_export(self):
         code, body, _ = self.get("/api/export/fields.json")
         self.assertEqual(code, 200)

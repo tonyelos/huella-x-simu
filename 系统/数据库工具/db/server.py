@@ -34,8 +34,8 @@ _local = threading.local()
 
 ENDPOINTS = [
     ("GET", "/api/v1/health", "契约 v1 健康检查"),
-    ("GET", "/api/v1/epochs", "规范 EpochRef（target_id 或 ra/dec，两入口同形）"),
-    ("GET", "/api/v1/coverage", "覆盖机会 C0–C3（无 L0–L3）"),
+    ("GET", "/api/v1/epochs", "规范 EpochRef（target_id 或 ra/dec；可选 mjd 时间窗）"),
+    ("GET", "/api/v1/coverage", "覆盖机会 C0–C3（可选 mjd 时间窗；无 L0–L3）"),
     ("GET", "/api/v1/targets", "契约 v1 目标列表（含 truth / coord_unc_arcsec）"),
     ("GET", "/api/v1/targets/<id>", "契约 v1 单目标（含 truth）"),
     ("GET", "/api/health", "服务状态与计数（兼容）"),
@@ -176,7 +176,15 @@ class Handler(BaseHTTPRequestHandler):
                 if ra is None or dec is None:
                     raise ValueError("需要 ra 与 dec")
                 radius = self._float(q, "radius", COVERAGE_RADIUS_DEG) or COVERAGE_RADIUS_DEG
-                return self._json(self._catalog().coverage(ra, dec, radius))
+                return self._json(
+                    self._catalog().coverage(
+                        ra,
+                        dec,
+                        radius,
+                        mjd_min=self._float(q, "mjd_min"),
+                        mjd_max=self._float(q, "mjd_max"),
+                    )
+                )
             if path == "/api/weeks":
                 return self._json({"weeks": self._catalog().weeks(self._param(q, "release"))})
             if path.startswith("/api/frames/"):
@@ -317,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
         release = self._param(q, "release") or None
         if release not in (None, "dr1", "qr3"):
             raise ValueError("release 只能是 dr1 或 qr3")
+        mjd_min = self._float(q, "mjd_min")
+        mjd_max = self._float(q, "mjd_max")
         return {
             "target_id": target_id,
             "ra": ra,
@@ -326,6 +336,8 @@ class Handler(BaseHTTPRequestHandler):
             "release": release,
             "limit": limit,
             "offset": offset,
+            "mjd_min": mjd_min,
+            "mjd_max": mjd_max,
         }
 
     def _epochs_v1_payload(self, q: dict[str, list[str]]) -> dict:
@@ -347,6 +359,7 @@ class Handler(BaseHTTPRequestHandler):
             "count": len(epochs),
             "epochs": epochs,
             "coverage": resp.get("coverage"),
+            "time_filter": resp.get("time_filter"),
             "deprecated": True,
             "schema_version": API_SCHEMA_VERSION,
         }
@@ -378,10 +391,19 @@ class Handler(BaseHTTPRequestHandler):
         radius = self._float(q, "radius", COVERAGE_RADIUS_DEG)
         if radius is None or not (0.2 <= radius <= 5.0):
             raise ValueError("radius 必须在 [0.2, 5]")
-        out = self._catalog().coverage(ra, dec, radius)
+        mjd_min = self._float(q, "mjd_min")
+        mjd_max = self._float(q, "mjd_max")
+        out = self._catalog().coverage(ra, dec, radius, mjd_min=mjd_min, mjd_max=mjd_max)
         out.pop("readiness", None)
         out.pop("nearest", None)
-        out["query"] = {"ra": round(float(ra) % 360.0, 6), "dec": float(dec), "radius": float(radius)}
+        tf = out.get("time_filter") or {}
+        out["query"] = {
+            "ra": round(float(ra) % 360.0, 6),
+            "dec": float(dec),
+            "radius": float(radius),
+            "mjd_min": tf.get("mjd_min"),
+            "mjd_max": tf.get("mjd_max"),
+        }
         out["schema_version"] = API_SCHEMA_VERSION
         out["generated_at"] = utcnow()
         self._json(out)

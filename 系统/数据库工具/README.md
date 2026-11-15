@@ -207,8 +207,10 @@ $PY tools/check_compat.py --root .. --exports var/exports
 ```bash
 curl 'http://127.0.0.1:8797/api/v1/epochs?target_id=barnard'
 curl 'http://127.0.0.1:8797/api/v1/epochs?ra=269.452077&dec=4.693365&fov=0.25'
+curl 'http://127.0.0.1:8797/api/v1/epochs?target_id=barnard&mjd_min=60916&mjd_max=60923'
 curl 'http://127.0.0.1:8797/api/v1/targets'
 curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365'
+curl 'http://127.0.0.1:8797/api/v1/coverage?ra=269.452077&dec=4.693365&mjd_min=60916&mjd_max=60923'
 curl 'http://127.0.0.1:8797/api/cone?ra=269.452077&dec=4.693365&radius=2.47&limit=50'
 ```
 
@@ -219,6 +221,8 @@ v1 的硬规则：
 - `slice_url` 的 `size` 等于查询 `fov`；
 - `target_id` 与 `ra/dec` 两入口返回同一组历元（0.05° 内自动匹配目标）；
 - 默认覆盖半径 **2.47°**（单片半对角线），等级用 **C0–C3**，不是 app 的 L0–L3；
+- 可选时间窗 `mjd_min`/`mjd_max`（闭区间）：epochs 过滤 curated `target_epochs`，
+  coverage 只统计窗口内 frames；响应带 `time_filter`，空窗口如实 0 条；
 - `/api/v1/targets` 的 7 条目标与 `app/data/targets.json` 逐字段一致（含
   `truth` 与 `coord_unc_arcsec`），T1 的 A 组用它做 app↔db 对账。
 
@@ -364,7 +368,7 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 110 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 34 个）
+├── tests/                 118 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 34 个、时间窗 8 个）
 ├── tests/fixtures/        gaia_dr3_sample.csv（250 行真实 Gaia 子集，仅测试）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/
