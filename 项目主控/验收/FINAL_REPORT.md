@@ -115,6 +115,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 官方案例亮度对比：[官方案例亮度对比.md](官方案例亮度对比.md)（R Dra W1=0.39 到 WISE 0855 W1=16.14，跨度约 15.8 mag；不是同一亮度范围）。
 
+官方识别方法调研：[../架构/08_官方识别方法调研.md](../架构/08_官方识别方法调研.md)（Source Discovery/SExtractor、MOST、forced photometry、Backyard Worlds/WiseView）。
+
 ### 2.6 D-MVP 已知/未知识别
 
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
