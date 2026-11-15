@@ -19,6 +19,7 @@ import math
 import os
 import sys
 import threading
+import time
 import uuid
 import warnings
 import zlib
@@ -823,6 +824,109 @@ def run_identify(payload: dict) -> dict:
     return ident
 
 
+def run_cascade(q: dict) -> dict:
+    """级联/残差页的数据端点：每个历元跑 L1 → mask → residual。
+
+    不跑完整 ``run_analysis``，不写 DB。DB 不可用/无本地覆盖返回 503；
+    混合模式（HYBRID）保留每期 provenance，页面自行标注。
+    """
+    tid = (q.get("target_id") or [None])[0]
+    ra_raw = (q.get("ra") or [None])[0]
+    dec_raw = (q.get("dec") or [None])[0]
+    fov_raw = (q.get("fov") or ["0.2"])[0]
+    payload = {}
+    if tid:
+        payload["target_id"] = tid
+    if ra_raw is not None:
+        payload["ra"] = ra_raw
+    if dec_raw is not None:
+        payload["dec"] = dec_raw
+    fov = validate_fov(fov_raw)
+    tid, ra, dec, target_preset = resolve_request(payload)
+
+    if tid != "custom":
+        target = target_preset
+        tgt, epochs, _truth, meta = data_layer.build_dataset(tid, mode="auto", size_deg=fov)
+    else:
+        preset = match_preset_target(ra, dec)
+        if preset is not None and data_layer.load_epoch_catalog().get(preset["id"]):
+            tgt, epochs, _truth, meta = data_layer.build_dataset(preset["id"], mode="auto", size_deg=fov)
+            target = matched_custom_target(ra, dec, preset)
+        else:
+            tgt, epochs, _truth, meta = data_layer.build_dataset(
+                "custom", mode="auto", size_deg=fov, ra=ra, dec=dec
+            )
+            target = tgt
+
+    meta = meta or {}
+    if meta.get("fallback_reason") == "DB_UNAVAILABLE":
+        raise ApiError(503, "DB_UNAVAILABLE", "数据库不可用，无法读取真实历元；级联页不做 SIM 冒充。")
+    if not epochs:
+        raise ApiError(503, "NO_EPOCHS", "该天区没有可用历元。")
+    if meta.get("mode") == "unavailable":
+        raise ApiError(503, "FETCH_FAILED", "真实历元取数失败，无法做级联检测。")
+    if all(str(getattr(ep, "provenance", "")) == "synthetic" for ep in epochs):
+        raise ApiError(503, "NO_LOCAL_COVERAGE", "该天区只有 SIM 历元；级联页不把模拟数据当真实检测。")
+
+    epoch_rows = []
+    totals = {"l1": 0, "masked": 0, "residual": 0}
+    for ep in epochs:
+        try:
+            layers = pipeline.cascade_layers(ep)
+            err = None
+        except Exception as exc:  # noqa: BLE001 - 单期失败不拖垮整页
+            layers = {"l1": [], "masked": [], "residual": [], "counts": {"l1": 0, "masked": 0, "residual": 0}}
+            err = str(exc)
+        counts = layers.get("counts") or {}
+        for key in totals:
+            totals[key] += int(counts.get(key) or 0)
+        epoch_rows.append(
+            {
+                "epoch_id": str(ep.id),
+                "mjd": float(ep.mjd),
+                "date_obs": ep.date_obs,
+                "band": ep.band,
+                "obsid": ep.obsid,
+                "provenance": ep.provenance,
+                "shape": list(np.asarray(ep.image).shape),
+                "counts": {k: int(counts.get(k) or 0) for k in ("l1", "masked", "residual")},
+                "l1": layers.get("l1") or [],
+                "masked": layers.get("masked") or [],
+                "residual": layers.get("residual") or [],
+                "error": err,
+            }
+        )
+
+    return {
+        "schema_version": "1.0",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "query": {
+            "target_id": tid,
+            "ra": ra,
+            "dec": dec,
+            "fov": fov,
+            "mode": meta.get("mode"),
+        },
+        "target": {
+            k: target.get(k)
+            for k in ("id", "name", "name_zh", "ra", "dec", "type", "expected", "note")
+        },
+        "mode": meta.get("mode"),
+        "fallback_reason": meta.get("fallback_reason"),
+        "note": meta.get("note"),
+        "coverage": meta.get("coverage"),
+        "counts": {"n_epochs": len(epoch_rows), **totals},
+        "limits": {
+            "l1_max": 80,
+            "residual_max": 80,
+            "residual_threshold": 5.0,
+            "mask_radius_px": 2.0,
+        },
+        "epochs": epoch_rows,
+        "disclaimer": "残差候选不是新天体；未匹配不等于新星。级联只展示检测/残差层，不做发现声明。",
+    }
+
+
 def run_analysis(payload: dict) -> dict:
     if not isinstance(payload, dict):
         raise ApiError(400, "BAD_JSON", "请求体必须是 JSON 对象。")
@@ -1063,6 +1167,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 return self._static("index.html")
+            if path in ("/cascade", "/cascade.html"):
+                return self._static("cascade.html")
             if path.startswith("/static/"):
                 return self._static(path[len("/static/") :])
             if path == "/api/health":
@@ -1082,6 +1188,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/sources":
                 q = parse_qs(u.query)
                 return self._handle_sources(q)
+            if path == "/api/cascade":
+                q = parse_qs(u.query)
+                return self._json(run_cascade(q))
             if path == "/api/targets":
                 return self._json({"targets": data_layer.load_targets()})
             if path == "/api/epochs":

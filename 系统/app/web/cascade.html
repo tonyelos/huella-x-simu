@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoveScope · 级联 / 残差检测</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">◈</div>
+    <div>
+      <h1>MoveScope <span class="zh">级联 / 残差</span></h1>
+      <p>L1 高召回检测 → 掩膜已检测源 → 残差低阈值复检</p>
+    </div>
+  </div>
+  <div class="top-right">
+    <span class="badge ghost">CASCADE MVP</span>
+    <a class="ghost small" href="/">← 返回主应用</a>
+  </div>
+</header>
+
+<main class="cascade-main">
+  <section class="panel cascade-controls">
+    <h2><span class="num">01</span> 选择历元</h2>
+    <div class="fields cascade-fields">
+      <label>目标预设
+        <select id="targetSelect"></select>
+      </label>
+      <label>赤经 RA <span class="unit">deg</span><input id="ra" inputmode="decimal" placeholder="自定义坐标"></label>
+      <label>赤纬 Dec <span class="unit">deg</span><input id="dec" inputmode="decimal" placeholder="自定义坐标"></label>
+      <label>视场 FOV <span class="unit">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01"></label>
+    </div>
+    <button id="runCascade" class="primary"><span class="dot"></span>运行级联检测</button>
+    <div id="cascadeNote" class="note">正在加载目标…</div>
+    <div class="cascade-warning">
+      <b>边界</b>：残差候选只是“L1 之外的次级峰”，<b>不是新天体</b>；未匹配不等于新星。
+      级联层不做运动/变光判定，也不输出发现声明。
+    </div>
+  </section>
+
+  <section id="summary" class="cascade-summary hidden" aria-live="polite"></section>
+  <section id="epochs" class="cascade-epochs"></section>
+</main>
+
+<footer class="foot">
+  <span>数据：SPHEREx level2（本地/DB 历元）</span>
+  <span>层：L1 6σ ≤80/期 · masked 2px · residual 5σ ≤80/期</span>
+  <span>残差候选 ≠ 新天体</span>
+</footer>
+
+<script src="/static/cascade.js"></script>
+</body>
+</html>

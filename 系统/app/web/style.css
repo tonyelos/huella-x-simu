@@ -381,3 +381,37 @@ body.expert .readiness .ready-row span { color: inherit; }
 .anyfield-source .q { color: var(--amber2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .anyfield-source .muted { color: var(--muted); }
 .anyfield-source-note { color: var(--muted); font-size: 9.5px; line-height: 1.5; margin-top: 4px; }
+
+/* ---------- 级联 / 残差页 ---------- */
+.cascade-main { max-width: 1320px; margin: 0 auto; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.cascade-controls .fields { grid-template-columns: repeat(4, minmax(150px, 1fr)); }
+.cascade-warning { margin-top: 10px; padding: 9px 11px; border-left: 2px solid rgba(242,179,94,.7); background: rgba(242,179,94,.06); color: var(--ink2); font-size: 12px; line-height: 1.6; border-radius: 0 8px 8px 0; }
+.cascade-summary { display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); gap: 8px; }
+.cascade-stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: rgba(255,255,255,.018); }
+.cascade-stat b { display: block; font-family: var(--mono); font-size: 22px; color: var(--ink); }
+.cascade-stat span { font-size: 10px; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.cascade-epochs { display: flex; flex-direction: column; gap: 12px; }
+.cascade-epoch { border: 1px solid var(--line2); border-radius: 12px; background: rgba(255,255,255,.015); overflow: hidden; }
+.cascade-epoch-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.cascade-epoch-head b { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+.cascade-epoch-head span { font-size: 10.5px; color: var(--muted); }
+.cascade-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+.cascade-badge { font-family: var(--mono); font-size: 9.5px; padding: 3px 6px; border-radius: 999px; border: 1px solid var(--line2); color: var(--ink2); }
+.cascade-badge.residual { color: var(--amber2); border-color: rgba(242,179,94,.35); }
+.cascade-badge.masked { color: var(--muted); }
+.cascade-layer { padding: 9px 12px; border-top: 1px solid rgba(255,255,255,.05); }
+.cascade-layer h4 { margin: 0 0 6px; font-size: 10px; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+.cascade-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 10.5px; }
+.cascade-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 5px; border-bottom: 1px solid var(--line); }
+.cascade-table td { padding: 4px 5px; border-bottom: 1px solid rgba(255,255,255,.04); color: var(--ink2); }
+.cascade-table tr.source-row { cursor: pointer; }
+.cascade-table tr.source-row:hover { background: rgba(242,179,94,.07); }
+.cascade-table tr.source-row.selected { background: rgba(242,179,94,.12); }
+.cascade-table .q { color: var(--amber2); }
+.cascade-detail { border: 1px solid rgba(242,179,94,.28); border-radius: 10px; padding: 10px 12px; background: rgba(242,179,94,.045); margin: 0 12px 12px; font-size: 12px; line-height: 1.6; color: var(--ink2); }
+.cascade-detail b { color: var(--ink); }
+.cascade-detail code { font-family: var(--mono); font-size: 10.5px; word-break: break-all; }
+.cascade-detail .cascade-ident { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.08); }
+.cascade-detail .cascade-ident .badge { margin-right: 6px; }
+.cascade-empty { padding: 18px; text-align: center; color: var(--muted); }
+@media (max-width: 900px) { .cascade-controls .fields { grid-template-columns: 1fr 1fr; } .cascade-summary { grid-template-columns: 1fr 1fr; } }
