@@ -95,7 +95,14 @@ HISTORICAL_MARKERS = (
 FRAME_LINE_SKIP = re.compile(r"最多|至少|上限|批|合成|synthetic|规模|scale|10\^", re.I)
 TARGET_LINE_SKIP = re.compile(r"预设目标|官方目标|样本目标|其中|至少|最多")
 COUNT_LINE_SKIP = re.compile(r"最多|至少|上限|批")
-ROW_LINE_SKIP = re.compile(r"最多|至少|上限|批|合成|synthetic|规模|scale|10\^")
+# “N 行”默认按 fields 行数对账；但星表 fixture / 按场缓存的行数不是 fields。
+# 含 Gaia、catalog、星表、缓存、测试样本等字样的行按数据源描述跳过；
+# 明确写了 fields / 星场 / 帧 的行仍要对账（避免 epoch_catalog.json 等上下文误伤）。
+ROW_LINE_SKIP = re.compile(
+    r"最多|至少|上限|批|合成|synthetic|规模|scale|10\^|fixture|gaia|星表|catalog|缓存|测试样本",
+    re.I,
+)
+FIELDS_CONTEXT = re.compile(r"fields|星场|帧", re.I)
 
 EXPECTED_FIELD_KEYS = [
     "obsid",
@@ -1856,6 +1863,7 @@ class DocClaim:
     line_contains: str | None = None
     line_require: re.Pattern[str] | None = None
     line_skip: re.Pattern[str] | None = None
+    line_skip_unless: re.Pattern[str] | None = None
     max_value: int | None = None
 
 
@@ -1978,6 +1986,7 @@ def check_docs(ctx: Context) -> CheckResult:
             re.compile(r"(?<![\w.,\-–])(\d{1,3}(?:,\d{3})+|\d+)\s*行(?!数)"),
             "fields_rows",
             line_skip=ROW_LINE_SKIP,
+            line_skip_unless=FIELDS_CONTEXT,
             max_value=100_000,
         ),        DocClaim(
             "exposures",
@@ -2087,7 +2096,8 @@ def check_docs(ctx: Context) -> CheckResult:
                 if claim.line_require and not claim.line_require.search(line):
                     continue
                 if claim.line_skip and claim.line_skip.search(line):
-                    continue
+                    if not (claim.line_skip_unless and claim.line_skip_unless.search(line)):
+                        continue
                 for match in claim.pattern.finditer(line):
                     raw_value = next((group for group in match.groups() if group is not None), None)
                     if raw_value is None:

@@ -37,7 +37,7 @@ python3 -m unittest discover -s tests -v   # fixture 自测
 | `fields` | 星场 5,893 行 | view `fields.json`（10 列紧凑数组）vs DB `frames`（按 `frame_id`）vs `fields_snapshot` vs `var/exports/fields.json`；行数、键集合、顺序、10 列逐格比较；view 保留 5 位小数导致的浮点差异按容差接受并计数；同步 `count` / `exposures` / 本地观测周数。 |
 | `constants` | 覆盖半径 / 去重容差 / L3 阈值 / 端口 | 覆盖半径 **2.47°**、单片半宽 **1.745°**、去重容差 **0.02 d**、L3 条件 **n≥6 且 baseline≥0.6 yr**、L3 文案、app **8790** / DB **8797** / view **8830**。用 AST/正则定位源码常量，不靠行号；JS 半宽接受 `3.49 / 2` 这类简单算式，端口识别 `const MOVESCOPE_ORIGIN` 和 `window.MOVESCOPE_ORIGIN` 的默认值。 |
 | `readiness` | coverage_level vs analysis_readiness | app 覆盖函数只返回 `coverage_level`（C0–C3）；app 分析结果只返回 `readiness`（L0–L3）；DB v1 coverage 显式剥离 `readiness`；DB 旧 `coverage()` 的 `readiness` 必须标 `deprecated`；视图工具不得出现 `readiness`；扫描 C/L 值混用。另检查 C3 覆盖阈值 app/DB 一致，并对 DB 旧 readiness 的 180 天阈值与 app L3 0.6 年（219.15 天）不一致给出 WARN。 |
-| `docs` | 文档数字 | 扫描根 README、DB README/benchmarks README/INTEGRATION、view README、header cache README：帧数、fields 行数、曝光数、历元数、目标数、FITS 头数、cutout 数、DB/视图周数、schema 版本、app/DB 单测数。历史说明（“旧/从…扩展/审计基线/快照”等）按上下文跳过；合成规模基准（≥100,000 帧）跳过。 |
+| `docs` | 文档数字 | 扫描根 README、DB README/benchmarks README/INTEGRATION、view README、header cache README：帧数、fields 行数、曝光数、历元数、目标数、FITS 头数、cutout 数、DB/视图周数、schema 版本、app/DB 单测数。历史说明（“旧/从…扩展/审计基线/快照”等）按上下文跳过；合成规模基准（≥100,000 帧）跳过；星表 fixture/缓存（含 Gaia、catalog、星表、缓存、测试样本）的“N 行”不是 fields 行数，按数据源描述跳过，但明确写了 `fields` / `星场` / `帧` 的行仍对账。 |
 | `schema` | DB schema/API 版本 | `db/config.py` 的 `SCHEMA_VERSION` / `API_SCHEMA_VERSION` 与 DB `meta.schema_version` 对账；必需表是否齐全；`PRAGMA quick_check`。 |
 
 DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqlite` 不存在或不可读时标 **SKIP**，
@@ -69,18 +69,17 @@ DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqli
 
 数据增长或常量有意变更时，先更新 `expect.json`，再让检查重新全绿；**不要为了让检查通过而改检查逻辑**。
 
-## 当前实测（2026-11-14，DB 服务停止但 sqlite 文件可用）
+## 当前实测（2026-11-15，DB 服务停止但 sqlite 文件可用）
 
-`./run.sh` 当前退出 **1**，发现 3 项文档数字漂移：
+`./run.sh` 当前退出 **0**：`targets` / `epochs` / `fields` / `constants` / `docs` / `schema`
+均为 PASS，仅 `readiness` 为 WARN。
 
-| 文件:行 | 现值 | 实测 |
-|---|---|---|
-| `README.md:108` | app 单测 52 项 | 78 |
-| `系统/数据库工具/README.md:322` | DB 单测 69 个 | 76 |
-| `系统/数据库工具/benchmarks/README.md:5` | 生产库 5,857 帧 | 5,893 |
-
-另有 1 项 WARN：DB 旧 `coverage()` 的 `readiness` L3 阈值是 180 天，而 app 的 L3 阈值是
+WARN：DB 旧 `coverage()` 的 `readiness` L3 阈值是 180 天，而 app 的 L3 阈值是
 0.6 年（219.15 天）；该字段已标 `deprecated`，不得当作 `analysis_readiness` 使用。
+
+`docs` 曾把 DB README 里星表 fixture / 按场缓存的“234 行 / 17,679 行”误判为 fields 行数；
+现在含 Gaia / catalog / 星表 / 缓存 / 测试样本 的“N 行”按数据源描述跳过，
+但明确写了 `fields` / `星场` / `帧` 的行仍然对账（fields 实测 5,893 行）。
 
 数据/常量其余全绿：targets 5 官方 + 2 样本逐字段一致（含 `coord_unc_arcsec`）；
 74 条历元三处逐条一致；5,893 行 fields 与 DB `frames` 仅差 view 的 5 位小数舍入（0 处超容差）；
@@ -99,7 +98,7 @@ DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqli
 
 ## 自测
 
-`tests/test_drift.py`（10 个用例）在临时目录生成一套最小 app/DB/view 数据、源码片段和 README，
+`tests/test_drift.py`（11 个用例）在临时目录生成一套最小 app/DB/view 数据、源码片段和 README，
 覆盖：
 
 - 全绿 → 0；
@@ -107,6 +106,7 @@ DB 相关检查（`targets` / `epochs` / `fields` / `schema`）在 `catalog.sqli
 - 缺 DB → DB 类检查 SKIP，仍可全绿；
 - 缺核心 JSON → 2；
 - 历史标记行被跳过；
+- 星表 fixture / 缓存行数不误报 fields，fields 错误仍报；
 - JS footprint `3.49 / 2` 与 `window.MOVESCOPE_ORIGIN` 多行默认值两种形态。
 
 ```bash
