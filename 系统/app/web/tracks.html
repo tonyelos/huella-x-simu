@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MoveScope · 跨历元轨迹候选</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">◈</div>
+    <div>
+      <h1>MoveScope <span class="zh">跨历元轨迹</span></h1>
+      <p>L1 + residual 节点 → tracklet → D0–D4 候选分级</p>
+    </div>
+  </div>
+  <div class="top-right">
+    <span class="badge ghost">TRACKS MVP</span>
+    <a class="ghost small" href="/cascade">级联/残差</a>
+    <a class="ghost small" href="/">← 主应用</a>
+  </div>
+</header>
+
+<main class="cascade-main">
+  <section class="panel cascade-controls">
+    <h2><span class="num">01</span> 选择天区</h2>
+    <div class="fields cascade-fields">
+      <label>目标预设<select id="targetSelect"></select></label>
+      <label>赤经 RA <span class="unit">deg</span><input id="ra" inputmode="decimal"></label>
+      <label>赤纬 Dec <span class="unit">deg</span><input id="dec" inputmode="decimal"></label>
+      <label>视场 FOV <span class="unit">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01"></label>
+    </div>
+    <button id="runTracks" class="primary"><span class="dot"></span>运行轨迹发现</button>
+    <div id="tracksNote" class="note">正在加载目标…</div>
+    <div class="cascade-warning">
+      <b>边界</b>：轨迹候选不是新天体；D5 才需要人工/后续确认。
+      D0–D4 是候选分级，不构成发现声明。4 期数据下关联本身有歧义。
+    </div>
+  </section>
+
+  <section id="trackSummary" class="cascade-summary hidden" aria-live="polite"></section>
+  <section id="trackList" class="tracks-list"></section>
+</main>
+
+<footer class="foot">
+  <span>层：D0 artifact · D1 known catalog · D2 未做 · D3 unknown moving · D4 unknown stationary</span>
+  <span>轨迹候选 ≠ 新天体；D5 人工/后续确认</span>
+</footer>
+
+<script src="/static/tracks.js"></script>
+</body>
+</html>
