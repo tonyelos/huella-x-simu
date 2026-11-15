@@ -301,3 +301,23 @@ JS error：无
   ```
   WISE 0855 候选 20.3″ > 6.15″，已从 known 降为 insufficient_data / CATALOG_OFFSET_TOO_LARGE。
 - 接收接口：B `POST /api/v1/catalog/ingest` 已实现；fake TAP 成功落库，真实 TAP 当前超时返回 502 且不写；app 自动 ingest 默认关闭。
+
+---
+
+## 12. C 源表批量识别
+
+Barnard（全量 Gaia 缓存）：
+
+```text
+C 源列表：111 个（4 期，显示前 50）
+批量识别：known 61 / ambiguous 7 / no_match 43 · catalog ok
+前 50 行 badge：known 29 / ambiguous 4 / no_match 17
+JS error：无
+```
+
+- 按钮：`批量识别 C 源`；
+- `no_match` 显示为“未收录候选”，不显示“未知星体”；
+- 计数为 111 全量，表格显示前 50 行；
+- 点击行仍单源 `/api/identify`。
+
+截图：[batch-c-sources.png](evidence-ego/batch-c-sources.png)。
