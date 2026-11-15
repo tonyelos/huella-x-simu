@@ -358,3 +358,51 @@ JS error：无
 - 文件 UTF-8 BOM。
 
 截图：[batch-export.png](evidence-ego/batch-export.png)。
+
+---
+
+## 15. 多目录 + 统一候选目录 + 服务端导出
+
+### 多目录
+
+B schema v4：
+
+```text
+gaia-dr3          17,679
+2mass-derived      8,278
+wise-derived       7,898
+SIMBAD names       7（名称 enrichment；TAP unavailable）
+```
+
+- A/C 批量请求 `catalogs=["gaia","2mass","wise"]`；
+- 0.5″ 内同物理源合并，Gaia 优先 primary，附 crossmatches；
+- 不会因目录重复把同一源算成 ambiguous；
+- B 返回 `catalog_status=partial`（派生 2MASS/WISE 非完整目录）。
+
+### 统一候选目录
+
+Barnard：
+
+```text
+rows 467 · unique_sources 217 · tracks 250
+known 129 · ambiguous 30 · no_match 49 · insufficient 0
+unknown 0 · conflict 9
+```
+
+- A125/C111 按位置合并为 217 source；
+- track 一轨迹一行，节点不另算源；
+- conflict 9 是 A/C 同位置状态不同，不自动仲裁；
+- `no_match` 不再被误归 insufficient。
+
+截图：[unified-directory-final.png](evidence-ego/unified-directory-final.png)。
+
+### 服务端导出
+
+```http
+POST /api/identify/batch/export?format=csv|json&kind=A|C&target=barnard
+```
+
+- 200 attachment；
+- CSV 按候选展开；
+- JSON 保留 sources/results/byId/candidates；
+- 实测 1 源导出正常。
