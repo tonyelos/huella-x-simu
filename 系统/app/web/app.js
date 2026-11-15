@@ -22,6 +22,7 @@ const state = {
   hover: null, // { source, frame } 当前 hover 的源
   hoverKey: null,
   lockRequest: null, // URL 带 lock=1 时，分析完成后按坐标重新锁定
+  anyfieldSeq: 0, // C 覆盖握手请求序号：旧响应不得覆盖新坐标
 };
 
 const CLASS_META = {
@@ -76,6 +77,77 @@ function catalogReasonText(ident) {
   if (!ident) return "";
   const key = ident.reason === "CATALOG_UNAVAILABLE" ? (ident.catalog_reason || ident.reason) : ident.reason;
   return CATALOG_REASON_TEXT[key] || CATALOG_REASON_TEXT[ident.reason] || key || "";
+}
+
+/* C 任意天区 P0：只做覆盖握手，不生成源列表/模拟帧，不阻塞原分析。 */
+const ANYFIELD_TEXT = {
+  ok: "C 覆盖可用",
+  no_coverage: "C 确认无覆盖",
+  index_incomplete: "C 索引不完整",
+  unavailable: "C 服务不可用",
+};
+
+function hideAnyfield() {
+  state.anyfieldSeq += 1;
+  const card = $("#anyfieldCard");
+  if (card) card.classList.add("hidden");
+}
+
+function renderAnyfield(data, httpStatus) {
+  const card = $("#anyfieldCard");
+  const badge = $("#anyfieldBadge");
+  const body = $("#anyfieldBody");
+  if (!card || !badge || !body) return;
+  const status = data && data.status;
+  card.classList.remove("hidden");
+  card.dataset.status = status || "unavailable";
+  const label = ANYFIELD_TEXT[status] || "C 状态未知";
+  badge.className = "anyfield-badge " + (status || "unavailable");
+  badge.textContent = label;
+  if (status === "ok" && httpStatus === 200) {
+    const n = Number(data.n_epochs || 0);
+    const method = data.footprint_method ? `<code>${esc(data.footprint_method)}</code>` : "—";
+    const complete = data.index_completeness ? ` · 索引 ${esc(data.index_completeness)}` : "";
+    body.innerHTML = `C 本地覆盖：<b>${n}</b> 期 · footprint ${method}${complete}`;
+  } else if (status === "no_coverage" || (httpStatus === 422 && !status)) {
+    body.innerHTML = "C 在 complete region 内确认无覆盖；不改变现有本地数据/分析结论。";
+  } else if (status === "index_incomplete") {
+    body.innerHTML = "C 索引不完整，使用现有本地数据。C 的缺口不等于“确认无覆盖”。";
+  } else {
+    body.innerHTML = "C 服务不可用，使用现有本地数据。";
+  }
+}
+
+async function refreshAnyfield(ra, dec, fov) {
+  const seq = ++state.anyfieldSeq;
+  const card = $("#anyfieldCard");
+  const badge = $("#anyfieldBadge");
+  const body = $("#anyfieldBody");
+  if (!card || !badge || !body) return;
+  card.classList.remove("hidden");
+  card.dataset.status = "loading";
+  badge.className = "anyfield-badge";
+  badge.textContent = "查询 C 覆盖…";
+  body.textContent = "可选增强：C 不可用时会继续使用现有本地数据。";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const url = `/api/field?ra=${encodeURIComponent(ra)}&dec=${encodeURIComponent(dec)}&fov=${encodeURIComponent(fov)}`;
+    const r = await fetch(url, { signal: ctrl.signal });
+    let data = {};
+    try {
+      data = await r.json();
+    } catch (e) {
+      data = {};
+    }
+    if (seq !== state.anyfieldSeq) return;
+    renderAnyfield(data, r.status);
+  } catch (e) {
+    if (seq !== state.anyfieldSeq) return;
+    renderAnyfield({ status: "unavailable" }, 0);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function fmtArcsec(value, digits = 3) {
@@ -230,6 +302,8 @@ async function analyze() {
     note("请输入有效的 RA / Dec（度）。", "err");
     return;
   }
+  if (payload.mode === "sample") hideAnyfield();
+  else refreshAnyfield(ra, dec, fov);
   state.loading = true;
   $("#runBtn").disabled = true;
   $("#runBtn").querySelector(".dot").style.animation = "spin 1s linear infinite";

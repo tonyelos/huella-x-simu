@@ -360,3 +360,15 @@ body.expert .readiness .ready-row span { color: inherit; }
   .canvas-wrap { max-width: 640px; margin: 0 auto; }
   .presets { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ---------- C 任意天区覆盖握手（阶段 D-C P0） ---------- */
+.anyfield-card { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: rgba(255,255,255,.015); }
+.anyfield-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.anyfield-head > span:first-child { font-size: 9.5px; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; }
+.anyfield-badge { font-family: var(--mono); font-size: 9.5px; padding: 3px 7px; border-radius: 999px; border: 1px solid var(--line2); color: var(--ink2); white-space: nowrap; }
+.anyfield-badge.ok { color: var(--green); border-color: rgba(110,231,168,.4); }
+.anyfield-badge.no_coverage { color: var(--amber2); border-color: rgba(242,179,94,.42); }
+.anyfield-badge.index_incomplete, .anyfield-badge.unavailable { color: var(--rose); border-color: rgba(239,143,156,.42); }
+.anyfield-body { margin-top: 5px; font-size: 10.5px; line-height: 1.5; color: var(--muted); }
+.anyfield-body b { color: var(--ink2); font-weight: 500; }
+.anyfield-body code { font-family: var(--mono); font-size: 10px; color: var(--ink2); }
