@@ -1,0 +1,95 @@
+{
+  "catalog": "gaia",
+  "version": "dr3",
+  "release": "gaia-dr3",
+  "epoch_ref": "J2016.0",
+  "epoch_mjd": 57388.5,
+  "license": "CC BY-NC 3.0 IGO",
+  "citation": "ESA/Gaia/DPAC; Gaia Collaboration et al. 2023, A&A 674, A1, DOI 10.1051/0004-6361/202243940",
+  "source": "ESA Gaia Archive TAP cone search",
+  "tap_url": "https://gea.esac.esa.int/tap-server/tap/sync",
+  "archive_url": "https://gea.esac.esa.int/archive/",
+  "query_template": "SELECT g.source_id,\n       g.ra,\n       g.dec,\n       g.pmra,\n       g.pmdec,\n       g.parallax,\n       g.ra_error,\n       g.dec_error,\n       g.pmra_error,\n       g.pmdec_error,\n       g.phot_g_mean_mag,\n       g.bp_rp,\n       g.ref_epoch,\n       g.in_qso_candidates,\n       g.in_galaxy_candidates,\n       g.non_single_star,\n       t.original_ext_source_id AS twomass_id,\n       w.original_ext_source_id AS wise_id\nFROM gaiadr3.gaia_source AS g\nLEFT JOIN gaiadr3.tmass_psc_xsc_best_neighbour AS t ON t.source_id = g.source_id\nLEFT JOIN gaiadr3.allwise_best_neighbour AS w ON w.source_id = g.source_id\nWHERE CONTAINS(POINT('ICRS', g.ra, g.dec), CIRCLE('ICRS', 0.00000000, 0.00000000, 0.25)) = 1\n  AND g.phot_g_mean_mag <= 20",
+  "fetched_at": "2026-11-15T00:47:26Z",
+  "mode": "tap",
+  "usage": "tests_only",
+  "complete": false,
+  "note": "这是真实 Gaia DR3 TAP 结果的小样本，不是合成坐标；field_id 是导入时按预设场加的，source_id/ra/dec/pm 等保留 Gaia 原值。样本不完整（234 行，仅用于离线测试/回归，不得当作演示星表、全天星表或全量 Gaia），不能据此声称 Gaia 全量或 OSI 许可。field_counts 是当时 7 个场各 0.25°、G<=20 的真实 TAP 行数（合计 17,679），不是本 fixture 的行数。",
+  "field_counts_note": "field_counts 是 TAP 缓存场的完整计数；fixture 只含每场抽样后的 234 行，不完整。",
+  "n_fixture_rows": 234,
+  "field_counts": {
+    "barnard": 9603,
+    "epsind_b": 813,
+    "wise0855": 1210,
+    "rw_aur": 4684,
+    "r_dra": 651,
+    "m101": 458,
+    "campo_a": 260
+  },
+  "fields": [
+    {
+      "field_id": "barnard",
+      "field_name": "Barnard's Star",
+      "ra": 269.452077,
+      "dec": 4.693365,
+      "radius_deg": 0.25,
+      "n_sources": 9603,
+      "provenance": "tap"
+    },
+    {
+      "field_id": "epsind_b",
+      "field_name": "Epsilon Indi B",
+      "ra": 331.044147,
+      "dec": -56.782844,
+      "radius_deg": 0.25,
+      "n_sources": 813,
+      "provenance": "tap"
+    },
+    {
+      "field_id": "wise0855",
+      "field_name": "WISE 0855-0714",
+      "ra": 133.795129,
+      "dec": -7.245147,
+      "radius_deg": 0.25,
+      "n_sources": 1210,
+      "provenance": "tap"
+    },
+    {
+      "field_id": "rw_aur",
+      "field_name": "RW Aurigae",
+      "ra": 76.956526,
+      "dec": 30.401438,
+      "radius_deg": 0.25,
+      "n_sources": 4684,
+      "provenance": "tap"
+    },
+    {
+      "field_id": "r_dra",
+      "field_name": "R Draconis",
+      "ra": 248.167611,
+      "dec": 66.754979,
+      "radius_deg": 0.25,
+      "n_sources": 651,
+      "provenance": "tap"
+    },
+    {
+      "field_id": "m101",
+      "field_name": "M101 field",
+      "ra": 210.80227,
+      "dec": 54.34895,
+      "radius_deg": 0.25,
+      "n_sources": 458,
+      "provenance": "tap"
+    },
+    {
+      "field_id": "campo_a",
+      "field_name": "Field A (DR1)",
+      "ra": 160.617,
+      "dec": 30.67,
+      "radius_deg": 0.25,
+      "n_sources": 260,
+      "provenance": "tap"
+    }
+  ],
+  "fallback_fields": []
+}

@@ -93,13 +93,19 @@
 
 ---
 
-## 5.1 计划中的星表服务（尚未随仓库分发）
+## 5.1 星表服务（阶段 B/D1；仓库仅含 234 行测试 fixture）
 
-> 状态：仅设计（`项目主控/架构/07_已知未知识别与数据比对设计.md`），**当前仓库未包含 Gaia/2MASS/WISE/CatWISE/SIMBAD 数据文件**。接入前必须逐项复核许可证并补入本文件。
+> 状态：B 星表服务已实现（`系统/数据库工具/db/star_*.py`、`catalog_server.py`），
+> **仓库不包含 Gaia/2MASS/WISE/CatWISE/SIMBAD 全量数据**，也不包含 7 MB 的
+> 17,679 行按场缓存（`var/star_catalog.sqlite` 已 gitignore）。唯一随仓库提交的
+> Gaia 数据是 `系统/数据库工具/tests/fixtures/gaia_dr3_sample.csv`：**234 行真实
+> Gaia DR3 TAP 结果子集，7 场抽样，抓取时间 2026-11-15T00:47:26Z，样本不完整，
+> 仅用于离线测试/回归**，不得当作演示星表、全天星表或全量 Gaia。2MASS/WISE/
+> CatWISE/SIMBAD 尚未接入数据；下表为接入前必须复核的条款。
 
 | 数据 | 许可证/条款 | 来源 | 接入注意 |
 |---|---|---|---|
-| Gaia DR3 | **CC BY-NC 3.0 IGO**（非 OSI；非商业限制） | <https://www.cosmos.esa.int/web/gaia-users/license>；<https://doi.org/10.1051/0004-6361/202243940> | 需署名 ESA/Gaia DPAC；商业使用需单独确认；NASA Space Apps Legal 对“第三方材料”的要求需项目方复核 |
+| Gaia DR3 | **CC BY-NC 3.0 IGO**（非 OSI；非商业限制） | TAP <https://gea.esac.esa.int/tap-server/tap/sync>；Archive <https://gea.esac.esa.int/archive/>；许可 <https://www.cosmos.esa.int/web/gaia-users/license>；<https://doi.org/10.1051/0004-6361/202243940> | 需署名 ESA/Gaia DPAC；引用 Gaia Collaboration et al. 2023, A&A 674, A1；商业使用需单独确认；仓库只含 234 行测试 fixture，不重新分发全量/按场缓存 |
 | 2MASS | NASA/IPAC 公开数据 | <https://www.ipac.caltech.edu/2mass/> | 署名 2MASS/IPAC |
 | WISE / AllWISE | NASA/IPAC 公开数据 | <https://wise2.ipac.caltech.edu/> | 署名 WISE/IPAC |
 | CatWISE2020 | NASA/IPAC 公开数据 | <https://doi.org/10.3847/1538-4365/abd805> | 署名 CatWISE |
@@ -107,7 +113,9 @@
 | NASA Exoplanet Archive | NASA 公开数据 | <https://exoplanetarchive.ipac.caltech.edu/> | 署名 NASA/Exoplanet Archive；仅宿主排除 |
 | JPL Horizons / MPC | NASA/JPL、IAU MPC 公开数据 | <https://ssd.jpl.nasa.gov/horizons/>；<https://www.minorplanetcenter.net/> | 署名；查询限流 |
 
-**合规风险提示**：Gaia 的 CC BY-NC 与 SIMBAD 的 ODbL 都不是 OSI 软件许可证；它们作为“数据”使用，需按各自条款处理，并确认 NASA Space Apps Legal 对“space agency partner data”的适用性。接入前不要把“未匹配”说成“新星”。
+**合规风险提示**：Gaia 的 CC BY-NC 与 SIMBAD 的 ODbL 都不是 OSI 软件许可证；
+它们作为“数据”使用，需按各自条款处理，并确认 NASA Space Apps Legal 对
+“space agency partner data”的适用性。接入前不要把“未匹配”说成“新星”。
 
 ---
 
@@ -125,7 +133,7 @@
 
 1. 本项目原创内容按 **Apache-2.0** 开源；未指定其他许可证。
 2. 所有第三方代码/数据/图片/参考资料已在本文件或 `系统/参考 资料/NOTICE.md` 中引用；NASA 可据此核验。
-3. three.js（MIT）与 Apache-2.0 兼容；NASA 数据/影像按 NASA 条款使用；SIMBAD 坐标按 CDS 引用。计划中的 Gaia/SIMBAD 星表尚未随仓库分发，接入前需按 §5.1 复核许可。
+3. three.js（MIT）与 Apache-2.0 兼容；NASA 数据/影像按 NASA 条款使用；SIMBAD 坐标按 CDS 引用。Gaia 星表服务已实现，但仓库只含 `系统/数据库工具/tests/fixtures/gaia_dr3_sample.csv` 的 **234 行真实测试 fixture**（CC BY-NC 3.0 IGO，不完整，仅测试）；全量/按场缓存与 SIMBAD 数据未随仓库分发，接入前需按 §5.1 复核许可。
 4. 本项目不包含 export-controlled 信息，不包含第三方机密信息，不暗示 NASA 背书。
 5. 若发现任何未列出的第三方材料，请在提交前补充到本文件并确认其许可证；NASA 可因未引用而取消提名/奖项。
 
