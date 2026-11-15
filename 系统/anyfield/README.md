@@ -4,7 +4,7 @@
 > 74 条 header 真实足迹、本地 NPZ/FITS ingest、C-native 源列表，以及
 > **任意天区按需发现 + 一张 allowlisted S3/IRSA cutout**。
 > 不重投影/共同网格、不做 series 重算、不输出 known/unknown/行星/新天体。
-> 联网仅限 week_index + S3 Range 头发现与 allowlisted IRSA cutout fetch；
+> 联网仅限 week_index + S3 Range 64 KB 头发现与 allowlisted IRSA cutout fetch；
 > 不接受任意 URL。P1B 仍临时依赖 app `系统/app/core` 做 FITS 解析/检测，
 > 这是阶段性依赖，**不是长期架构**。
 >
@@ -48,7 +48,7 @@ ANYFIELD_INGEST_ROOT="系统/app/data:系统/参考 资料/muestras" \
 |---:|---|---|
 | **200** | 查到本地 epochs | 真实 header 足迹（74 条）或 `center_approx`（5,819 帧）覆盖；每个 epoch 带 `coverage_method`/`footprint_method` |
 | **200** | `GET /sources` 有结果 | 本地已 ingest / on-demand S3 的源；`source_origin=ingested` 或 `on_demand_s3`、`provenance=real` |
-| **200** | `GET /discover` 有候选 | week_index + S3 Range 头返回候选；空列表 + `reason` 也是 200，不 422 |
+| **200** | `GET /discover` 有候选 | week_index + S3 Range 64 KB 头返回候选；空列表 + `reason` 也是 200，不 422 |
 | **503** | S3 不可达/超时 | `UPSTREAM_UNAVAILABLE`；不伪造候选 |
 | **202** | `POST /fetch` | allowlisted cutout 异步 fetch；同 `epoch_id` 幂等 |
 | **422** | `coverage_region.complete=1` 且确认无 epochs | 唯一允许的 `NO_LOCAL_COVERAGE` 强断言；生产库没有 complete region |
@@ -266,7 +266,7 @@ app 205 tests、DB 110 tests 同时通过。
 ## 边界
 
 - catalog DB 只读；不迁移 app/DB schema；sidecar 独立。
-- 发现仅 week_index + S3 Range 头；fetch 仅一张 allowlisted IRSA cutout；
+- 发现仅 week_index + S3 Range 64 KB 头；fetch 仅一张 allowlisted IRSA cutout；
   无 TAP/SIA/DataLink、无公网/鉴权。
 - 只支持本地 NPZ/FITS 与单张 S3 cutout；不做像素重投影/共同网格、不做
   forced photometry、不做 series 重算。

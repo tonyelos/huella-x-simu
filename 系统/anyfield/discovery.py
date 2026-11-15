@@ -155,10 +155,11 @@ class Discovery:
 
         with self._lock:
             self._preflight()
-            old_s3, old_cache = find_epochs.S3, find_epochs.CACHE
+            old_s3, old_cache, old_hdr = find_epochs.S3, find_epochs.CACHE, find_epochs.HDR
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             find_epochs.S3 = self.s3_base
             find_epochs.CACHE = str(self.cache_dir)
+            find_epochs.HDR = 65536
             found: list[dict[str, Any]] = []
             failed_weeks = 0
             try:
@@ -176,6 +177,7 @@ class Discovery:
             finally:
                 find_epochs.S3 = old_s3
                 find_epochs.CACHE = old_cache
+                find_epochs.HDR = old_hdr
 
         # One candidate per (obsid,detector,release,version); keep nearest.
         dedup: dict[tuple[str, int, str, str], dict[str, Any]] = {}
