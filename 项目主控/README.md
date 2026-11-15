@@ -230,6 +230,7 @@ L0 数据源  IRSA 静态切片 · S3 公开桶 · SIMBAD 参考
 | [架构/19_A源表批量识别.md](架构/19_A源表批量识别.md) | A 源表折叠列表 + 分 200 批识别；Barnard 215 源验证 |
 | [架构/20_批量结果审计导出.md](架构/20_批量结果审计导出.md) | A/C 批量结果 CSV/JSON 导出；J/H/K/W1/W2 列与 ambiguous 规则 |
 | [架构/21_后续五项任务.md](架构/21_后续五项任务.md) | JSON/服务端导出、CSV 多候选、2MASS/WISE/SIMBAD、TAP E2E、统一目录 |
+| [架构/22_统一候选目录.md](架构/22_统一候选目录.md) | A/C 同位置合并 + Tracks 一轨迹一行；统一计数与导出 |
 | [验收/GUI链路测试.md](验收/GUI链路测试.md) | Ego GUI 链路 + `/cascade` + `/tracks` 页验收 |
 | [验收/STATUS.md](验收/STATUS.md) | T1 状态：WIP / BLOCKED |
 | [冻结/STATUS.md](冻结/STATUS.md) | T3 状态：PASS |
