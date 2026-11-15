@@ -93,3 +93,26 @@
 - **发现并修复 1 个 P1 UI 状态 bug**。
 - **仍未打通**：C-P1B 发现/取数没有 GUI 按钮；任意天区尚未做到“自动发现 → 自动取数 → 多历元序列”。
 - **不是“发现行星”链路**：C 源是检测源，D 只做已知/未知比对，`discovery_claim=false`。
+
+---
+
+## 5. 补充：级联 / 残差页
+
+打开 <http://127.0.0.1:8790/cascade>（默认 Barnard）：
+
+```text
+标题：MoveScope · 级联 / 残差检测
+统计：4 历元 / 215 L1 / 215 MASKED / 241 RESIDUAL / real
+每历元：L1 49–61，masked 49–61，residual 54–68
+表格：4 历元 × 3 层 = 12 张表
+页脚：L1 6σ ≤80/期 · masked 2px · residual 5σ ≤80/期
+免责声明：残差候选 ≠ 新天体；未匹配不等于新星
+JS error：无
+```
+
+说明：
+
+- L1 已与 A/C 的 `detect_sources(max_sources=80)` 对齐，不再出现 208/期；
+- residual 用 5σ + ≤80/期，仍可能有 PSF 翼/边缘噪声，页面明确标 `RESIDUAL_CANDIDATE`；
+- 页面不是“自动发现新天体”，是分层审查/复核工具；
+- 截图：[cascade-page.png](evidence-ego/cascade-page.png)。
