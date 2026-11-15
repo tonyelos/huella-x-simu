@@ -55,7 +55,10 @@
         <summary>
           <span>A 检测源（本次分析）</span>
           <b id="aSourceCount" class="a-source-count">0</b> 个
-          <button id="batchASourcesBtn" class="ghost small" type="button">批量识别 A 源</button>
+          <span class="a-source-actions">
+            <button id="batchASourcesBtn" class="ghost small" type="button">批量识别 A 源</button>
+            <button id="exportASourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
+          </span>
         </summary>
         <div id="aSourceBatchNote" class="anyfield-source-note hidden" aria-live="polite"></div>
         <div id="aSourceTableWrap" class="a-source-table-wrap">
@@ -76,6 +79,7 @@
         <div class="anyfield-actions">
           <button id="loadCSourcesBtn" class="ghost small hidden" type="button">加载 C 源列表</button>
           <button id="batchCSourcesBtn" class="ghost small hidden" type="button">批量识别 C 源</button>
+          <button id="exportCSourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
         </div>
         <div id="anyfieldBatchNote" class="anyfield-source-note hidden" aria-live="polite"></div>
         <div id="anyfieldSources" class="anyfield-sources hidden" aria-live="polite"></div>
@@ -243,6 +247,7 @@
 <script src="/static/source_pick.js"></script>
 <script src="/static/lock_note.js"></script>
 <script src="/static/a_source_batch.js"></script>
+<script src="/static/batch_export.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

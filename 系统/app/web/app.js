@@ -263,6 +263,8 @@ async function batchIdentifyCSources() {
   const note = $("#anyfieldBatchNote");
   if (!sources.length) return;
   if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
+  const exportBtn = $("#exportCSourcesBtn");
+  if (exportBtn) exportBtn.disabled = true;
   if (note) {
     note.classList.remove("hidden");
     note.textContent = `正在批量识别 ${sources.length} 个 C 源…`;
@@ -315,6 +317,8 @@ async function batchIdentifyCSources() {
     }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "批量识别 C 源"; }
+    const ex = $("#exportCSourcesBtn");
+    if (ex) ex.disabled = false;
   }
 }
 
@@ -349,6 +353,11 @@ function renderCSources(data, httpStatus) {
     box.innerHTML = head + rows + '<div class="anyfield-source-note">点击源 → 锁定并调用 /api/identify。批量 badge 只是星表身份，不是发现声明。</div>';
     const batchBtn = $("#batchCSourcesBtn");
     if (batchBtn) batchBtn.classList.remove("hidden");
+    const exportBtn = $("#exportCSourcesBtn");
+    if (exportBtn) {
+      exportBtn.classList.toggle("hidden", !batch.counts);
+      exportBtn.disabled = false;
+    }
     box.querySelectorAll(".anyfield-source").forEach((el) => {
       el.addEventListener("click", () => {
         const idx = Number(el.dataset.cIndex);
@@ -486,6 +495,10 @@ function bindUI() {
   if (loadBtn) loadBtn.addEventListener("click", loadCSources);
   const aBatchBtn = $("#batchASourcesBtn");
   if (aBatchBtn) aBatchBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); batchIdentifyASources(); });
+  const exportABtn = $("#exportASourcesBtn");
+  if (exportABtn) exportABtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); exportABatchCsv(); });
+  const exportCBtn = $("#exportCSourcesBtn");
+  if (exportCBtn) exportCBtn.addEventListener("click", exportCBatchCsv);
   const batchBtn = $("#batchCSourcesBtn");
   if (batchBtn) batchBtn.addEventListener("click", batchIdentifyCSources);
   document.addEventListener("keydown", (e) => {
@@ -1503,6 +1516,11 @@ function renderASources(d) {
   $("#aSourceSummary").textContent = c
     ? `known ${c.known_star || 0} / ambiguous ${c.ambiguous || 0} / no_match ${c.no_match || 0} / insufficient ${c.insufficient_data || 0} / unavailable ${c.catalog_unavailable || 0}`
     : (sources.length > 50 ? `显示前 50 / 共 ${sources.length} 个；批量识别计数为全量。` : "共 " + sources.length + " 个；可批量识别星表身份。");
+  const exportBtn = $("#exportASourcesBtn");
+  if (exportBtn) {
+    exportBtn.classList.toggle("hidden", !batch.counts);
+    exportBtn.disabled = false;
+  }
   $("#aSourceBatchNote").classList.add("hidden");
   if (batch.error) {
     $("#aSourceBatchNote").classList.remove("hidden");
@@ -1520,6 +1538,8 @@ async function batchIdentifyASources() {
   const batches = window.ASourceBatch.chunks(items, 200);
   const old = state.aSourceBatch;
   if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
+  const exportBtn = $("#exportASourcesBtn");
+  if (exportBtn) exportBtn.disabled = true;
   if (note) { note.classList.remove("hidden"); note.textContent = `正在批量识别 A 源 ${sources.length} 个（${batches.length} 批）…`; }
   const merged = {};
   let counts = {};
@@ -1554,6 +1574,55 @@ async function batchIdentifyASources() {
     }
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = "批量识别 A 源"; }
+    const ex = $("#exportASourcesBtn");
+    if (ex) ex.disabled = false;
+  }
+}
+
+function downloadTextFile(name, text, mime) {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+function exportABatchCsv() {
+  const note = $("#aSourceBatchNote");
+  try {
+    const be = window.BatchExport;
+    if (!be || !state.aSourceBatch.counts || !(state.sources || []).length) {
+      throw new Error("尚未批量识别 A 源");
+    }
+    const rows = be.buildRows(state.sources, state.aSourceBatch.byId, "a", state.analysis && state.analysis.epochs);
+    downloadTextFile(be.downloadName("A", state.analysis?.target?.id || "target", "csv"), be.toCsv(rows), "text/csv");
+    if (note) {
+      note.classList.remove("hidden");
+      note.textContent = `已导出 A 源 ${rows.length} 行 CSV（含表头）；导出不改变表格/badge。`;
+    }
+  } catch (e) {
+    if (note) { note.classList.remove("hidden"); note.textContent = `导出失败：${e.message}。表格和 badge 未改变。`; }
+  }
+}
+
+function exportCBatchCsv() {
+  const note = $("#anyfieldBatchNote");
+  try {
+    const be = window.BatchExport;
+    if (!be || !state.anyfieldBatch.counts || !(state.anyfieldSources || []).length) {
+      throw new Error("尚未批量识别 C 源");
+    }
+    const rows = be.buildRows(state.anyfieldSources, state.anyfieldBatch.byId, "c", state.analysis && state.analysis.epochs);
+    downloadTextFile(be.downloadName("C", state.analysis?.target?.id || "target", "csv"), be.toCsv(rows), "text/csv");
+    if (note) {
+      note.classList.remove("hidden");
+      note.textContent = `已导出 C 源 ${rows.length} 行 CSV（含表头）；导出不改变表格/badge。`;
+    }
+  } catch (e) {
+    if (note) { note.classList.remove("hidden"); note.textContent = `导出失败：${e.message}。表格和 badge 未改变。`; }
   }
 }
 
