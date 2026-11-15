@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 from pathlib import Path
@@ -121,6 +122,14 @@ def angsep_arcsec(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
     return sep * 3600.0 if math.isfinite(sep) else math.inf
 
 
+def _row_get(row: sqlite3.Row, key: str):
+    """安全读取可空/新列；旧 v1 库未迁移时返回 None，而不是抛 KeyError。"""
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return None
+
+
 def _release_dict(row: sqlite3.Row | dict) -> dict:
     d = dict(row)
     d["release"] = d.get("release_key") or d.get("release")
@@ -156,6 +165,10 @@ def _source_dict(
         "pmdec_error": row["pmdec_error"],
         "ra_error": row["ra_error"],
         "dec_error": row["dec_error"],
+        "parallax_error": _row_get(row, "parallax_error"),
+        "ruwe": _row_get(row, "ruwe"),
+        "astrometric_excess_noise": _row_get(row, "astrometric_excess_noise"),
+        "phot_variable_flag": _row_get(row, "phot_variable_flag"),
         "gmag": row["gmag"],
         "bp_rp": row["bp_rp"],
         "2mass": row["twomass_id"],
@@ -239,7 +252,19 @@ class StarCatalog:
             "SELECT * FROM catalog_field WHERE release_id=? ORDER BY field_id",
             (int(release_id),),
         )
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            raw = d.pop("photometry_json", None)
+            if raw:
+                try:
+                    d["photometry"] = json.loads(raw)
+                except (TypeError, json.JSONDecodeError):
+                    d["photometry"] = None
+            else:
+                d["photometry"] = None
+            out.append(d)
+        return out
 
     def get_release(self, catalog: str = "gaia", version: str | None = None) -> dict:
         if not catalog:
@@ -826,7 +851,12 @@ class StarCatalog:
         *,
         detections: Sequence[dict] | None = None,
     ) -> int:
-        """把一次匹配结果写入 catalog_match；返回写入行数。"""
+        """把一次匹配结果写入 catalog_match；返回写入行数。
+
+        同一 `analysis_id` 是**整批重放语义**：先删除旧行再写入，因此重复
+        POST（网络重试/D 重算）不会累积重复行。删除和插入在同一个事务里；
+        插入失败会回滚到本次调用前的状态。
+        """
         if self.readonly:
             raise CatalogError("只读连接不能写 catalog_match")
         if not analysis_id:
@@ -855,11 +885,14 @@ class StarCatalog:
                         now,
                     )
                 )
-        if not rows:
-            return 0
         with transaction(self.conn):
+            self.conn.execute(
+                "DELETE FROM catalog_match WHERE analysis_id=?", (analysis_id,)
+            )
+            if not rows:
+                return 0
             for row in rows:
-                self.conn.execute(
+                cur = self.conn.execute(
                     """INSERT INTO catalog_match(
                            analysis_id, detection_id, release_id, source_id,
                            sep_arcsec, pm_residual, pa_residual, ambiguity, confidence,
@@ -868,6 +901,10 @@ class StarCatalog:
                        FROM catalog_source s WHERE s.source_id=?""",
                     (*row[:2], *row[4:], row[3]),
                 )
+                if cur.rowcount != 1:
+                    raise CatalogError(
+                        f"catalog_match 写入失败：source_id 不在库中: {row[3]}"
+                    )
         return len(rows)
 
     # ------------------------------------------------------------------ 导入
@@ -975,6 +1012,10 @@ class StarCatalog:
                         _optional_float(src.get("dec_error")),
                         _optional_float(src.get("pmra_error")),
                         _optional_float(src.get("pmdec_error")),
+                        _optional_float(src.get("parallax_error")),
+                        _optional_float(src.get("ruwe")),
+                        _optional_float(src.get("astrometric_excess_noise")),
+                        src.get("phot_variable_flag"),
                         _optional_float(src.get("gmag")),
                         _optional_float(src.get("bp_rp")),
                         _optional_float(src.get("jmag")),
@@ -1006,8 +1047,8 @@ class StarCatalog:
                 self.conn.execute(
                     """INSERT INTO catalog_field(
                            release_id, field_id, field_name, ra, dec, radius_deg,
-                           n_sources, provenance, imported_at)
-                       VALUES(?,?,?,?,?,?,?,?,?)""",
+                           n_sources, provenance, photometry_json, imported_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (
                         release_id,
                         fid,
@@ -1017,6 +1058,9 @@ class StarCatalog:
                         float(f["radius_deg"]),
                         int(f.get("n_sources", field_counts.get(fid, 0))),
                         str(f.get("provenance") or provenance),
+                        json.dumps(f.get("photometry"), ensure_ascii=False)
+                        if f.get("photometry") is not None
+                        else None,
                         now,
                     ),
                 )
@@ -1051,10 +1095,11 @@ class StarCatalog:
             """INSERT INTO catalog_source(
                    source_id, release_id, catalog_id, ra, dec, pmra, pmdec, parallax,
                    ra_error, dec_error, pmra_error, pmdec_error,
+                   parallax_error, ruwe, astrometric_excess_noise, phot_variable_flag,
                    gmag, bp_rp, jmag, hmag, kmag, w1, w2,
                    twomass_id, wise_id, epoch_ref, healpix, object_type,
                    provenance, created_at)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             batch,
         )
 

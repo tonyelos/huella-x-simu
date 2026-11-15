@@ -34,6 +34,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from db.catalog import angsep_deg  # noqa: E402
+from db.irsa_gator import (  # noqa: E402
+    CATALOGS as IRSA_CATALOGS,
+    enrich_gaia_rows,
+    fetch_field_photometry,
+    photometry_summary,
+)
 from db.gaia_tap import (  # noqa: E402
     GAIA_ARCHIVE_URL,
     GAIA_DR3_CITATION,
@@ -89,6 +95,40 @@ def _nearest_pair(rows: list[dict]) -> tuple[dict, dict] | None:
     return best[1], best[2]
 
 
+def _fixture_photometry_stats(rows: list[dict]) -> dict:
+    """fixture/离线模式：只统计 CSV 里已有的真实 2MASS/WISE 值。"""
+    tm_rows = [r for r in rows if r.get("twomass_id")]
+    wise_rows = [r for r in rows if r.get("wise_id")]
+    tm_matched = [
+        r for r in rows
+        if r.get("twomass_id") and any(r.get(k) is not None for k in ("jmag", "hmag", "kmag"))
+    ]
+    wise_matched = [
+        r for r in rows
+        if r.get("wise_id") and any(r.get(k) is not None for k in ("w1", "w2"))
+    ]
+    return {
+        "status": "fixture_sample",
+        "source": "fixture rows only (Gaia real rows; 2MASS/WISE values where the fixture has them)",
+        "source_url": "tests/fixtures/gaia_dr3_sample.csv",
+        "license": {k: IRSA_CATALOGS[k]["license"] for k in ("2mass", "wise")},
+        "2mass": {
+            "rows": len(tm_rows),
+            "matched": len(tm_matched),
+            "j_available": sum(1 for r in rows if r.get("jmag") is not None),
+            "h_available": sum(1 for r in rows if r.get("hmag") is not None),
+            "k_available": sum(1 for r in rows if r.get("kmag") is not None),
+        },
+        "wise": {
+            "rows": len(wise_rows),
+            "matched": len(wise_matched),
+            "w1_available": sum(1 for r in rows if r.get("w1") is not None),
+            "w2_available": sum(1 for r in rows if r.get("w2") is not None),
+        },
+        "errors": {},
+    }
+
+
 def make_sample(sources: list[dict], *, per_field: int = 20) -> list[dict]:
     """从真实导入行里挑小而可复现的 fixture：近场心/最亮/高自行/近对。"""
     by_field: dict[str, list[dict]] = {}
@@ -126,8 +166,13 @@ def make_sample(sources: list[dict], *, per_field: int = 20) -> list[dict]:
         if pair:
             add(pair[0])
             add(pair[1])
-        # 至少保留几条有 2MASS/WISE 交叉证认的行，供 API 列检查。
+        # 至少保留几条有 2MASS/WISE 交叉证认/真实星等的行，供 API 列检查。
         for r in [r for r in rows if r.get("twomass_id") or r.get("wise_id")][:3]:
+            add(r)
+        for r in [
+            r for r in rows
+            if any(r.get(k) is not None for k in ("jmag", "hmag", "kmag", "w1", "w2"))
+        ][:5]:
             add(r)
         # 每个场至少留一条，fixture 7 场齐全。
         add(rows[0])
@@ -176,6 +221,18 @@ def _sample_meta(
         "n_fixture_rows": fixture_rows,
         "field_counts": counts,
         "fields": fields,
+        "photometry": {
+            "source": "IRSA Gator: 2MASS PSC fp_psc + AllWISE allwise_p3as_psd",
+            "source_url": "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query",
+            "license": {k: IRSA_CATALOGS[k]["license"] for k in ("2mass", "wise")},
+            "note": (
+                "fixture 的 J/H/K/W1/W2 是真实 Gator 值（若该行有交叉证认且目录有值）；"
+                "null 表示无匹配/无质量值，不是 0。每场覆盖率见 fields[].photometry。"
+            ),
+            "fields": {
+                f["field_id"]: f.get("photometry") for f in fields
+            },
+        },
         "fallback_fields": fallback,
     }
 
@@ -190,6 +247,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--offline", action="store_true", help="只用 fixture，不访问网络")
     parser.add_argument("--rebuild", action="store_true", help="删除并重建星表库")
     parser.add_argument("--cache-dir", default=None, help="可选：保存 TAP 原始 CSV 的目录")
+    parser.add_argument("--no-photometry", action="store_true", help="跳过 IRSA Gator 2MASS/WISE 补充")
+    parser.add_argument("--photometry-timeout", type=float, default=90.0)
+    parser.add_argument("--photometry-retries", type=int, default=2)
     parser.add_argument("--export-sample", default=None, help="把真实导入行导出为可提交小样本")
     parser.add_argument("--timeout", type=float, default=240.0)
     parser.add_argument("--retries", type=int, default=3)
@@ -271,6 +331,39 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             print(f"[fixture] {fid}: {len(rows)} sources", file=sys.stderr)
 
+        photometry = None
+        if provenance == "tap" and not args.no_photometry:
+            phot = fetch_field_photometry(
+                float(spec["ra"]),
+                float(spec["dec"]),
+                args.radius_deg,
+                timeout=args.photometry_timeout,
+                retries=args.photometry_retries,
+            )
+            stats = enrich_gaia_rows(rows, phot)
+            photometry = photometry_summary(phot, stats)
+            if phot.get("errors"):
+                print(
+                    f"[photometry] {fid}: 部分失败 {phot['errors']}；缺失列保持 null",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"[photometry] {fid}: 2MASS matched={stats['2mass']['matched']}, "
+                    f"WISE matched={stats['wise']['matched']}",
+                    file=sys.stderr,
+                )
+        elif args.no_photometry and provenance == "tap":
+            photometry = {
+                "status": "disabled",
+                "source": "IRSA Gator disabled by --no-photometry",
+                "2mass": None,
+                "wise": None,
+                "errors": {},
+            }
+        else:
+            photometry = _fixture_photometry_stats(rows)
+
         for r in rows:
             r["field_id"] = fid
             r["provenance"] = provenance
@@ -284,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
                 "radius_deg": args.radius_deg,
                 "n_sources": len(rows),
                 "provenance": provenance,
+                "photometry": photometry,
             }
         )
 
@@ -297,7 +391,8 @@ def main(argv: list[str] | None = None) -> int:
         f"preset fields={','.join(f['field_id'] for f in field_meta)}; "
         f"cache_radius={args.radius_deg:g} deg; mag_limit={args.mag_limit:g}; "
         f"mode={mode}; fixture={fixture_path if args.offline or fallback_fields else 'none'}; "
-        f"imported_from={GAIA_TAP_SYNC}; license={GAIA_DR3_LICENSE}. "
+        f"imported_from={GAIA_TAP_SYNC}; license={GAIA_DR3_LICENSE}; "
+        f"2mass_wise_source={IRSA_CATALOGS['2mass']['source_url']} + {IRSA_CATALOGS['wise']['source_url']}. "
         f"Not a full-sky catalog; per-field cache only."
     )
     print(
@@ -406,6 +501,14 @@ def main(argv: list[str] | None = None) -> int:
                 "license": release["license"],
                 "epoch_ref": release["epoch_ref"],
                 "field_provenance": {f["field_id"]: f["provenance"] for f in field_meta},
+                "photometry": {
+                    f["field_id"]: {
+                        "status": (f.get("photometry") or {}).get("status"),
+                        "2mass_matched": ((f.get("photometry") or {}).get("2mass") or {}).get("matched"),
+                        "wise_matched": ((f.get("photometry") or {}).get("wise") or {}).get("matched"),
+                    }
+                    for f in field_meta
+                },
                 "fallback_fields": fallback_fields,
             },
             ensure_ascii=False,

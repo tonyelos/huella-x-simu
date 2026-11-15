@@ -33,7 +33,7 @@ PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/pyt
 # 1) 联网 TAP 导入 7 个预设场（失败自动回退到真实 Gaia 行 fixture）
 $PY tools/import_gaia.py --rebuild
 
-# 2) 完全离线：只用 tests/fixtures/gaia_dr3_sample.csv（234 行，7 场）
+# 2) 完全离线：只用 tests/fixtures/gaia_dr3_sample.csv（250 行，7 场）
 $PY tools/import_gaia.py --rebuild --offline
 
 # 3) 启动服务（只绑本机）
@@ -83,22 +83,24 @@ $PY -m unittest discover -s tests -t . -v
 仓库**不包含**这 17,679 行缓存。`var/star_catalog.sqlite` 被
 `系统/数据库工具/.gitignore` 忽略，可用 `tools/import_gaia.py --rebuild` 重建。
 
-### 2.1 可提交的 fixture（234 行，仅测试）
+### 2.1 可提交的 fixture（250 行，仅测试）
 
 | 项 | 值 |
 |---|---|
-| 文件 | `tests/fixtures/gaia_dr3_sample.csv`（234 行，7 场） |
+| 文件 | `tests/fixtures/gaia_dr3_sample.csv`（250 行，7 场） |
 | 元数据 | `tests/fixtures/gaia_dr3_sample.meta.json` |
 | 来源 | ESA Gaia Archive TAP `sync` 锥搜索，真实 Gaia 行（不是合成坐标） |
 | TAP URL | `https://gea.esac.esa.int/tap-server/tap/sync` |
 | Archive | `https://gea.esac.esa.int/archive/` |
-| 抓取时间 | `2026-11-15T00:47:26Z`（UTC） |
+| 抓取时间 | `2026-11-15T02:28:40Z`（UTC） |
 | 许可 | **CC BY-NC 3.0 IGO**（非 OSI；非商业限制） |
-| 完整性 | **不完整**；每场只抽 ~20 个近场心源 + 亮源 + 高自行源 + 最近对 |
+| Gaia 质量列 | `parallax_error/ruwe/astrometric_excess_noise/phot_variable_flag`，真实 DR3 原值 |
+| 2MASS/WISE | IRSA Gator 真值对回；250 行中 173 行有 J/H/K、151 行有 W1/W2；失败/无匹配为 null |
+| 完整性 | **不完整**；每场只抽 ~20 个近场心源 + 亮源 + 高自行源 + 最近对 + 有测光行 |
 | 用途 | **仅离线测试/回归**；不得当作演示星表、全天星表或全量 Gaia |
 
 fixture 的 `field_counts` 记录的是当时 TAP 缓存场的完整计数（合计 17,679），
-不是 fixture 自身行数；`n_fixture_rows=234`。`provenance=fixture` 的 release
+不是 fixture 自身行数；`n_fixture_rows=250`。`provenance=fixture` 的 release
 在 API 中永远 `coverage.complete=false` / `catalog_status=partial`，
 不会因为“查到了几行”就声称完整。
 
@@ -120,14 +122,14 @@ fixture 的 `field_counts` 记录的是当时 TAP 缓存场的完整计数（合
 | DOI | <https://doi.org/10.1051/0004-6361/202243940> |
 
 - **Gaia 数据不是 OSI 开源许可**：CC BY-NC 3.0 IGO 允许非商业使用/再分发（带署名与许可），
-  不能商业使用，不能暗示 ESA 背书。本项目只做非商业挑战赛演示，且仓库只提交 234 行
+  不能商业使用，不能暗示 ESA 背书。本项目只做非商业挑战赛演示，且仓库只提交 250 行
   fixture 子集，不重新分发全量星表。
 - 代码/文档仍按项目 Apache-2.0；**数据许可不因代码许可而改变**。
 - 每次 `cone` / `match` / `releases` 响应都带 `release`、`version`、`license`、
   `source_url`；release 更新时新增版本，不允许隐式漂移。
 - 第三方材料总表：根目录 `THIRD_PARTY_NOTICES.md` §5.1。
 
-SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **1**），
+SQLite 中 `star_meta.schema_version` 是 DB schema 版本（当前 **2**），
 API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 ---
@@ -136,6 +138,10 @@ API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 
 `var/star_catalog.sqlite` 是**可重建缓存**，不是原始数据归档。删掉后用
 `tools/import_gaia.py --rebuild` 重建（联网 TAP；失败回退 fixture）。
+当前 **star schema v2**：相对 v1 增加 `parallax_error/ruwe/astrometric_excess_noise/
+phot_variable_flag` 与 `catalog_field.photometry_json`。旧 v1 库用
+`apply_star_schema()` 做 `ADD COLUMN` 迁移（保留已有行），也可直接
+`--rebuild` 重建；两条路径都有测试。
 
 | 表/视图 | 作用 |
 |---|---|
@@ -150,9 +156,10 @@ API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
 关键列（`catalog_source`）：
 
 `source_id`（服务内唯一键，`<release>:<catalog_id>`）、`release_id`、`catalog_id`（Gaia
-`source_id` 字符串）、`ra`、`dec`、`pmra`、`pmdec`、`parallax`、`ra_error`、`dec_error`、
-`pmra_error`、`pmdec_error`、`gmag`、`bp_rp`、`jmag`、`hmag`、`kmag`、`w1`、`w2`、
-`twomass_id`、`wise_id`、`epoch_ref`（MJD）、`healpix`（NESTED，nside=64）、
+`source_id` 字符串）、`ra`、`dec`、`pmra`、`pmdec`、`parallax`、`parallax_error`、
+`ra_error`、`dec_error`、`pmra_error`、`pmdec_error`、`ruwe`、
+`astrometric_excess_noise`、`phot_variable_flag`、`gmag`、`bp_rp`、`jmag`、`hmag`、`kmag`、
+`w1`、`w2`、`twomass_id`、`wise_id`、`epoch_ref`（MJD）、`healpix`（NESTED，nside=64）、
 `object_type`、`provenance`、`created_at`。
 
 - `catalog_id` / `source_id` 一律是**字符串**。Gaia 64 位 ID 超过 JavaScript
@@ -161,7 +168,17 @@ API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
   锥搜索正确性不依赖它；它是未来按像素分区/懒加载的索引。
 - `object_type` 只是 Gaia 目录标志的粗粒度翻译（`star` / `qso_candidate` /
   `galaxy_candidate` / `non_single_star`），**不是科学分类**。
-- 2MASS/WISE 列已建好；当前未导入实际 2MASS/WISE 数据（见 §10 未完成项）。
+- `ruwe` / `astrometric_excess_noise` / `phot_variable_flag` 来自 Gaia DR3
+  `gaia_source` 原列；`phot_variable_flag` 是目录字符串（常见 `NOT_AVAILABLE` /
+  `CONSTANT` / `VARIABLE`），不是本项目判定。
+- `jmag/hmag/kmag/w1/w2` 来自 **IRSA Gator**：同场锥查 2MASS PSC `fp_psc` 与
+  AllWISE `allwise_p3as_psd`，按 Gaia 交叉证认 `twomass_id`/`wise_id`
+  （designation）对回。没有交叉证认/目录没有质量值时是 **null，不是 0**。
+- 真实 7 场缓存中，2MASS 星等对上 **8,419/17,679** 行，WISE 对上
+  **8,052/17,679** 行（约 47.6% / 45.5%）；逐场覆盖率写入
+  `catalog_field.photometry_json`，`/api/v1/catalog/fields` 以 `photometry` 返回。
+  2MASS/WISE 是公共领域数据；Gator 查询失败时整列保持 null，release 仍明确
+  标 `photometry.status=partial`（见 §10）。
 
 ---
 
@@ -183,17 +200,17 @@ API 的 `schema_version` 是接口版本（当前 **1.0**）。两者独立。
   "ok": true,
   "service": "star-catalog",
   "schema_version": "1.0",
-  "star_schema_version": 1,
-  "db_schema_version": 1,
-  "counts": {"releases": 1, "sources": 234, "fields": 7, "matches": 0, "import_runs": 1},
+  "star_schema_version": 2,
+  "db_schema_version": 2,
+  "counts": {"releases": 1, "sources": 250, "fields": 7, "matches": 0, "import_runs": 1},
   "releases": [{
     "release": "gaia-dr3", "version": "dr3", "catalog": "gaia",
     "epoch_ref": "J2016.0", "epoch_ref_mjd": 57388.5,
     "license": "CC BY-NC 3.0 IGO", "citation": "ESA/Gaia/DPAC; ...",
-    "provenance": "fixture", "n_sources": 234, "n_sources_actual": 234
+    "provenance": "fixture", "n_sources": 250, "n_sources_actual": 250
   }],
   "db": {"path": ".../var/star_catalog.sqlite", "disk_bytes": 7340032,
-         "schema_version": 1, "api_schema_version": "1.0"},
+         "schema_version": 2, "api_schema_version": "1.0"},
   "generated_at": "2026-11-15T01:02:43Z"
 }
 ```
@@ -210,7 +227,10 @@ DB 不存在/损坏时 HTTP **503** `CATALOG_UNAVAILABLE`（不是 200 空健康
 ### 5.4 `GET /api/v1/catalog/fields?catalog=gaia&version=dr3`
 
 返回该 release 的预设场：`field_id`、`field_name`、`ra`、`dec`、`radius_deg`、
-`n_sources`、`provenance`、`imported_at`。release 不存在 → 503。
+`n_sources`、`provenance`、`photometry`、`imported_at`。release 不存在 → 503。
+`photometry` 是每场 2MASS/WISE 覆盖率摘要（`status`、`2mass.matched`、
+`wise.matched`、`j_available` 等）；fixture 场为 `status=fixture_sample`，
+真实 TAP 场为 `status=ok`/`partial`。D 用它判断“null 是没测到还是没缓存”。
 
 ### 5.5 `GET /api/v1/catalog/stats`
 
@@ -265,8 +285,11 @@ DB 不存在/损坏时 HTTP **503** `CATALOG_UNAVAILABLE`（不是 200 空健康
     "ra_propagated": 269.446164982, "dec_propagated": 4.769536326,
     "epoch": 61210.0, "epoch_ref": 57388.5,
     "pmra": -801.550978, "pmdec": 10362.394207,
-    "parallax": 546.97594, "pmra_error": 0.03182, "pmdec_error": 0.03607,
+    "parallax": 546.97594, "parallax_error": 0.040116,
+    "pmra_error": 0.03182, "pmdec_error": 0.03607,
     "ra_error": 0.02624, "dec_error": 0.02904,
+    "ruwe": 1.0848505, "astrometric_excess_noise": 0.20481846,
+    "phot_variable_flag": "NOT_AVAILABLE",
     "gmag": 8.1939745, "bp_rp": 2.8336968,
     "2mass": null, "wise": null, "jmag": null, "hmag": null, "kmag": null,
     "w1": null, "w2": null,
@@ -279,7 +302,7 @@ DB 不存在/损坏时 HTTP **503** `CATALOG_UNAVAILABLE`（不是 200 空健康
 ```
 
 > 示例数值取自真实 Gaia 行；示例按真实 TAP 缓存标注 `provenance=tap` /
-> `coverage.complete=true`。若用 234 行 fixture 建库，数值相同，但
+> `coverage.complete=true`。若用 250 行 fixture 建库，数值相同，但
 > `provenance=fixture`、`complete=false`、`catalog_status=partial`、
 > `cache_limited=true`，`n_cached_sources` 是该场 fixture 行数（不是 9,603）。
 
@@ -393,6 +416,13 @@ D-03 建议锥半径 ≥0.3°，B 支持到 5°。
 - 多目录时顶层 `release/version` 为 `null`，`releases` 数组给每个目录的 release。
 - `persist=true` 时 `persisted` 是写入的 `catalog_match` 行数；候选 N 个就写 N 行
   （同一 `analysis_id`/`detection_id`，不同 `source_id`），`ambiguity` 记 1/0。
+- **整批重放语义（幂等）**：同一 `analysis_id` 的旧行先删除再写入；重复 POST
+  （网络重试/D 重算）不会累积重复行。`persist=true` 缺 `analysis_id` → 400。
+  删除+插入在同一个事务；任一 INSERT 失败会回滚到调用前的旧行。空候选批次会
+  清空该 `analysis_id` 的旧行并返回 `persisted=0`。
+- `catalog_match` 不存 D 的 6 个分类标签，只存 `analysis_id/detection_id/source_id/
+  sep_arcsec/pm_residual/pa_residual/ambiguity/confidence` 与检测位置/MJD；
+  D 用自己的 analysis 表关联这些行做分类。
 
 ### 5.8 错误契约
 
@@ -516,8 +546,15 @@ $PY -m unittest discover -s tests -t . -v
 
 覆盖：
 
-- schema/列/视图/外键、`schema_version=1`、release 的 epoch/license/citation/source_url；
-- fixture 234 行、7 场、`fetched_at=2026-11-15T00:47:26Z`、`field_counts` 合计 17,679；
+- schema/列/视图/外键、`schema_version=2`、release 的 epoch/license/citation/source_url；
+- v1→v2 迁移：旧库缺 `ruwe/astrometric_excess_noise/phot_variable_flag/parallax_error/
+  photometry_json` 时 `ADD COLUMN` 安全迁移；
+- fixture 250 行、7 场、`fetched_at=2026-11-15T02:28:40Z`、`field_counts` 合计 17,679；
+- `ruwe=1.0848505`、`astrometric_excess_noise=0.20481846`、`phot_variable_flag=
+  NOT_AVAILABLE`、`parallax_error>0` 在 DB 与 HTTP cone/match 都返回；
+- 2MASS/WISE 真实值（Gator 行）与 null 边界：无交叉证认的源 `jmag/hmag/kmag/w1/w2`
+  必须为 null，不能是 0；
+- persist 幂等/重复/回滚/缺 analysis_id 400；重复 POST 后 `catalog_match` 行数不翻倍；
 - HEALPix nside=1 参考值 + nside=64 子像素一致性 + 导入列一致；
 - Barnard 锥搜索：J2016 原生 (269.448503, 4.739420) → MJD 61210 传播
   (269.446165, 4.769536)；对 J2000 目标 0.1° 锥的角距 **275.04″**；
@@ -548,17 +585,21 @@ PY
 
 ## 10. 未完成/已知限制（交给 lead/D 决策）
 
-1. **只导入了 Gaia DR3。** 2MASS/WISE 的 J/H/K/W1/W2/交叉证认列已建，但当前
-   fixture/真实缓存没有 2MASS/WISE 行；D 的颜色/红外补源需要后续导入或另行查询。
-2. **没有 RUWE / astrometric_excess_noise / visibility_periods_used / phot_variable_flag。**
-   D-11 的“RUWE>2 降级”目前无法直接用 B 做；D 要么扩展 B 的 TAP 查询/列，要么另行取。
+1. **2MASS/WISE 是“附加测光”，不是独立目录。** J/H/K/W1/W2 通过 IRSA Gator
+   对回 Gaia 交叉证认 ID；真实 7 场缓存覆盖 2MASS 8,419/17,679、WISE 8,052/17,679。
+   未覆盖行保持 null；没有 2MASS/WISE 自己的 `source_id` 行、误差列、质量标志
+   （`ph_qual` 只用于对回，不落库）。Gator 失败时整列为 null 且
+   `photometry.status=partial`，不伪造。
+2. **RUWE/astrometric_excess_noise/phot_variable_flag 已接入；仍缺**
+   `visibility_periods_used`、`astrometric_excess_noise_sig`、2MASS/WISE 误差列。
+   D 可以用 `ruwe` 做降级，但不能把 `phot_variable_flag` 当成 D 的变星结论。
 3. **PM 只做一阶线性、不含视差/协方差**（§6）。高视差近星（Barnard ϖ=547 mas）
    D 应加视差项或明确标注。
 4. **release 替换语义**：导入器对 `gaia+dr3` 做 replace；没有 checksum 列。
    冻结/复现要求“旧 release 不覆盖”时，需要新版本号或冻结 manifest（C/D 阶段）。
 5. **不是全天服务**：只有 7 个 0.25° 场；锥半径上限 5°，`_query_rows` 扫描上限 20 万行；
    没有按 HEALPix 分片/懒加载，没有 TAP 异步大查询。
-6. **fixture 不完整**：234/17,679 行，且每场是抽样；任何基于 fixture 的
+6. **fixture 不完整**：250/17,679 行，且每场是抽样；任何基于 fixture 的
    “complete” 都被强制 false。不要用 fixture 做“全星表”演示。
 7. **服务无鉴权/TLS**，只适合本机/内网；公网需反代。
 8. **D 的分类实现不在本分支**：B 只提供契约、候选与 `catalog_match` 持久化；
