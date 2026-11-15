@@ -867,21 +867,30 @@ function renderIdentification(ident) {
     ].filter(Boolean).map((x) => `<span class="catalog-chip">${esc(x)}</span>`).join("");
     const pv = ident.phot_variable_flag && String(ident.phot_variable_flag).toUpperCase() !== "NOT_AVAILABLE"
       ? `<span class="catalog-chip">${esc(ident.phot_variable_flag)}</span>` : "";
+    const cross = ((ident.candidates || [])[0] || {}).crossmatches || [];
+    const crossChips = cross.map((c) => {
+      const name = String(c.catalog || "catalog").toUpperCase();
+      const id = c.catalog_id || "—";
+      const mags = [c.jmag != null ? `J ${Number(c.jmag).toFixed(2)}` : "",
+                    c.w1 != null ? `W1 ${Number(c.w1).toFixed(2)}` : ""].filter(Boolean).join(" ");
+      return `<span class="catalog-chip" title="${esc(name)} ${esc(id)}">${esc(name)} ${esc(id)}${mags ? " · " + esc(mags) : ""}</span>`;
+    }).join("");
     html = `
       <div class="catalog-id">${esc(ident.source_id || ident.catalog_id || "—")}${release}</div>
       <div class="catalog-metrics">
         <span class="catalog-chip">角距 ${fmtArcsec(ident.separation_arcsec)}</span>
         <span class="catalog-chip">自行 ${pm}</span>
         <span class="catalog-chip">候选 ${n}</span>
-        ${obj}${ruwe}${ir}${pv}
+        ${obj}${ruwe}${ir}${pv}${crossChips}
         ${quality.map((q) => `<span class="catalog-chip">${esc(q)}</span>`).join("")}
       </div>`;
   } else if (status === "ambiguous") {
     const cands = (ident.candidates || []).slice(0, 5);
     const rows = cands
-      .map(
-        (c) => `<div class="catalog-candidate"><code>${esc(c.catalog_id || "—")}</code><span>${fmtArcsec(c.separation_arcsec)}</span><em>${esc(c.release || ident.release || "")}</em></div>`
-      )
+      .map((c) => {
+        const cross = (c.crossmatches || []).map((x) => `${String(x.catalog || "").toUpperCase()} ${x.catalog_id || ""}`).join(" · ");
+        return `<div class="catalog-candidate"><code>${esc(c.catalog_id || "—")}</code><span>${fmtArcsec(c.separation_arcsec)}</span><em>${esc(c.release || ident.release || "")}</em>${cross ? `<span class="catalog-chip">${esc(cross)}</span>` : ""}</div>`;
+      })
       .join("");
     html = `
       <div>匹配半径内有 <b>${n || cands.length}</b> 个星表源；系统<b>不自动选择</b>最亮或最近的候选。</div>

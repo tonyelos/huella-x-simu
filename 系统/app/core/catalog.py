@@ -745,7 +745,7 @@ class CatalogClient:
                 body = {}
             reason = str(body.get("reason") or body.get("code") or "HTTP_ERROR")
             detail = body.get("message")
-            if len(catalogs or []) > 1 and status in (400, 404, 422):
+            if len(catalogs or []) > 1 and status in (400, 404, 422, 503):
                 # 旧版 B 不认识 2mass/wise：显式回退 Gaia 一次。
                 try:
                     retry_payload = dict(payload)
@@ -838,6 +838,7 @@ class CatalogClient:
                 detail="persist=true 需要稳定 analysis_id。",
                 http_status=None,
             )
+        request_payload = dict(payload)
 
         try:
             raw = self._post_json("/api/v1/catalog/match", payload)
@@ -850,6 +851,17 @@ class CatalogClient:
                 payload = {}
             reason = str(payload.get("reason") or payload.get("code") or "HTTP_ERROR")
             detail = payload.get("message") or payload.get("error", {}).get("message")
+            if len(catalogs or []) > 1 and status in (400, 404, 422, 503):
+                # 旧版 B 不认识多目录：单目标也显式回退 Gaia 一次。
+                try:
+                    retry_payload = dict(request_payload)
+                    retry_payload["catalogs"] = ["gaia"]
+                    raw2 = self._post_json("/api/v1/catalog/match", retry_payload)
+                    out2 = normalize_match(raw2)
+                    out2["catalog_fallback"] = "gaia"
+                    return out2
+                except Exception:  # noqa: BLE001
+                    pass
             return _unavailable(reason, detail=detail, http_status=status)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             return _unavailable("CATALOG_UNREACHABLE", detail=str(exc))
@@ -861,6 +873,18 @@ class CatalogClient:
         result = normalize_match(raw)
         if not result.get("release") and raw.get("release"):
             result["release"] = raw.get("release")
+        reason = str(result.get("catalog_reason") or result.get("reason") or "").lower()
+        if len(catalogs or []) > 1 and result.get("catalog_status") == "unavailable" and (
+            "unknown_catalog" in reason or "invalid_catalog" in reason
+        ):
+            try:
+                retry_payload = dict(payload)
+                retry_payload["catalogs"] = ["gaia"]
+                raw2 = self._post_json("/api/v1/catalog/match", retry_payload)
+                result = normalize_match(raw2)
+                result["catalog_fallback"] = "gaia"
+            except Exception:  # noqa: BLE001
+                pass
         if _allow_auto and _should_auto_ingest(result):
             ingested = self.ingest(
                 ra=float(ra),

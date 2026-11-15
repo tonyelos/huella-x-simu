@@ -59,11 +59,11 @@ console.log(JSON.stringify(out));
         self.assertEqual(c["unique_sources"], 4)
         self.assertEqual(c["tracks"], 1)
         self.assertEqual(c["rows"], 5)
-        self.assertEqual(c["known"], 1)
+        self.assertEqual(c["known"], 2)
         self.assertEqual(c["ambiguous"], 1)
         self.assertEqual(c["no_match"], 0)
         self.assertEqual(c["unknown"], 1)
-        self.assertEqual(c["conflict"], 1)
+        self.assertEqual(c["conflict"], 0)
         # same mjd+rounded position A+C merged; track is one row with no node rows
         merged = next(r for r in out["rows"] if r["origins"] == "A;C")
         self.assertEqual(merged["origin"], "A")
@@ -74,14 +74,45 @@ console.log(JSON.stringify(out));
         self.assertEqual(track["n_epochs"], 3)
         self.assertEqual(track["status"], "D1")
         self.assertEqual(len([r for r in out["rows"] if r["origin"] == "track"]), 1)
-        # conflict row has both statuses in caveat, no silent status
-        conflict = next(r for r in out["rows"] if r["status"] == "conflict")
-        self.assertIn("known", conflict["caveats"])
-        self.assertIn("no_match", conflict["caveats"])
+        # known beats no_match by priority, and the decision is recorded
+        resolved = next(r for r in out["rows"] if "no_match" in (r.get("raw_statuses") or ""))
+        self.assertEqual(resolved["resolution"], "priority_known")
+        self.assertEqual(resolved["status"], "known")
+        self.assertIn("resolution=priority_known", resolved["caveats"])
         self.assertIn("origin", out["csv"].split("\n")[0])
         self.assertTrue(out["csv"].startswith("\ufeff"))
         self.assertEqual(out["json"]["counts"]["rows"], 5)
         self.assertEqual(len(out["json"]["rows"]), 5)
+
+    @unittest.skipUnless(NODE, "node 不在 PATH")
+    def test_conflict_only_for_known_catalog_id_and_ambiguous_priority(self):
+        js = os.path.join(APP, "web", "candidate_directory.js")
+        script = r"""
+const cd = require(process.argv[1]);
+const aSrc={source_id:"a",epoch_id:"e",x:1,y:1,mjd:1,ra:1,dec:2};
+const cSrc={source_id:"c",epoch_id:"e",mjd:1,ra:1,dec:2};
+const conflict = cd.build({aSources:[aSrc],aById:{"e:1:1":{status:"known_star",catalog_id:"A1"}},
+  cSources:[cSrc],cById:{c:{status:"known_star",catalog_id:"C1"}}});
+const amb = cd.build({aSources:[aSrc],
+  aById:{"e:1:1":{status:"known_star",catalog_id:"A1"}},
+  cSources:[cSrc],
+  cById:{c:{status:"ambiguous",candidates:[{},{}]}}});
+console.log(JSON.stringify({
+  conflict: {counts:conflict.counts,row:conflict.rows[0]},
+  amb: {counts:amb.counts,row:amb.rows[0]}
+}));
+"""
+        proc = subprocess.run([NODE, "-e", script, js], capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["conflict"]["counts"]["conflict"], 1)
+        self.assertEqual(out["conflict"]["row"]["status"], "conflict")
+        self.assertEqual(out["conflict"]["row"]["resolution"], "conflict_known_catalog_ids")
+        self.assertIn("known", out["conflict"]["row"]["raw_statuses"])
+        self.assertEqual(out["amb"]["counts"]["ambiguous"], 1)
+        self.assertEqual(out["amb"]["row"]["status"], "ambiguous")
+        self.assertEqual(out["amb"]["row"]["resolution"], "ambiguous_over_known")
+        self.assertIn("known", out["amb"]["row"]["raw_statuses"])
 
     @unittest.skipUnless(NODE, "node 不在 PATH")
     def test_no_match_match_status_survives_partial_insufficient(self):

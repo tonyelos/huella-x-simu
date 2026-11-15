@@ -696,6 +696,7 @@ def build_identification(result: dict, target: dict, *, detection_id: str = "tar
             sigma_arcsec=measurement["sigma_arcsec"],
             detection_id=detection_id,
             analysis_id=None,
+            catalogs=["gaia", "2mass", "wise"],
         )
     except Exception as exc:  # noqa: BLE001 - 客户端约定不抛异常，这里再兜一层
         catalog = {
