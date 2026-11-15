@@ -48,6 +48,9 @@ cd 系统/数据库工具 && $PY cli.py serve --port 8797
 cd 系统/数据库工具
 $PY tools/import_gaia.py --rebuild --offline
 $PY catalog_server.py --port 8799
+
+# 可选：C-MVP 本地覆盖骨架（8798；只读本地 catalog.sqlite，不联网）
+cd 系统/anyfield && ./start.sh 8798
 ```
 
 首次分析某个真实目标时，会从 IRSA 静态切片接口取数（每期约 4 MB，带本地缓存）；
@@ -57,6 +60,8 @@ $PY catalog_server.py --port 8799
 （`INVALID_FOV` / `FOV_TOO_LARGE` / `INVALID_COORDINATE` / `TARGET_COORD_CONFLICT`），不再是 500。
 
 **已知/未知识别（D-MVP）**：锁定检测源后，app 会调用独立星表服务（默认 8799）做 Gaia DR3 匹配，显示“已知恒星 / 多候选 ambiguous / 未收录候选 / 星表不可用”；未匹配不等于新天体，不做发现声明。
+
+**任意天区（C-MVP）**：8798 只读服务对 7 个预设场返回本地历元，未知天区返回 `INDEX_INCOMPLETE`；真实按需取数/新历元增量尚未实现。
 
 **当前数据通路**：5 个预设目标走本地真实历元目录；**任意 RA/Dec 先查数据库 `/api/v1/epochs`**
 （本地索引 151 周，其中 23 周有帧、共 5,893 帧 / 5,562 曝光），有 ≥2 期真实历元就走真实切片；本地无覆盖时显式
