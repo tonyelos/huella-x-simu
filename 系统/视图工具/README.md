@@ -45,35 +45,40 @@ http://127.0.0.1:8830/?ra=269.452077&dec=4.693365&fov=0.5&target=barnard&t=61000
 
 ## 3. 在 MoveScope 打开（T2）
 
-按钮打开 `http://127.0.0.1:8790/?target=<id>&ra=<预设原值>&dec=<预设原值>&fov=<fov>`。
+**唯一分析入口**是“在 MoveScope 打开”，一次 handoff 打开：
 
-- **命中判定**：当前天区与 7 个目标之一的角距 ≤ **1 角秒**才算"就是它"；命中时带 `target` 并**使用预设的原始坐标**（不四舍五入），MoveScope 的 `sameAsPreset` 要求 `|Δ| < 1e-6` 才不会掉进 `custom → synthetic`。
+```text
+http://127.0.0.1:8790/?ra=<当前 RA>&dec=<当前 Dec>&fov=<当前 FOV>&t0=<MJD>&t1=<MJD>&from=view
+```
+
+- 使用当前 **全精度** `ra/dec/fov`；不传 `target`，不传 `mode`。MoveScope 默认进入普通模式。
+- `t0/t1` 是分析层过滤窗口（见 §3.5），不是当前数据时相。
+- 进入 MoveScope 后，用户在同一画布切换 **普通 / 级联-残差 / 轨迹**；View 不再提供独立级联/轨迹页面入口。
 - **探活**：`GET /api/health`（`mode:'no-cors'`）；不启动 MoveScope 就复制链接并提示"先 `app/server.py`"，不会假装打开。
 - **地址**：`MOVESCOPE_ORIGIN` 默认 `http://127.0.0.1:8790`；可在页面加载前用 `window.MOVESCOPE_ORIGIN` 覆盖（联调/换端口时不必改源码）。
-- **未命中**：只传自定义 `ra/dec/fov`，面板上明确写"该天区会走 **SIM** 路径"。在 T2 数据桥接完成前，这是事实，不是免责声明。
+- **未命中预设**：MoveScope 仍按当前坐标分析；有真实历元则 REAL，否则 SIM。View 不伪造数据模式。
 
-实测（Barnard，fov 0.5；MoveScope 临时副本 :8791，避免占用保留的 8790）：MoveScope 徽章 **REAL 真实**、**L2 就绪度**、**4 期**、判定 **S 静止**。
+实测（2026-11-15 06:20，MoveScope :8790，本次单 handoff URL `ra=269.452077&dec=4.693365&fov=0.5&t0=60970&t1=61030&from=view`）：MoveScope 徽章 **REAL 真实**、**L2 就绪度**、**4 期**；MoveScope 自身会把 `target=custom` 追加到它的地址栏，但 View 发出的必需参数不变。
 
-## 3.5 分析时间窗口与级联/轨迹入口（第一层联动）
+## 3.5 分析时间窗口与一次 handoff
 
 底部时间条新增 **分析时间窗口 ±N 天**：
 
 - 选项 **30 / 90 / 180 / 365 / 730**，默认 **365**。
 - 始终以当前 `state.mjd` 为中心：`t0 = t − N`、`t1 = t + N`；拖时间轴、播放、点“现在”都会重算。
 - 显示 **MJD t0–t1** 与 **UTC 起止**；页面状态写回 `t0/t1`，刷新可复现。
-- 文案明确：**时间窗口 = 分析层过滤范围，不是“数据时相/当前时刻”**。`t` 决定播放/天区位置，`t0/t1` 只随分析入口发送。
+- 文案明确：**时间窗口 = 分析层过滤范围，不是“数据时相/当前时刻”**。`t` 决定播放/区域位置，`t0/t1` 随一次 handoff 发送。
+- View 只有一个分析入口；进入 MoveScope 后再切换 **普通 / 级联-残差 / 轨迹**。旧的独立分析页保留为诊断页，但不再从 View 直达，也不存在隐藏按钮。
 
-两个分析入口（保留原“在 MoveScope 打开”）：
+一次 handoff 示例（Barnard，±30 天，t=61000）：
 
 ```text
-http://127.0.0.1:8790/cascade?ra=269.452077&dec=4.693365&fov=0.5&t0=60970.0000&t1=61030.0000&from=view
-http://127.0.0.1:8790/tracks?ra=269.452077&dec=4.693365&fov=0.5&t0=60970.0000&t1=61030.0000&from=view
+http://127.0.0.1:8790/?ra=269.452077&dec=4.693365&fov=0.5&t0=60970.0000&t1=61030.0000&from=view
 ```
 
-- 使用当前 **全精度** `ra` / `dec` / `fov`（不做五位/两位小数截断）。
 - 点击前先 GET `/api/health` 探活；连不上时 toast 明确提示、复制链接，不静默失败。
-- 分析页的 FOV 上限是 **3.0°**；当前 FOV 超过 3° 时，入口提示会要求先调小（链接仍按当前 FOV 发送，避免伪装参数）。
-- View 负责把 `ra/dec/fov/t0/t1/from=view` 送达；`/cascade`、`/tracks` 是否按 `t0/t1` 过滤由 app 分支消费，本工具不改 app。
+- 分析页的 FOV 上限是 **3.0°**；当前 FOV 超过 3° 时，提示要求先调小（链接仍按当前 FOV 发送，避免伪装参数）。
+- View 负责把 `ra/dec/fov/t0/t1/from=view` 送达；进入 MoveScope 后的模式切换与窗口消费由 MoveScope 负责，本工具不改 app。
 
 ## 4. "本地命中"口径（T5）
 
@@ -138,20 +143,22 @@ python3 tools/smoke.py
 ```
 
 一条命令检查：DOM id、fields 行数/来源与数据库一致、targets/epoch_index 与单一源一致、交接契约
-（`MOVESCOPE_ORIGIN` 默认 8790 + GET + 全精度 + `target`）、分析时间窗口
-（30/90/180/365/730 + `t0/t1` + 以 `t` 为中心）、`/cascade` 与 `/tracks` 入口参数、
-2.47° 覆盖表与 README 一致（RW Aurigae 非 0）、`fields` 可由 DB/export 重建、
-文案不含旧项目名/旧端口/过时提示、`node --check`、`start.sh` 端口。全部通过退出码 0。
+（`MOVESCOPE_ORIGIN` 默认 8790 + GET + 全精度 `ra/dec/fov` + `t0/t1` + `from=view`，不传 `mode/target`）、
+分析时间窗口（30/90/180/365/730 + `t0/t1` + 以 `t` 为中心）、只有 MoveScope 一个分析入口、
+“进入 MoveScope 后切换普通/级联/轨迹”文案、2.47° 覆盖表与 README 一致（RW Aurigae 非 0）、
+`fields` 可由 DB/export 重建、文案不含旧项目名/旧端口/过时提示、`node --check`、`start.sh` 端口。
+全部通过退出码 0。
 
 ## 7. 边界
 
 1. **不做 FITS 渲染**：多期图像/闪烁/相减是 MoveScope 的职责，这里只选天区。
 2. **本地索引是子集**：5,893 帧只覆盖 23 个观测周（2025-04-24 → 2026-10-03），空缺不代表没有观测。
-3. **自定义天区仍走 SIM**：等 MoveScope 的 T2 数据桥接完成后，这里传过去的 `ra/dec/fov` 才有真实历元。
+3. **自定义天区交给 MoveScope 判断**：按坐标分析，有真实历元则 REAL，否则 SIM；View 不伪造。
 4. 命中判据是"中心距 ≤ 2.47°"，不是逐像素求交；对大倾角扫描带是保守估计。
 5. 地球纹理 2048 px，2 倍屏近看会软。
-6. **分析窗口的消费方是 app**：View 只计算并传递 `t0/t1/from=view`；`/cascade`、`/tracks` 当前是否按窗口过滤由 MoveScope 分支负责。
-7. **分析页 FOV 上限 3.0°**：View 允许更大的浏览视场；超过 3° 时入口提示会要求调小，否则下游会拒绝。
+6. **分析窗口的消费方是 MoveScope 模式栏**：View 只计算并传递 `t0/t1/from=view`；进入 MoveScope 后切换普通/级联/轨迹，由 MoveScope 决定窗口如何过滤。
+7. **分析页 FOV 上限 3.0°**：View 允许更大的浏览视场；超过 3° 时提示会要求调小，否则 MoveScope 会拒绝。
+8. **View 不提供独立级联/轨迹入口**：旧诊断页只保留在 MoveScope 侧，不从 View 直达，也没有隐藏按钮。
 
 ## 8. 文件结构
 
