@@ -13,11 +13,11 @@
   "use strict";
 
   const STATUS_LABEL = {
-    known_star: "Gaia DR3 已知",
-    ambiguous: "多候选 ambiguous",
-    uncatalogued_candidate: "未收录候选（未经确认）",
-    catalog_unavailable: "星表不可用",
-    insufficient_data: "数据不足",
+    known_star: "Known in catalog",
+    ambiguous: "Multiple candidates (ambiguous)",
+    uncatalogued_candidate: "Uncatalogued candidate (unconfirmed)",
+    catalog_unavailable: "Catalog unavailable",
+    insufficient_data: "Insufficient data",
   };
 
   function esc(value) {
@@ -25,18 +25,24 @@
   }
 
   function labelForStatus(status) {
-    return STATUS_LABEL[status] || "星表不可用";
+    if (typeof window !== "undefined" && window.I18n) {
+      const localized = window.I18n.catalogLabel(status || "catalog_unavailable");
+      if (localized) return localized;
+    }
+    return STATUS_LABEL[status] || "Catalog unavailable";
   }
 
   function sourceNote(src, ident) {
     const ra = Number(src && src.ra);
     const dec = Number(src && src.dec);
     const status = ident && ident.status ? String(ident.status) : "catalog_unavailable";
-    const label = (ident && ident.label_zh) || labelForStatus(status);
-    const kind = src && src.c_source ? "C 源" : "源";
+    const label = labelForStatus(status);
     const raText = Number.isFinite(ra) ? ra.toFixed(6) : "—";
     const decText = Number.isFinite(dec) ? dec.toFixed(6) : "—";
-    return `已锁定 ${kind} RA <b>${raText}°</b> · Dec <b>${decText}°</b> · ${esc(label)}（${esc(status)}）`;
+    if (typeof window !== "undefined" && window.I18n && src && src.c_source) {
+      return window.I18n.t("note.lockCStatus", { ra: raText, dec: decText, label: esc(label), status: esc(status) });
+    }
+    return `Locked source RA <b>${raText}°</b> · Dec <b>${decText}°</b> · ${esc(label)} (${esc(status)})`;
   }
 
   return { STATUS_LABEL, labelForStatus, sourceNote };

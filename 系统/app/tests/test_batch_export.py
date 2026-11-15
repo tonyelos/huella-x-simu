@@ -110,22 +110,28 @@ class BatchExportUiStaticTest(unittest.TestCase):
             html = fh.read()
         with open(os.path.join(APP, "web", "app.js"), encoding="utf-8") as fh:
             js = fh.read()
+        with open(os.path.join(APP, "web", "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         self.assertIn("exportASourcesBtn", html)
         self.assertIn("exportCSourcesBtn", html)
         self.assertIn("exportAJsonBtn", html)
         self.assertIn("exportCJsonBtn", html)
-        self.assertIn("导出 CSV", html)
-        self.assertIn("导出 JSON", html)
+        self.assertIn("Export CSV", html)
+        self.assertIn("Export JSON", html)
         self.assertIn("batch_export.js", html)
         self.assertIn("exportABatchCsv", js)
         self.assertIn("exportCBatchCsv", js)
         self.assertIn("toCsv", js)
         self.assertIn("/api/identify/batch/export", js)
         self.assertIn("exportBatchServer", js)
-        self.assertIn("导出失败", js)
-        self.assertIn("导出不改变表格/badge", js)
-        self.assertNotIn("新恒星", html + js)
-        self.assertNotIn("新行星", html + js)
+        self.assertIn("note.exportFail", js)
+        self.assertIn("Export failed", i18n)
+        self.assertIn("export does not change the table or badges", i18n)
+        for text in (html, js, i18n):
+            self.assertNotIn("新恒星", text)
+            self.assertNotIn("新行星", text)
+            self.assertNotIn("new planet", text.lower())
+            self.assertNotIn("confirmed discovery", text.lower())
 
 
 if __name__ == "__main__":

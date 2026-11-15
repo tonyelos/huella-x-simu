@@ -119,12 +119,19 @@ class CatalogPriorUiStaticTest(unittest.TestCase):
     def test_ui_shows_prior_not_only_stationary(self):
         with open(os.path.join(APP, "web", "app.js"), encoding="utf-8") as fh:
             js = fh.read()
+        with open(os.path.join(APP, "web", "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         self.assertIn("catalog_motion", js)
-        self.assertIn("Gaia 先验", js)
-        self.assertIn("SPHEREx 本次未独立测出", js)
-        self.assertIn("CATALOG PRIOR", js)
-        self.assertNotIn("新恒星", js)
-        self.assertNotIn("新行星", js)
+        self.assertIn("verdict.catalogPriorLabel", js)
+        self.assertIn("result.label.catalogPrior", i18n)
+        self.assertIn("Gaia prior", i18n)
+        self.assertIn("SPHEREx did not measure this independently", i18n)
+        self.assertIn("CATALOG PRIOR", i18n)
+        for text in (js, i18n):
+            self.assertNotIn("新恒星", text)
+            self.assertNotIn("新行星", text)
+            self.assertNotIn("new planet", text.lower())
+            self.assertNotIn("confirmed discovery", text.lower())
 
 
 if __name__ == "__main__":

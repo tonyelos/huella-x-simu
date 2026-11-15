@@ -253,7 +253,9 @@ class TracksPageStaticTest(unittest.TestCase):
         self.assertIn("D4", html)
         self.assertIn("/api/tracks", js)
         self.assertIn("/api/identify", js)
-        self.assertIn("轨迹候选不是新天体", html + js)
+        self.assertIn("track candidates are not new objects", html.lower())
+        self.assertIn("tracks.warning", html)
+        self.assertIn("tracks.footer.boundary", html)
         self.assertIn("D5", html)
         self.assertIn('id="t0"', html)
         self.assertIn('id="t1"', html)
@@ -265,6 +267,8 @@ class TracksPageStaticTest(unittest.TestCase):
             self.assertNotIn("新恒星", text)
             self.assertNotIn("新行星", text)
             self.assertNotIn("发现新", text)
+            self.assertNotIn("new planet", text.lower())
+            self.assertNotIn("confirmed discovery", text.lower())
 
 
 if __name__ == "__main__":

@@ -40,69 +40,62 @@ const state = {
   layerVis: { l1: true, masked: true, residual: true },
   fromView: false,
   analysisFov: null,
+  lastDt: 0,
+  anyfieldLast: null,
 };
 
-const CLASS_META = {
-  L: { letter: "L", label: "匀速直线运动", sub: "高自行恒星 / 褐矮星候选" },
-  V: { letter: "V", label: "变光", sub: "位置不动，亮度在变" },
-  S: { letter: "S", label: "静止", sub: "无明显位移或变光" },
-  A: { letter: "A", label: "加速 / 弯曲", sub: "太阳系天体或轨道运动候选" },
-  P: { letter: "P", label: "视差", sub: "周年视运动" },
-  O: { letter: "O", label: "轨道运动", sub: "束缚双星/伴星" },
-  U: { letter: "U", label: "不可判定", sub: "数据不足以判断" },
-};
+window.I18n.init();
+const tr = (key, params) => window.I18n.t(key, params);
 
-/* 星表识别（阶段 D MVP）：只陈述“能否被星表解释”，不做发现声明。 */
-const CATALOG_TEXT = {
-  known_star: "Gaia DR3 已知",
-  ambiguous: "多候选 ambiguous",
-  uncatalogued_candidate: "未收录候选（未经确认）",
-  catalog_unavailable: "星表不可用",
-  insufficient_data: "数据不足",
-};
+function targetDisplayName(t) {
+  if (!t) return "";
+  const fallback = { m101: "target.m101", campo_a: "target.campo_a" }[t.id];
+  if (fallback && window.I18n.hasKey(fallback)) return tr(fallback);
+  return /[\u4e00-\u9fff]/.test(String(t.name || "")) ? (fallback ? tr(fallback) : String(t.name || t.id || "")) : (t.name || t.id || "");
+}
 
-const CATALOG_REASON_TEXT = {
-  CATALOG_UNAVAILABLE: "星表服务不可达或返回 503",
-  TARGET_NOT_DETECTED: "目标没有被探测到",
-  FETCH_FAILED: "真实切片取数失败",
-  CATALOG_PARTIAL: "星表覆盖不完整，0 候选不能当“未收录”",
-  NO_CACHED_FIELD: "查询点不在已缓存的星表场覆盖内",
-  CATALOG_UNREACHABLE: "星表服务不可达",
-  MALFORMED_RESPONSE: "星表响应格式异常",
-  SINGLE_EPOCH: "仅单期，无法核对自行",
-  NO_CATALOG_MATCH: "星表查询成功，但没有候选",
-  MULTIPLE_CANDIDATES: "匹配半径内有多颗星表源",
-  PM_INCONSISTENT: "位置匹配但自行不一致",
-  CATALOG_ID_MISSING: "候选缺少 catalog_id",
-  IDENTIFICATION_ERROR: "识别过程出现内部错误，已降级",
-  NO_TARGET_MEASUREMENT: "没有目标实测位置",
-  SINGLE_CATALOG_MATCH: "位置匹配，星表 ID 已确认",
-  NO_PM_CHECK: "未核对自行（无可用 PM）",
-  HIGH_PM: "高自行目标",
-};
+function apiError(e, fallback) {
+  const err = new Error((e && (e.message || e.code)) || fallback || tr("apiError.generic"));
+  if (e && e.code) err.code = e.code;
+  return err;
+}
 
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+const CLASS_META = {
+  L: { letter: "L", label: "class.L.label", sub: "class.L.sub" },
+  V: { letter: "V", label: "class.V.label", sub: "class.V.sub" },
+  S: { letter: "S", label: "class.S.label", sub: "class.S.sub" },
+  A: { letter: "A", label: "class.A.label", sub: "class.A.sub" },
+  P: { letter: "P", label: "class.P.label", sub: "class.P.sub" },
+  O: { letter: "O", label: "class.O.label", sub: "class.O.sub" },
+  U: { letter: "U", label: "class.U.label", sub: "class.U.sub" },
+};
+
+/* Catalogue identification (phase D MVP): only states whether a catalogue can
+ * explain the source; never a discovery claim. All labels are localised. */
 function catalogText(ident) {
-  if (!ident) return "未识别";
-  return ident.label_zh || CATALOG_TEXT[ident.status] || ident.status || "未识别";
+  if (!ident) return tr("catalog.badge.unknown");
+  return window.I18n.catalogLabel(ident.status, ident.catalog_release || ident.release);
 }
 
 function catalogReasonText(ident) {
   if (!ident) return "";
-  const key = ident.reason === "CATALOG_UNAVAILABLE" ? (ident.catalog_reason || ident.reason) : ident.reason;
-  return CATALOG_REASON_TEXT[key] || CATALOG_REASON_TEXT[ident.reason] || key || "";
+  return window.I18n.catalogReason(ident);
 }
 
-/* C 任意天区 P0：只做覆盖握手，不生成源列表/模拟帧，不阻塞原分析。 */
-const ANYFIELD_TEXT = {
-  ok: "C 覆盖可用",
-  no_coverage: "C 确认无覆盖",
-  index_incomplete: "C 索引不完整",
-  unavailable: "C 服务不可用",
-};
+/* C any-field P0: coverage handshake only; no source list / simulated frames,
+ * and never blocks the main analysis. */
+function anyfieldStatusText(status) {
+  const key = `anyfield.status.${status || "unavailable"}`;
+  return window.I18n.hasKey(key) ? tr(key) : tr("anyfield.status.unknown");
+}
+
+function sourceQualityText(src) {
+  return window.I18n.qualityText(src);
+}
 
 function hideAnyfield() {
   state.anyfieldSeq += 1;
@@ -132,9 +125,10 @@ function renderAnyfield(data, httpStatus) {
   const body = $("#anyfieldBody");
   if (!card || !badge || !body) return;
   const status = data && data.status;
+  state.anyfieldLast = { data, status: httpStatus };
   card.classList.remove("hidden");
   card.dataset.status = status || "unavailable";
-  const label = ANYFIELD_TEXT[status] || "C 状态未知";
+  const label = anyfieldStatusText(status);
   badge.className = "anyfield-badge " + (status || "unavailable");
   badge.textContent = label;
   const loadBtn = $("#loadCSourcesBtn");
@@ -159,14 +153,14 @@ function renderAnyfield(data, httpStatus) {
   if (status === "ok" && httpStatus === 200) {
     const n = Number(data.n_epochs || 0);
     const method = data.footprint_method ? `<code>${esc(data.footprint_method)}</code>` : "—";
-    const complete = data.index_completeness ? ` · 索引 ${esc(data.index_completeness)}` : "";
-    body.innerHTML = `C 本地覆盖：<b>${n}</b> 期 · footprint ${method}${complete}`;
+    const complete = data.index_completeness ? ` · ${esc(data.index_completeness)}` : "";
+    body.innerHTML = tr("anyfield.body.ok", { n, method, complete });
   } else if (status === "no_coverage" || (httpStatus === 422 && !status)) {
-    body.innerHTML = "C 在 complete region 内确认无覆盖；不改变现有本地数据/分析结论。";
+    body.innerHTML = tr("anyfield.body.no_coverage");
   } else if (status === "index_incomplete") {
-    body.innerHTML = "C 索引不完整，使用现有本地数据。C 的缺口不等于“确认无覆盖”。";
+    body.innerHTML = tr("anyfield.body.index_incomplete");
   } else {
-    body.innerHTML = "C 服务不可用，使用现有本地数据。";
+    body.innerHTML = tr("anyfield.body.unavailable");
   }
 }
 
@@ -193,8 +187,8 @@ async function refreshAnyfield(ra, dec, fov) {
   card.classList.remove("hidden");
   card.dataset.status = "loading";
   badge.className = "anyfield-badge";
-  badge.textContent = "查询 C 覆盖…";
-  body.textContent = "可选增强：C 不可用时会继续使用现有本地数据。";
+  badge.textContent = tr("anyfield.querying");
+  body.textContent = tr("anyfield.optional");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 3000);
   try {
@@ -223,9 +217,9 @@ async function loadCSources() {
   const box = $("#anyfieldSources");
   if (!btn || !box) return;
   btn.disabled = true;
-  btn.textContent = "加载 C 源列表…";
+  btn.textContent = tr("anyfield.loading");
   box.classList.remove("hidden");
-  box.innerHTML = '<div class="anyfield-source-note">正在读取 C 已 ingest 的源…</div>';
+  box.innerHTML = `<div class="anyfield-source-note">${esc(tr("anyfield.ingesting"))}</div>`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 3000);
   try {
@@ -243,25 +237,31 @@ async function loadCSources() {
   } finally {
     clearTimeout(timer);
     btn.disabled = false;
-    btn.textContent = "加载 C 源列表";
+    btn.textContent = tr("anyfield.load");
   }
 }
 
 function batchBadgeFor(result) {
   if (!result) return "";
   if (result.match_status === "no_match" || result.status === "uncatalogued_candidate") {
-    return `<span class="batch-badge no_match" title="未收录候选，不是未知星体">no_match</span>`;
+    return `<span class="batch-badge no_match" title="${esc(tr("aSource.badgeNoMatchTitle"))}">no_match</span>`;
   }
   if (result.status === "known_star") return '<span class="batch-badge known_star">known</span>';
   if (result.status === "ambiguous") return '<span class="batch-badge ambiguous">ambiguous</span>';
-  if (result.status === "catalog_unavailable") return '<span class="batch-badge catalog_unavailable" title="星表不可用">unavailable</span>';
+  if (result.status === "catalog_unavailable") return `<span class="batch-badge catalog_unavailable" title="${esc(tr("catalog.badge.catalog_unavailable"))}">unavailable</span>`;
   if (result.status === "insufficient_data") return '<span class="batch-badge insufficient_data">insufficient</span>';
   return "";
 }
 
 function batchSummary(counts) {
   if (!counts) return "";
-  return `known ${counts.known_star || 0} / ambiguous ${counts.ambiguous || 0} / no_match ${counts.no_match || 0}`;
+  return tr("aSource.summaryCounts", {
+    known: counts.known_star || 0,
+    ambiguous: counts.ambiguous || 0,
+    no_match: counts.no_match || 0,
+    insufficient: counts.insufficient_data || 0,
+    unavailable: counts.catalog_unavailable || 0,
+  });
 }
 
 async function batchIdentifyCSources() {
@@ -269,11 +269,11 @@ async function batchIdentifyCSources() {
   const btn = $("#batchCSourcesBtn");
   const note = $("#anyfieldBatchNote");
   if (!sources.length) return;
-  if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
+  if (btn) { btn.disabled = true; btn.textContent = tr("anyfield.batchBusy"); }
   ["#exportCSourcesBtn", "#exportCJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = true; });
   if (note) {
     note.classList.remove("hidden");
-    note.textContent = `正在批量识别 ${sources.length} 个 C 源…`;
+    note.textContent = tr("anyfield.batchLoading", { n: sources.length });
   }
   const payload = {
     catalogs: ["gaia", "2mass", "wise"],
@@ -287,8 +287,8 @@ async function batchIdentifyCSources() {
     })),
   };
   if (!payload.sources.length) {
-    if (note) note.textContent = "C 源缺少 ra/dec/mjd，无法批量识别；列表保持不变。";
-    if (btn) { btn.disabled = false; btn.textContent = "批量识别 C 源"; }
+    if (note) note.textContent = tr("anyfield.batchMissing");
+    if (btn) { btn.disabled = false; btn.textContent = tr("anyfield.batch"); }
     return;
   }
   try {
@@ -300,7 +300,7 @@ async function batchIdentifyCSources() {
     const d = await r.json();
     if (!r.ok || d.error) {
       const e = d.error;
-      throw new Error((e && (e.message || e.code)) || "批量识别接口返回错误");
+      throw apiError(e, tr("note.layerApiError", { mode: "batch identify" }));
     }
     const byId = {};
     (d.results || []).forEach((res) => { byId[String(res.source_id || res.detection_id || "")] = res; });
@@ -312,17 +312,17 @@ async function batchIdentifyCSources() {
     };
     if (note) {
       note.classList.remove("hidden");
-      note.innerHTML = `<b>${esc(batchSummary(d.counts))}</b> · gaia+2mass+wise · catalog ${esc(d.catalog_status || "?")} · 点击行仍做单源识别`;
+      note.innerHTML = tr("anyfield.batchDone", { summary: esc(batchSummary(d.counts)), status: esc(d.catalog_status || "?") });
     }
     renderCSources({ status: "ok", sources: state.anyfieldSources, truncated: false }, 200);
   } catch (e) {
     // 失败不覆盖旧列表/旧 badge
     if (note) {
       note.classList.remove("hidden");
-      note.innerHTML = `批量识别失败：${esc(e.message)}。C 源列表和已有结果保持不变。`;
+      note.innerHTML = tr("anyfield.batchFail", { msg: esc(window.I18n.errorText(e)) });
     }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "批量识别 C 源"; }
+    if (btn) { btn.disabled = false; btn.textContent = tr("anyfield.batch"); }
     ["#exportCSourcesBtn", "#exportCJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = false; });
   }
 }
@@ -340,15 +340,15 @@ function renderCSources(data, httpStatus) {
       if (batchBtn) batchBtn.classList.add("hidden");
       const batchGroup = $("#anyfieldBatchActions");
       if (batchGroup) batchGroup.classList.add("hidden");
-      box.innerHTML = '<div class="anyfield-source-note">C 源列表为空：该场尚未 ingest，或源在搜索半径外。空列表不等于“没有天体”。</div>';
+      box.innerHTML = `<div class="anyfield-source-note">${esc(tr("anyfield.empty"))}</div>`;
       return;
     }
     const shown = all.slice(0, 50);
     const batch = state.anyfieldBatch || {};
     const summary = batch.counts ? ` · ${batchSummary(batch.counts)}` : "";
-    const head = `<div class="anyfield-source-head">C 源列表：${all.length} 个（显示前 ${shown.length}${data.truncated ? "，已截断" : ""}）${esc(summary)}</div>`;
+    const head = `<div class="anyfield-source-head">${tr("anyfield.head", { n: all.length, shown: shown.length, truncated: data.truncated ? tr("anyfield.truncated") : "", summary: esc(summary) })}</div>`;
     const rows = shown.map((src, i) => {
-      const q = (src.quality || []).join(" · ") || (src.saturated ? "SATURATED" : "—");
+      const q = (src.quality || []).map((f) => window.I18n.qualityFlag(f)).join(" · ") || (src.saturated ? window.I18n.qualityFlag("SATURATED") : "—");
       const sid = esc(src.source_id || `#${i}`);
       const result = batch.byId && (batch.byId[String(src.source_id || "")] || batch.byId[String(i)]);
       return `<button type="button" class="anyfield-source${state.locked && state.locked.c_source && state.locked.source_id === src.source_id ? " locked" : ""}" data-c-index="${i}" title="${sid} · ${esc(q)}">
@@ -357,7 +357,7 @@ function renderCSources(data, httpStatus) {
         ${batchBadgeFor(result)}
       </button>`;
     }).join("");
-    box.innerHTML = head + rows + '<div class="anyfield-source-note">点击源 → 锁定并调用 /api/identify。批量 badge 只是星表身份，不是发现声明。</div>';
+    box.innerHTML = head + rows + `<div class="anyfield-source-note">${esc(tr("anyfield.rowNote"))}</div>`;
     const batchBtn = $("#batchCSourcesBtn");
     if (batchBtn) batchBtn.classList.remove("hidden");
     const batchGroup = $("#anyfieldBatchActions");
@@ -375,15 +375,15 @@ function renderCSources(data, httpStatus) {
   } else if (status === "no_coverage" || httpStatus === 422) {
     const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
     const bg = $("#anyfieldBatchActions"); if (bg) bg.classList.add("hidden");
-    box.innerHTML = '<div class="anyfield-source-note">C 确认无覆盖，没有可加载的源列表。</div>';
+    box.innerHTML = `<div class="anyfield-source-note">${esc(tr("anyfield.noCoverageLoad"))}</div>`;
   } else if (status === "index_incomplete" || httpStatus === 503) {
     const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
     const bg = $("#anyfieldBatchActions"); if (bg) bg.classList.add("hidden");
-    box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用（索引不完整）；旧分析和本地源列表不受影响。</div>';
+    box.innerHTML = `<div class="anyfield-source-note">${esc(tr("anyfield.unavailableLoad"))}</div>`;
   } else {
     const bb = $("#batchCSourcesBtn"); if (bb) bb.classList.add("hidden");
     const bg = $("#anyfieldBatchActions"); if (bg) bg.classList.add("hidden");
-    box.innerHTML = '<div class="anyfield-source-note">C 源列表不可用；旧分析和本地源列表不受影响。</div>';
+    box.innerHTML = `<div class="anyfield-source-note">${esc(tr("anyfield.unavailableGeneric"))}</div>`;
   }
 }
 
@@ -422,7 +422,7 @@ function lockCSource(src) {
   u.searchParams.set("fov", $("#fov").value);
   u.searchParams.set("lock", "1");
   history.replaceState(null, "", u.toString());
-  note(`已锁定 C 源 ${esc(src.source_id || "")}：RA ${ra.toFixed(6)}° · Dec ${dec.toFixed(6)}°；已发起星表识别…`);
+  note(tr("note.lockC", { id: esc(src.source_id || ""), ra: ra.toFixed(6), dec: dec.toFixed(6) }));
   renderLockInfo();
   renderCSources({ status: "ok", sources: state.anyfieldSources, truncated: false }, 200);
   identifyLockedSource(state.locked);
@@ -442,7 +442,7 @@ async function init() {
     state.targets = d.targets || [];
     renderPresets();
   } catch (e) {
-    note("无法读取目标列表：" + e.message);
+    note(tr("note.loadTargetsFail", { msg: window.I18n.errorText(e) }));
   }
   const params = new URLSearchParams(location.search);
   const t0Param = params.get("t0");
@@ -530,6 +530,32 @@ function bindUI() {
     }
   });
   window.addEventListener("resize", debounce(() => state.analysis && renderFrame(), 150));
+  window.I18n.onChange(() => {
+    renderPresets();
+    setLayerModeUI(state.layerMode);
+    if (!state.analysis) {
+      if (state.selected && state.selected !== "custom") selectPreset(state.selected, false);
+      else if (state.selected === "custom") note(tr("note.customSelected"));
+      return;
+    }
+    renderAll(state.analysis, state.lastDt);
+    if (state.anyfieldLast) renderAnyfield(state.anyfieldLast.data, state.anyfieldLast.status);
+    if (state.anyfieldSources.length) renderCSources({ status: "ok", sources: state.anyfieldSources, truncated: false }, 200);
+    if (state.anyfieldBatch && state.anyfieldBatch.counts) {
+      const batchNote = $("#anyfieldBatchNote");
+      if (batchNote) {
+        batchNote.classList.remove("hidden");
+        batchNote.innerHTML = tr("anyfield.batchDone", {
+          summary: esc(batchSummary(state.anyfieldBatch.counts)),
+          status: esc(state.anyfieldBatch.catalogStatus || "?"),
+        });
+      }
+    }
+    if (state.candidateDirectory) renderCandidateDirectory(state.candidateDirectory);
+    renderLockInfo();
+    renderLayerPanel();
+    renderFrame();
+  });
 }
 
 function debounce(fn, ms) {
@@ -548,17 +574,18 @@ function renderPresets() {
   state.targets.forEach((t) => {
     const b = document.createElement("button");
     b.className = "preset" + (t.official ? " official" : "") + (state.selected === t.id ? " active" : "");
-    b.innerHTML = `<b>${t.name_zh || t.name}</b><span>${Number(t.ra).toFixed(2)} ${Number(t.dec) >= 0 ? "+" : ""}${Number(t.dec).toFixed(2)}</span>`;
+    const official = t.official ? ` <span class="official-tag">${esc(tr("preset.official"))}</span>` : "";
+    b.innerHTML = `<b>${esc(targetDisplayName(t))}${official}</b><span>${Number(t.ra).toFixed(2)} ${Number(t.dec) >= 0 ? "+" : ""}${Number(t.dec).toFixed(2)}</span>`;
     b.addEventListener("click", () => selectPreset(t.id, true));
     box.appendChild(b);
   });
   const c = document.createElement("button");
   c.className = "preset" + (state.selected === "custom" ? " active" : "");
-  c.innerHTML = `<b>自定义天区</b><span>RA / Dec / FOV</span>`;
+  c.innerHTML = `<b>${esc(tr("preset.custom"))}</b><span>${esc(tr("preset.customSub"))}</span>`;
   c.addEventListener("click", () => {
     state.selected = "custom";
     renderPresets();
-    note("输入任意坐标后点击“识别运动规律”。");
+    note(tr("note.customSelected"));
   });
   box.appendChild(c);
 }
@@ -574,7 +601,7 @@ function selectPreset(id, run) {
   else if (t.id === "barnard") $("#fov").value = 0.2;
   else $("#fov").value = 0.2;
   renderPresets();
-  note(`已选择 <b>${t.name}</b>。类型 ${t.type}；预期规律 ${t.expected}。`);
+  note(tr("note.presetSelected", { name: esc(targetDisplayName(t)), type: esc(t.type || "—"), expected: esc(t.expected || "—") }));
   if (run) analyze();
 }
 
@@ -595,7 +622,7 @@ async function analyze() {
   const sameAsPreset = preset && Math.abs(preset.ra - ra) < 1e-6 && Math.abs(preset.dec - dec) < 1e-6;
   const fov = parseFloat($("#fov").value);
   if (!Number.isFinite(fov) || fov < 0.02 || fov > 3.0) {
-    note("视场 FOV 需在 <b>0.02–3.0 度</b>之间（当前 " + $("#fov").value + "）。", "err");
+    note(tr("note.fovInvalid", { value: esc($("#fov").value) }), "err");
     return;
   }
   const win = readTimeWindow();
@@ -613,7 +640,7 @@ async function analyze() {
   if (win.t0 != null) payload.t0 = win.t0;
   if (win.t1 != null) payload.t1 = win.t1;
   if (!Number.isFinite(payload.ra) || !Number.isFinite(payload.dec)) {
-    note("请输入有效的 RA / Dec（度）。", "err");
+    note(tr("note.raDecInvalid"), "err");
     return;
   }
   if (payload.mode === "sample") hideAnyfield();
@@ -634,9 +661,7 @@ async function analyze() {
     const d = await r.json();
     if (!r.ok || d.error) {
       const e = d.error;
-      const msg = typeof e === "string" ? e : (e && (e.message || e.code)) || "服务返回错误";
-      const code = e && e.code ? `[${e.code}] ` : "";
-      throw new Error(code + msg);
+      throw apiError(e, tr("note.serverError"));
     }
     const dt = ((performance.now() - t0) / 1000).toFixed(1);
     state.analysis = d;
@@ -656,7 +681,7 @@ async function analyze() {
     syncURL();
   } catch (e) {
     console.error(e);
-    note("分析失败：" + e.message, "err");
+    note(tr("note.analyzeFail", { msg: esc(window.I18n.errorText(e)) }), "err");
     $("#canvasEmpty").classList.remove("hidden");
   } finally {
     state.loading = false;
@@ -701,29 +726,35 @@ function renderAll(d, dt) {
   state.sources = Array.isArray(d.sources) ? d.sources : [];
   resolveLock(d);
 
-  // 顶部徽章
+  state.lastDt = dt;
+  const view = window.I18n.resultView(r);
+  // Top badges
   const mb = $("#modeBadge");
   mb.className = "badge " + (d.data.mode || "synthetic");
-  mb.textContent = { real: "REAL 真实", hybrid: "HYBRID 混合", synthetic: "SIM 模拟", sample: "SAMPLE" }[d.data.mode] || d.data.mode;
+  const modeBadgeKey = `badge.mode.${d.data.mode || "synthetic"}`;
+  mb.textContent = window.I18n.hasKey(modeBadgeKey) ? tr(modeBadgeKey) : (d.data.mode || "");
   const rb = $("#readyBadge");
   rb.className = "badge " + (r.readiness || "").toLowerCase();
-  rb.textContent = (r.readiness || "?") + " 就绪度";
+  rb.textContent = tr("badge.readiness", { level: r.readiness || "?" });
 
-  const fb = d.data.fallback_reason ? ` · ${d.data.fallback_reason}` : "";
-  // 三类数分开显示：取数期数 / 用于拟合的探测期数 / 探测基线（目录基线只在 data.note 里带限定词）
+  const fbCode = d.data.fallback_reason;
+  const fbKey = fbCode ? `reason.${fbCode}` : null;
+  const fb = fbCode ? ` · ${window.I18n.hasKey(fbKey) ? tr(fbKey) : fbCode}` : "";
+  // Keep the three counts separate: fetched epochs / epochs used in the fit /
+  // detection baseline. The catalogue baseline appears in the localised mode note.
   const det = Number(r.detected_epochs != null ? r.detected_epochs : 0);
   const nEpoch = Number(d.data.n_epochs || 0);
   const probe = Number(r.baseline_days || 0);
   const fetchTxt = d.data.fetch_attempted
-    ? `取数 ${Number(d.data.fetch_succeeded || 0)}/${d.data.fetch_attempted} 期 · `
+    ? tr("summary.fetch", { succeeded: Number(d.data.fetch_succeeded || 0), attempted: d.data.fetch_attempted })
     : "";
-  const fitTxt = isSample ? "仅解析/渲染核验" : `拟合 ${det}/${nEpoch} 期`;
-  const baseTxt = isSample ? "" : ` · 探测基线 ${Number.isFinite(probe) ? probe.toFixed(0) : "—"} 天`;
-  // C 源锁定后的 note 由 /api/identify 负责；避免本次 analyze 完成时把
-  // “已锁定 C 源 / 数据不足”覆盖回分析摘要。A 源不受影响。
+  const fitTxt = isSample ? tr("summary.sampleFit") : tr("summary.fit", { detected: det, n: nEpoch });
+  const baseTxt = isSample ? "" : tr("summary.baseline", { days: Number.isFinite(probe) ? probe.toFixed(0) : "—" });
+  const modeNote = window.I18n.modeNote(d.data, { includeCounts: false });
+  // A locked C source owns the note via /api/identify; do not overwrite it here.
   if (!(state.locked && state.locked.c_source)) {
     note(
-      `<b>${(d.data.mode || "").toUpperCase()}</b> · ${nEpoch} 期 · ${(d.data.bands || []).join("/")} · ${fetchTxt}${fitTxt}${baseTxt}${fb} · ${dt}s<br>${d.data.note || ""}`
+      `<b>${esc(mb.textContent)}</b> · ${tr("summary.epochs", { n: nEpoch })} · ${esc((d.data.bands || []).join("/") || "—")} · ${fetchTxt}${fitTxt}${baseTxt}${fb} · ${dt}s<br>${esc(modeNote)}`
     );
   }
 
@@ -740,7 +771,8 @@ function renderAll(d, dt) {
   (r.quality || []).forEach((f) => {
     const el = document.createElement("span");
     el.className = "flag";
-    el.textContent = f;
+    el.textContent = window.I18n.qualityFlag(f);
+    el.title = f;
     q.appendChild(el);
   });
 
@@ -749,23 +781,29 @@ function renderAll(d, dt) {
   const v = $("#verdict");
   v.className = "verdict";
   v.dataset.class = r.class;
+  const verdictLabel = isSample ? tr("verdict.sampleLabel") : priorMotion ? tr("verdict.catalogPriorLabel") : view.label;
+  const verdictText = isSample
+    ? tr("verdict.sampleText")
+    : priorMotion
+      ? tr("verdict.catalogPriorText")
+      : tr(cls.sub) + (r.moving ? tr("verdict.moving") : "") + (r.variable ? tr("verdict.variable") : "");
   v.innerHTML = `
-    <div class="eyebrow">MOTION FINGERPRINT · ${r.readiness}${priorMotion ? " · CATALOG PRIOR" : ""}</div>
+    <div class="eyebrow">${esc(tr("verdict.eyebrow"))} · ${esc(r.readiness)}${priorMotion ? esc(tr("verdict.catalogPriorBadge")) : ""}</div>
     <div class="verdict-main">
       <div class="class-dot">${cls.letter}</div>
       <div>
-        <h3>${isSample ? "样本核验（不做测量）" : priorMotion ? "L · Gaia 先验" : (r.label_zh || cls.label)}</h3>
-        <p>${isSample ? "两张图来自不同天区 · 仅验证解析与渲染" : priorMotion ? "SPHEREx 本次未独立测出；采用 Gaia PM 先验；不是发现" : cls.sub + (r.moving ? " · 位移显著" : "") + (r.variable ? " · 变光显著" : "")}</p>
+        <h3>${esc(verdictLabel)}</h3>
+        <p>${verdictText}</p>
       </div>
     </div>
     <div class="conf">
       <div class="bar"><i style="width:${Math.round((r.confidence || 0) * 100)}%"></i></div>
-      <span>置信度 ${(r.confidence * 100).toFixed(0)}%</span>
+      <span>${esc(tr("verdict.confidence", { pct: (r.confidence * 100).toFixed(0) }))}</span>
     </div>`;
 
   const pt = $("#publicText");
   pt.classList.remove("hidden");
-  pt.textContent = r.public_text;
+  pt.textContent = view.publicText;
 
   renderMetrics(r);
   renderIdentification(d.identification);
@@ -802,10 +840,10 @@ function renderMetrics(r) {
   const moving = r.moving;
   const prior = r.catalog_motion && r.catalog_motion.basis === "catalog_prior" ? r.catalog_motion : null;
   const mu = prior
-    ? `${(prior.pm_mas_yr / 1000).toFixed(2)} <small>Gaia 先验</small>`
+    ? `${(prior.pm_mas_yr / 1000).toFixed(2)} <small>${esc(tr("metric.gaiaPrior"))}</small>`
     : moving
       ? `${(fp.mu_mas_yr / 1000).toFixed(2)} <small>″/yr</small>`
-      : `&lt; ${((fp.mu_err_mas_yr || 0) * 3 / 1000).toFixed(2)} <small>3σ</small>`;
+      : `&lt; ${((fp.mu_err_mas_yr || 0) * 3 / 1000).toFixed(2)} <small>${esc(tr("metric.threeSigma"))}</small>`;
   const pa = prior
     ? "—"
     : moving && fp.pa_deg != null ? `${fp.pa_deg.toFixed(0)}°` : "—";
@@ -815,15 +853,15 @@ function renderMetrics(r) {
   const lin = moving && Number.isFinite(fp.linearity) ? `${(fp.linearity * 100).toFixed(1)}%` : "—";
 
   const cards = [
-    [prior ? "Gaia 先验 μ" : "自行 μ", mu, moving || !!prior],
-    ["方向 PA", pa, false],
-    ...(prior ? [["SPHEREx 实测 μ", `${(fp.mu_mas_yr / 1000).toFixed(2)} <small>±${(fp.mu_err_mas_yr / 1000).toFixed(2)}″/yr</small>`, false]] : []),
-    ["首末位移", `${fp.displacement_arcsec.toFixed(2)} <small>±${(fp.displacement_err_arcsec || 0).toFixed(2)}″</small>`, moving],
-    ["亮度振幅", amp, fp.amp_mag > 0.25],
-    ["周期候选", period, !!fp.period_d],
-    ["加速显著性", acc, fp.accel_sig > 2],
-    ["轨迹非直线度", lin, false],
-    ["有效历元", `${fp.n_epochs} <small>期</small>`, false],
+    [prior ? tr("metric.gaiaPriorMu") : tr("metric.mu"), mu, moving || !!prior],
+    [tr("metric.pa"), pa, false],
+    ...(prior ? [[tr("metric.spherexMu"), `${(fp.mu_mas_yr / 1000).toFixed(2)} <small>±${(fp.mu_err_mas_yr / 1000).toFixed(2)}″/yr</small>`, false]] : []),
+    [tr("metric.displacement"), `${fp.displacement_arcsec.toFixed(2)} <small>±${(fp.displacement_err_arcsec || 0).toFixed(2)}″</small>`, moving],
+    [tr("metric.amp"), amp, fp.amp_mag > 0.25],
+    [tr("metric.period"), period, !!fp.period_d],
+    [tr("metric.accel"), acc, fp.accel_sig > 2],
+    [tr("metric.linearity"), lin, false],
+    [tr("metric.epochs"), `${fp.n_epochs} <small>${esc(tr("metric.epochUnit"))}</small>`, false],
   ];
   $("#metrics").classList.remove("hidden");
   $("#metrics").innerHTML = cards
@@ -854,7 +892,7 @@ function renderIdentification(ident) {
   let html = "";
 
   if (status === "known_star") {
-    const pm = ident.pm_consistent === true ? "一致" : ident.pm_consistent === false ? "不一致" : "未判";
+    const pm = ident.pm_consistent === true ? tr("catalog.pm.consistent") : ident.pm_consistent === false ? tr("catalog.pm.inconsistent") : tr("catalog.pm.unknown");
     const obj = ident.object_type ? `<span class="catalog-chip">${esc(ident.object_type)}</span>` : "";
     const ruwe = ident.ruwe != null ? `<span class="catalog-chip">RUWE ${Number(ident.ruwe).toFixed(2)}</span>` : "";
     const photo = ident.photometry || {};
@@ -878,11 +916,11 @@ function renderIdentification(ident) {
     html = `
       <div class="catalog-id">${esc(ident.source_id || ident.catalog_id || "—")}${release}</div>
       <div class="catalog-metrics">
-        <span class="catalog-chip">角距 ${fmtArcsec(ident.separation_arcsec)}</span>
-        <span class="catalog-chip">自行 ${pm}</span>
-        <span class="catalog-chip">候选 ${n}</span>
+        <span class="catalog-chip">${esc(tr("catalog.chip.sep", { value: fmtArcsec(ident.separation_arcsec) }))}</span>
+        <span class="catalog-chip">${esc(tr("catalog.chip.pm", { value: pm }))}</span>
+        <span class="catalog-chip">${esc(tr("catalog.chip.candidates", { n }))}</span>
         ${obj}${ruwe}${ir}${pv}${crossChips}
-        ${quality.map((q) => `<span class="catalog-chip">${esc(q)}</span>`).join("")}
+        ${quality.map((q) => `<span class="catalog-chip">${esc(window.I18n.qualityFlag(q))}</span>`).join("")}
       </div>`;
   } else if (status === "ambiguous") {
     const cands = (ident.candidates || []).slice(0, 5);
@@ -893,24 +931,24 @@ function renderIdentification(ident) {
       })
       .join("");
     html = `
-      <div>匹配半径内有 <b>${n || cands.length}</b> 个星表源；系统<b>不自动选择</b>最亮或最近的候选。</div>
-      <div class="catalog-candidates">${rows || '<span class="muted">候选明细缺失</span>'}</div>
-      <div class="catalog-note">${esc(catalogReasonText(ident))}。请人工核对候选；ambiguous 不是“已确认”。</div>`;
+      <div>${tr("catalog.ambiguous", { n: n || cands.length })}</div>
+      <div class="catalog-candidates">${rows || `<span class="muted">${esc(tr("catalog.ambiguousMissing"))}</span>`}</div>
+      <div class="catalog-note">${esc(tr("catalog.ambiguousNote", { reason: catalogReasonText(ident) }))}</div>`;
   } else if (status === "uncatalogued_candidate") {
     html = `
-      <div>星表查询成功，<b>0 个候选</b>。这只是“未收录候选（未经确认）”，不是发现。</div>
-      <div class="catalog-note">可能是星表遗漏、星系/QSO、伪源或 6.15″/px 下的混合；未匹配不等于新天体。</div>`;
+      <div>${tr("catalog.nomatch")}</div>
+      <div class="catalog-note">${esc(tr("catalog.nomatchNote"))}</div>`;
   } else if (status === "catalog_unavailable") {
     html = `
-      <div><b>星表不可用，无法判断已知/未知。</b></div>
-      <div class="catalog-note">${esc(catalogReasonText(ident))}；本次运动分析结果不受影响，也未把空结果当成“未收录”。</div>`;
+      <div>${tr("catalog.unavailable")}</div>
+      <div class="catalog-note">${esc(tr("catalog.unavailableNote", { reason: catalogReasonText(ident) }))}</div>`;
   } else {
     html = `
-      <div>暂不能给出星表结论：<b>${esc(catalogReasonText(ident))}</b>。</div>
-      <div class="catalog-note">需要目标实测位置与可用的星表查询；这里不猜测，也不输出“新天体”。</div>`;
+      <div>${tr("catalog.other", { reason: esc(catalogReasonText(ident)) })}</div>
+      <div class="catalog-note">${esc(tr("catalog.otherNote"))}</div>`;
   }
   body.innerHTML = html;
-  disclaimer.textContent = ident.disclaimer || "未匹配不等于新天体；本工具只做已知/未知比对，不做发现声明。";
+  disclaimer.textContent = tr("catalog.disclaimer");
 }
 
 function renderModels(r) {
@@ -919,7 +957,7 @@ function renderModels(r) {
   box.innerHTML = "";
   const models = (r.models || []).slice(0, 5);
   if (!models.length) {
-    box.innerHTML = `<p class="muted" style="font-size:11px">历元不足，未做模型比较。</p>`;
+    box.innerHTML = `<p class="muted" style="font-size:11px">${esc(tr("chart.insufficientEpochs"))}</p>`;
     wrap.classList.add("hidden");
     return;
   }
@@ -940,7 +978,7 @@ function renderEpochList(d) {
   (d.epochs || []).forEach((ep, i) => {
     const row = document.createElement("button");
     row.className = "epoch-row";
-    const date = (ep.date_obs || "").slice(0, 10) || "日期缺失";
+    const date = (ep.date_obs || "").slice(0, 10) || tr("meta.dateMissing");
     row.innerHTML = `<em>${date}</em><span>${ep.band || "?"}</span><span>${ep.obsid || "—"}</span>`;
     row.title = `${ep.provenance || ""} · MJD ${Number(ep.mjd || 0).toFixed(2)}`;
     row.addEventListener("click", () => {
@@ -956,24 +994,25 @@ function renderMatchStats(r) {
   if (!box) return;
   const stats = r.match_stats || [];
   if (!stats.length) {
-    box.innerHTML = `<p class="muted">无参考星定标数据（单期或样本模式）。</p>`;
+    box.innerHTML = `<p class="muted">${esc(tr("meta.noMatchStats"))}</p>`;
     return;
   }
   const rows = stats
-    .map((m) => `<span class="match-chip">第 ${Number(m.epoch) + 1} 期 · ${m.n_match} 星 · RMS ${m.rms_px == null ? "—" : Number(m.rms_px).toFixed(2) + " px"}</span>`)
+    .map((m) => `<span class="match-chip">${esc(tr("meta.matchChip", { epoch: Number(m.epoch) + 1, stars: m.n_match, rms: m.rms_px == null ? "—" : Number(m.rms_px).toFixed(2) + " px" }))}</span>`)
     .join("");
-  box.innerHTML = `<div class="match-title">参考星相对定标</div><div class="match-list">${rows}</div>`;
+  box.innerHTML = `<div class="match-title">${esc(tr("meta.matchTitle"))}</div><div class="match-list">${rows}</div>`;
 }
 
 function renderEvidence(r) {
+  const view = window.I18n.resultView(r);
   $("#evidenceWrap").classList.remove("hidden");
-  $("#evidence").innerHTML = (r.evidence || []).map((e) => `<li>${e}</li>`).join("");
-  $("#falsifier").textContent = r.falsifier || "";
+  $("#evidence").innerHTML = view.evidence.map((e) => `<li>${esc(e)}</li>`).join("");
+  $("#falsifier").textContent = view.falsifier || "";
   const cav = $("#caveats");
-  const list = r.caveats || [];
+  const list = view.caveats;
   if (list.length) {
     cav.classList.remove("hidden");
-    cav.innerHTML = `<b>注意</b>${list.map((c) => `<p>${c}</p>`).join("")}`;
+    cav.innerHTML = `<b>${esc(tr("evidence.caveats"))}</b>${list.map((c) => `<p>${esc(c)}</p>`).join("")}`;
   } else {
     cav.classList.add("hidden");
   }
@@ -988,8 +1027,8 @@ function renderTruth(d) {
   }
   box.classList.remove("hidden");
   const ratio = (d.result.mu_mas_yr / t.mu_mas_yr) * 100;
-  box.innerHTML = `<b>注入真值</b> μ=${(t.mu_mas_yr / 1000).toFixed(2)}″/yr · PA=${Number(t.pa_deg).toFixed(1)}°<br>
-    <b>回收</b> μ=${(d.result.mu_mas_yr / 1000).toFixed(2)}″/yr（${ratio.toFixed(0)}%）· PA=${Number(d.result.pa_deg || 0).toFixed(1)}°`;
+  box.innerHTML = `<b>${esc(tr("evidence.truth"))}</b> μ=${(t.mu_mas_yr / 1000).toFixed(2)}″/yr · PA=${Number(t.pa_deg).toFixed(1)}°<br>
+    <b>${esc(tr("evidence.recovered"))}</b> μ=${(d.result.mu_mas_yr / 1000).toFixed(2)}″/yr (${ratio.toFixed(0)}%) · PA=${Number(d.result.pa_deg || 0).toFixed(1)}°`;
 }
 
 
@@ -999,10 +1038,10 @@ function readTimeWindow() {
   const t0 = $("#t0") ? $("#t0").value.trim() : "";
   const t1 = $("#t1") ? $("#t1").value.trim() : "";
   if (!t0 && !t1) return { ok: true, t0: null, t1: null };
-  if (!t0 || !t1) return { ok: false, error: "t0 与 t1 必须同时填写（MJD）。" };
+  if (!t0 || !t1) return { ok: false, error: tr("note.readTimeBoth") };
   const a = Number(t0), b = Number(t1);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: "t0/t1 必须是 MJD 数字。" };
-  if (a > b) return { ok: false, error: "t0 必须 ≤ t1。" };
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: tr("note.readTimeNumber") };
+  if (a > b) return { ok: false, error: tr("note.readTimeOrder") };
   return { ok: true, t0: a, t1: b };
 }
 
@@ -1017,9 +1056,9 @@ function analysisFov() {
 }
 
 function timeFilterText(tf) {
-  if (!tf || !tf.filtered) return tf && tf.requested != null ? `全时段 ${tf.requested} 期` : "全时段";
-  const prefix = state.fromView ? "来自视图 · " : "";
-  return `${prefix}时间窗口 MJD ${Number(tf.t0).toFixed(3)}–${Number(tf.t1).toFixed(3)} · 保留 ${tf.kept}/${tf.requested} 期`;
+  if (!tf || !tf.filtered) return tf && tf.requested != null ? tr("time.allPeriodsRequested", { n: tf.requested }) : tr("time.allPeriods");
+  const prefix = state.fromView ? tr("time.fromViewPrefix") : "";
+  return prefix + tr("time.window", { t0: Number(tf.t0).toFixed(3), t1: Number(tf.t1).toFixed(3), kept: tf.kept, requested: tf.requested });
 }
 
 function updateTimeBadge(tf) {
@@ -1031,13 +1070,14 @@ function updateTimeBadge(tf) {
   }
   el.classList.remove("hidden");
   el.textContent = timeFilterText(tf);
-  el.title = `${timeFilterText(tf)}${tf.kept < 2 ? " · insufficient" : ""}`;
+  el.title = `${timeFilterText(tf)}${tf.kept < 2 ? tr("time.insufficient") : ""}`;
 }
 
 function layerDetailURL(mode) {
   const d = state.analysis;
   if (!d || !d.target) return mode === "tracks" ? "/tracks" : "/cascade";
   const q = new URLSearchParams();
+  q.set("lang", window.I18n.lang);
   q.set("ra", Number(d.target.ra).toFixed(6));
   q.set("dec", Number(d.target.dec).toFixed(6));
   q.set("fov", String(analysisFov() || 0.2));
@@ -1055,7 +1095,7 @@ function setLayerModeUI(mode) {
   if (link) {
     link.classList.toggle("hidden", mode === "browse");
     link.href = layerDetailURL(mode);
-    link.textContent = mode === "tracks" ? "轨迹详细表格 ↗" : "级联详细表格 ↗";
+    link.textContent = mode === "tracks" ? tr("layer.detail.tracks") : tr("layer.detail.cascade");
   }
   const panel = $("#layerPanel");
   if (panel && mode === "browse") panel.classList.add("hidden");
@@ -1096,7 +1136,7 @@ async function loadLayerData(mode) {
   const d = state.analysis;
   if (!d || mode === "browse") return;
   if (!d.epochs || !d.epochs.length) {
-    renderLayerError("时间窗口内没有历元；没有可叠加的分析层。");
+    renderLayerError(tr("layer.error.noEpochs"));
     return;
   }
   const q = layerQueryString();
@@ -1114,7 +1154,7 @@ async function loadLayerData(mode) {
     const data = await r.json();
     if (!r.ok || data.error) {
       const e = data.error;
-      throw new Error((e && (e.message || e.code)) || `${mode} API 返回错误`);
+      throw apiError(e, tr("note.layerApiError", { mode }));
     }
     if (mode === "cascade") state.cascadeData = data;
     else state.tracksData = data;
@@ -1124,7 +1164,7 @@ async function loadLayerData(mode) {
     renderFrame();
   } catch (e) {
     state.layerLoading = false;
-    renderLayerError(`${e.message}。没有伪造层数据。`);
+    renderLayerError(tr("note.layerFail", { msg: window.I18n.errorText(e) }));
   }
 }
 
@@ -1141,13 +1181,13 @@ function renderLayerError(msg) {
   const panel = $("#layerPanel");
   if (!panel) return;
   panel.classList.remove("hidden");
-  $("#layerTitle").textContent = state.layerMode === "tracks" ? "轨迹" : "级联/残差";
+  $("#layerTitle").textContent = state.layerMode === "tracks" ? tr("layer.title.tracks") : tr("layer.title.cascade");
   $("#layerBadge").className = "badge rose";
-  $("#layerBadge").textContent = "不可用";
+  $("#layerBadge").textContent = tr("layer.badge.unavailable");
   $("#layerStats").innerHTML = "";
   $("#layerToggles").innerHTML = "";
   $("#layerDetail").innerHTML = `<div class="layer-tip">${esc(msg)}</div>`;
-  $("#layerDisclaimer").textContent = "候选不是新天体；不做发现声明。";
+  $("#layerDisclaimer").textContent = tr("layer.disclaimer.default");
 }
 
 function renderLayerPanel() {
@@ -1159,70 +1199,69 @@ function renderLayerPanel() {
   }
   panel.classList.remove("hidden");
   const isTracks = state.layerMode === "tracks";
-  $("#layerTitle").textContent = isTracks ? "轨迹 · D0–D4" : "级联/残差 · 当前帧";
-  $("#layerDisclaimer").textContent = isTracks
-    ? "轨迹候选不是新天体；D5 才需要人工/后续确认。"
-    : "residual 候选不是新天体；未匹配不等于新星。";
+  $("#layerTitle").textContent = isTracks ? tr("layer.title.tracks") : tr("layer.title.cascade");
+  $("#layerDisclaimer").textContent = isTracks ? tr("layer.disclaimer.tracks") : tr("layer.disclaimer.cascade");
   const badge = $("#layerBadge");
   if (state.layerLoading) {
     badge.className = "badge ghost";
-    badge.textContent = "加载中";
+    badge.textContent = tr("layer.badge.loading");
     $("#layerStats").innerHTML = "";
     $("#layerToggles").innerHTML = "";
-    $("#layerDetail").innerHTML = '<div class="layer-tip">读取分析层；不重跑 /api/analyze。</div>';
+    $("#layerDetail").innerHTML = `<div class="layer-tip">${esc(tr("layer.tracks.loading"))}</div>`;
     return;
   }
   if (isTracks) {
     const data = state.tracksData;
     if (!data) {
-      renderLayerError("轨迹数据尚未加载。");
+      renderLayerError(tr("layer.tracks.notLoaded"));
       return;
     }
     const c = data.counts || {};
     badge.className = "badge " + (data.insufficient ? "rose" : "ghost");
-    badge.textContent = data.insufficient ? "insufficient" : "候选";
+    badge.textContent = data.insufficient ? "insufficient" : tr("layer.badge.candidate");
     $("#layerStats").innerHTML = ["D0", "D1", "D2", "D3", "D4"].map((lv) =>
       `<span class="layer-stat ${lv}">${lv} ${c[lv] ?? 0}</span>`
-    ).join("") + `<span class="layer-stat">共 ${(data.tracks || []).length}</span>`;
-    $("#layerToggles").innerHTML = '<span class="layer-tip">轨迹线按 D0–D4 配色；点击轨迹/节点查看详情。</span>';
+    ).join("") + `<span class="layer-stat">${esc(tr("layer.stats.total", { n: (data.tracks || []).length }))}</span>`;
+    $("#layerToggles").innerHTML = `<span class="layer-tip">${esc(tr("layer.tracks.tip"))}</span>`;
     const t = state.selectedTrack;
     if (t) {
-      $("#layerDetail").innerHTML = `<b>${esc(t.track_id)}</b> · ${esc(t.level)} · ${esc(t.model)} · ${t.n_epochs} 期<br>
+      $("#layerDetail").innerHTML = `<b>${esc(t.track_id)}</b> · ${esc(t.level)} · ${esc(t.model)} · ${esc(tr("layer.stats.epochs", { n: t.n_epochs }))}<br>
         RA ${Number(t.ra).toFixed(5)}° · Dec ${Number(t.dec).toFixed(5)}°<br>
-        μ ${t.mu_arcsec_yr == null ? "—" : Number(t.mu_arcsec_yr).toFixed(2) + "″/yr"} · PA ${t.pa_deg == null ? "—" : Number(t.pa_deg).toFixed(1) + "°"} · catalog ${esc(t.catalog || "none")}<br>
-        <span class="layer-tip">${(t.caveats || []).map(esc).join(" · ") || "—"}</span>`;
+        μ ${t.mu_arcsec_yr == null ? "—" : Number(t.mu_arcsec_yr).toFixed(2) + "″/yr"} · PA ${t.pa_deg == null ? "—" : Number(t.pa_deg).toFixed(1) + "°"} · ${esc(tr("tracks.catalogLabel"))} ${esc(t.catalog || "none")}<br>
+        <span class="layer-tip">${(t.caveats || []).map((c) => esc(window.I18n.serverText(c))).join(" · ") || "—"}</span>`;
     } else {
-      $("#layerDetail").innerHTML = '<div class="layer-tip">点击轨迹线选中；点击节点跳帧并调用 /api/identify。</div>';
+      $("#layerDetail").innerHTML = `<div class="layer-tip">${esc(tr("layer.tracks.detailTip"))}</div>`;
     }
   } else {
     const data = state.cascadeData;
     if (!data) {
-      renderLayerError("级联数据尚未加载。");
+      renderLayerError(tr("layer.cascade.notLoaded"));
       return;
     }
     const row = currentCascadeEpoch();
     const counts = row ? row.counts : { l1: 0, masked: 0, residual: 0 };
     badge.className = "badge ghost";
-    badge.textContent = row ? `当前帧 ${counts.l1}/${counts.masked}/${counts.residual}` : "无当前帧";
+    badge.textContent = row ? tr("layer.cascade.badgeFrame", { l1: counts.l1, masked: counts.masked, residual: counts.residual }) : tr("layer.cascade.badgeNone");
     $("#layerStats").innerHTML = `<span class="layer-stat">L1 ${counts.l1}</span>
       <span class="layer-stat">masked ${counts.masked}</span>
       <span class="layer-stat">residual ${counts.residual}</span>
-      <span class="layer-stat">窗口 ${timeFilterText(data.time_filter)}</span>`;
+      <span class="layer-stat">${esc(tr("layer.cascade.window", { text: timeFilterText(data.time_filter) }))}</span>`;
     $("#layerToggles").innerHTML = `
-      <label><input type="checkbox" id="lyrL1" ${state.layerVis.l1 ? "checked" : ""}> L1 实心</label>
-      <label><input type="checkbox" id="lyrMasked" ${state.layerVis.masked ? "checked" : ""}> masked 灰叉</label>
-      <label><input type="checkbox" id="lyrResidual" ${state.layerVis.residual ? "checked" : ""}> residual 空心</label>`;
+      <label><input type="checkbox" id="lyrL1" ${state.layerVis.l1 ? "checked" : ""}> ${esc(tr("layer.cascade.toggleL1"))}</label>
+      <label><input type="checkbox" id="lyrMasked" ${state.layerVis.masked ? "checked" : ""}> ${esc(tr("layer.cascade.toggleMasked"))}</label>
+      <label><input type="checkbox" id="lyrResidual" ${state.layerVis.residual ? "checked" : ""}> ${esc(tr("layer.cascade.toggleResidual"))}</label>`;
     ["l1", "masked", "residual"].forEach((k) => {
       const el = document.getElementById("lyr" + k[0].toUpperCase() + k.slice(1));
       if (el) el.addEventListener("change", () => { state.layerVis[k] = el.checked; renderFrame(); });
     });
     const locked = state.locked && (state.locked.cascade_source || state.locked.track_source) ? state.locked : null;
     const ident = locked ? lockedIdentification() : null;
-    let detail = '<div class="layer-tip">L1 实心 · masked 灰叉/灰圈 · residual 空心琥珀；点击 residual 锁定并 /api/identify。</div>';
+    let detail = `<div class="layer-tip">${esc(tr("layer.cascade.detailDefault"))}</div>`;
     if (locked) {
-      detail += `<div class="layer-detail"><b>已选 ${esc(locked.layer || "节点")}</b> · ${esc(locked.source_id || "")}<br>
+      const layerLabel = window.I18n.hasKey(`layer.kind.${locked.layer || "node"}`) ? tr(`layer.kind.${locked.layer || "node"}`) : tr("layer.kind.node");
+      detail += `<div class="layer-detail"><b>${esc(tr("layer.cascade.selected", { layer: layerLabel }))}</b> · ${esc(locked.source_id || "")}<br>
         RA ${Number(locked.ra).toFixed(6)}° · Dec ${Number(locked.dec).toFixed(6)}° · S/N ${Number(locked.snr || 0).toFixed(1)}<br>`;
-      if (state.lockedIdentifying) detail += '<span class="layer-tip">正在查询星表…</span>';
+      if (state.lockedIdentifying) detail += `<span class="layer-tip">${esc(tr("layer.cascade.queryingCatalog"))}</span>`;
       else if (ident) detail += `<span class="catalog-badge ${esc(ident.status)}">${esc(catalogText(ident))}</span> <span class="layer-tip">${esc(catalogReasonText(ident))}</span>`;
       detail += "</div>";
     }
@@ -1239,12 +1278,13 @@ function renderEmptyAnalysis(d) {
   state.tracksData = null;
   const mb = $("#modeBadge");
   mb.className = "badge " + (d.data.mode || "synthetic");
-  mb.textContent = { real: "REAL 真实", hybrid: "HYBRID 混合", synthetic: "SIM 模拟", sample: "SAMPLE" }[d.data.mode] || d.data.mode;
+  const emptyModeKey = `badge.mode.${d.data.mode || "synthetic"}`;
+  mb.textContent = window.I18n.hasKey(emptyModeKey) ? tr(emptyModeKey) : (d.data.mode || "");
   const rb = $("#readyBadge");
   rb.className = "badge l0";
-  rb.textContent = "L0 就绪度";
+  rb.textContent = tr("badge.readiness", { level: "L0" });
   updateTimeBadge(d.time_filter);
-  note(`<b>TIME WINDOW</b> · ${timeFilterText(d.time_filter)}<br>${esc(d.data.note || "时间窗口内没有历元。")}`, "warn");
+  note(`<b>${esc(tr("time.windowLabel"))}</b> · ${esc(timeFilterText(d.time_filter))}<br>${esc(window.I18n.modeNote(d.data, { includeCounts: false }))}`, "warn");
   const cv = $("#sky");
   const cx = cv.getContext("2d");
   cx.clearRect(0, 0, cv.width, cv.height);
@@ -1253,14 +1293,14 @@ function renderEmptyAnalysis(d) {
   const aPanel = $("#aSourcePanel");
   if (aPanel) aPanel.classList.add("hidden");
   $("#canvasEmpty").classList.remove("hidden");
-  $("#canvasEmpty").innerHTML = `<div class="glyph">◌</div><p>时间窗口内没有历元</p><span>未做测量/拟合，不伪造轨迹；请扩大 t0–t1。</span>`;
-  $("#epochLabel").textContent = "窗口内无历元";
+  $("#canvasEmpty").innerHTML = `<div class="glyph">◌</div><p>${esc(tr("canvas.emptyWindowTitle"))}</p><span>${esc(tr("canvas.emptyWindowSub"))}</span>`;
+  $("#epochLabel").textContent = tr("epochLabel.emptyWindow");
   $("#timeLabel").textContent = "—";
   $("#strip").innerHTML = "";
   $("#slider").max = 0;
   $("#slider").value = 0;
   $("#verdict").className = "verdict empty";
-  $("#verdict").innerHTML = `<div class="eyebrow">MOTION FINGERPRINT · L0</div><div class="verdict-main"><div class="class-dot">U</div><div><h3>窗口内没有历元</h3><p>没有足够的图像，不能判断运动或变光。</p></div></div>`;
+  $("#verdict").innerHTML = `<div class="eyebrow">${esc(tr("verdict.eyebrow"))} · L0</div><div class="verdict-main"><div class="class-dot">U</div><div><h3>${esc(tr("verdict.emptyWindowLabel"))}</h3><p>${esc(tr("verdict.emptyWindowText"))}</p></div></div>`;
   $("#publicText").classList.add("hidden");
   $("#catalogCard").classList.add("hidden");
   $("#metrics").classList.add("hidden");
@@ -1268,7 +1308,7 @@ function renderEmptyAnalysis(d) {
   $("#evidenceWrap").classList.add("hidden");
   $("#download").disabled = true;
   $("#copyLink").disabled = true;
-  if (state.layerMode !== "browse") renderLayerError("时间窗口内没有历元；没有可叠加的分析层。");
+  if (state.layerMode !== "browse") renderLayerError(tr("layer.error.noEpochs"));
   syncURL();
 }
 
@@ -1309,7 +1349,7 @@ function drawCascadeOverlay(ctx, n, S) {
   ctx.fillRect(10, 10, 245, 25);
   ctx.fillStyle = "#dbe3f2";
   ctx.font = "600 12px 'SF Mono', Menlo, monospace";
-  ctx.fillText(`L1 ${row.counts.l1} · masked ${row.counts.masked} · residual ${row.counts.residual}`, 18, 27);
+  ctx.fillText(tr("draw.cascadeCounts", { l1: row.counts.l1, masked: row.counts.masked, residual: row.counts.residual }), 18, 27);
   ctx.restore();
 }
 
@@ -1396,11 +1436,11 @@ function layerHover(e) {
   if (hit.kind === "track") {
     lines.push(`<b>${esc(hit.track.level)} · ${esc(hit.track.model)}</b> · ${esc(hit.track.track_id)}`);
     lines.push(`epoch ${esc(src.epoch_id)} · ${esc(src.stage)} · S/N ${Number(src.snr || 0).toFixed(1)}`);
-    lines.push('<span class="tip-ok">点击节点跳帧并调用 /api/identify</span>');
+    lines.push(`<span class="tip-ok">${esc(tr("tip.trackNode"))}</span>`);
   } else {
-    lines.push(`<b>${esc(hit.kind.toUpperCase())}</b> · ${esc(src.stage)} · S/N ${Number(src.snr || 0).toFixed(1)}`);
+    lines.push(`<b>${esc(window.I18n.hasKey(`layer.kind.${hit.kind}`) ? tr(`layer.kind.${hit.kind}`) : hit.kind.toUpperCase())}</b> · ${esc(src.stage)} · S/N ${Number(src.snr || 0).toFixed(1)}`);
     lines.push(`RA ${Number(src.ra).toFixed(6)}° · Dec ${Number(src.dec).toFixed(6)}°`);
-    lines.push('<span class="tip-ok">点击锁定并调用 /api/identify</span>');
+    lines.push(`<span class="tip-ok">${esc(tr("tip.lockLayer"))}</span>`);
   }
   tip.innerHTML = layerTipHTML(lines);
   tip.classList.remove("hidden");
@@ -1490,8 +1530,12 @@ function lockLayerSource(node, kind, track) {
 
 function sceneNoteForLayer(node, kind, track) {
   const s = state.locked;
-  const label = kind === "track" ? `轨迹节点 ${track ? track.track_id : ""}` : `${kind} 源`;
-  note(`已锁定 <b>${esc(label)}</b>：RA ${Number(s.ra).toFixed(6)}° · Dec ${Number(s.dec).toFixed(6)}° · S/N ${Number(s.snr).toFixed(1)}；正在查询星表…`);
+  const label = kind === "track"
+    ? `${tr("layer.kind.track")} ${track ? track.track_id : ""}`
+    : (window.I18n.hasKey(`layer.kind.${kind}`) ? tr(`layer.kind.${kind}`) : tr("layer.kind.node"));
+  note(tr("note.lockLayerSource", {
+    label: esc(label), ra: Number(s.ra).toFixed(6), dec: Number(s.dec).toFixed(6), snr: Number(s.snr).toFixed(1),
+  }));
 }
 
 
@@ -1502,7 +1546,11 @@ function fmtNum(v, digits = 4) {
 }
 
 function candidateDirectoryCountsText(c) {
-  return `rows ${c.rows} · unique_sources ${c.unique_sources} · tracks ${c.tracks} · known ${c.known} · ambiguous ${c.ambiguous} · no_match ${c.no_match} · insufficient ${c.insufficient} · unknown ${c.unknown} · conflict ${c.conflict || 0}`;
+  return tr("dir.counts", {
+    rows: c.rows, unique: c.unique_sources, tracks: c.tracks, known: c.known,
+    ambiguous: c.ambiguous, no_match: c.no_match, insufficient: c.insufficient,
+    unknown: c.unknown, conflict: c.conflict || 0,
+  });
 }
 
 async function openCandidateDirectory() {
@@ -1514,17 +1562,17 @@ async function openCandidateDirectory() {
   if (!state.tracksData) {
     try {
       const q = layerQueryString();
-      if (!q) throw new Error("没有可用的分析上下文");
-      if (note) note.textContent = "正在读取轨迹 tracklet…";
+      if (!q) throw new Error(tr("dir.noContext"));
+      if (note) note.textContent = tr("dir.loadingTracks");
       const r = await fetch(`/api/tracks?${q}`);
       const data = await r.json();
       if (!r.ok || data.error) {
         const e = data.error;
-        throw new Error((e && (e.message || e.code)) || "轨迹接口返回错误");
+        throw apiError(e, tr("tracks.runError", { msg: "" }));
       }
       state.tracksData = data;
     } catch (e) {
-      if (note) note.textContent = `无法读取轨迹：${e.message}。未展开候选目录。`;
+      if (note) note.textContent = tr("dir.tracksFail", { msg: window.I18n.errorText(e) });
       return;
     }
   }
@@ -1539,7 +1587,7 @@ async function openCandidateDirectory() {
     renderCandidateDirectory(dir);
     if (panel) panel.open = true;
   } catch (e) {
-    if (note) note.textContent = `候选目录渲染失败：${e.message}。未改变源表/badge。`;
+    if (note) note.textContent = tr("dir.renderFail", { msg: window.I18n.errorText(e) });
   }
 }
 
@@ -1547,7 +1595,7 @@ function renderCandidateDirectory(dir) {
   const c = dir.counts;
   $("#candidateDirectoryCount").textContent = String(c.rows);
   $("#candidateDirectoryCounts").textContent = candidateDirectoryCountsText(c);
-  $("#candidateDirectoryNote").textContent = "候选目录不是发现目录；track 行不是新源，track 节点不另算源。";
+  $("#candidateDirectoryNote").textContent = tr("dir.note");
   const rows = (dir.rows || []).slice(0, 80).map((row) => {
     const origin = String(row.origin || "").toLowerCase();
     const status = String(row.status || "");
@@ -1557,6 +1605,7 @@ function renderCandidateDirectory(dir) {
     const coord = `${fmtNum(row.ra, 4)} / ${fmtNum(row.dec, 4)}`;
     const cat = row.origin === "track" ? (row.catalog || "none") : (row.catalog || "—");
     const catTitle = row.catalog_id ? ` title="${esc(row.catalog_id)}"` : "";
+    const caveatText = String(row.caveats || "").split(";").map((part) => window.I18n.serverText(part.trim())).filter(Boolean).join(" · ");
     return `<tr>
       <td class="origin-${esc(origin)}">${esc(row.origin)}</td>
       <td title="${esc(row.epoch_id || row.source_id || "")}">${epoch}</td>
@@ -1564,10 +1613,10 @@ function renderCandidateDirectory(dir) {
       <td class="st-${esc(status)}">${esc(status)}</td>
       <td${catTitle}>${esc(cat)}</td>
       <td>${row.separation_arcsec == null ? "—" : fmtNum(row.separation_arcsec, 2)}</td>
-      <td title="${esc(row.caveats || "")}">${esc(row.caveats || "—")}</td>
+      <td title="${esc(caveatText)}">${esc(caveatText || "—")}</td>
     </tr>`;
   }).join("");
-  $("#candidateDirectoryRows").innerHTML = rows || '<tr><td colspan="7">没有候选行</td></tr>';
+  $("#candidateDirectoryRows").innerHTML = rows || `<tr><td colspan="7">${esc(tr("dir.noRows"))}</td></tr>`;
   ["#exportDirectoryCsvBtn", "#exportDirectoryJsonBtn"].forEach((sel) => {
     const b = $(sel);
     if (b) b.classList.remove("hidden");
@@ -1578,7 +1627,7 @@ function exportCandidateDirectory(format) {
   const dir = state.candidateDirectory;
   const note = $("#candidateDirectoryNote");
   try {
-    if (!dir || !window.CandidateDirectory) throw new Error("尚未生成统一候选目录");
+    if (!dir || !window.CandidateDirectory) throw new Error(tr("dir.notReady"));
     const be = window.CandidateDirectory;
     const text = format === "json" ? be.toJson(dir) : be.toCsv(dir.rows);
     const blob = new Blob([text], { type: `${format === "json" ? "application/json" : "text/csv"};charset=utf-8` });
@@ -1589,9 +1638,9 @@ function exportCandidateDirectory(format) {
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    if (note) note.textContent = `已导出候选目录 ${format.toUpperCase()}：${dir.counts.rows} 行。`;
+    if (note) note.textContent = tr("dir.exportDone", { format: format.toUpperCase(), n: dir.counts.rows });
   } catch (e) {
-    if (note) note.textContent = `导出失败：${e.message}。候选表未改变。`;
+    if (note) note.textContent = tr("dir.exportFail", { msg: window.I18n.errorText(e) });
   }
 }
 
@@ -1603,12 +1652,12 @@ function aSourceBadge(result) {
   const st = ab.badgeStatus(result);
   if (!st) return "";
   const label = ab.badgeLabel(st);
-  const title = st === "no_match" ? "未收录候选，不是未知星体" : label;
+  const title = st === "no_match" ? tr("aSource.badgeNoMatchTitle") : label;
   return `<span class="a-source-badge ${esc(st)}" title="${esc(title)}">${esc(label)}</span>`;
 }
 
 function aSourceQuality(src) {
-  return (src.quality || []).join(" · ") || (src.saturated ? "SATURATED" : "—");
+  return window.I18n.qualityText(src) || (src.saturated ? window.I18n.qualityFlag("SATURATED") : "—");
 }
 
 function renderASources(d) {
@@ -1646,8 +1695,8 @@ function renderASources(d) {
   };
   const c = batch.counts;
   $("#aSourceSummary").textContent = c
-    ? `known ${c.known_star || 0} / ambiguous ${c.ambiguous || 0} / no_match ${c.no_match || 0} / insufficient ${c.insufficient_data || 0} / unavailable ${c.catalog_unavailable || 0}`
-    : (sources.length > 50 ? `显示前 50 / 共 ${sources.length} 个；批量识别计数为全量。` : "共 " + sources.length + " 个；可批量识别星表身份。");
+    ? tr("aSource.summaryCounts", { known: c.known_star || 0, ambiguous: c.ambiguous || 0, no_match: c.no_match || 0, insufficient: c.insufficient_data || 0, unavailable: c.catalog_unavailable || 0 })
+    : (sources.length > 50 ? tr("aSource.summaryShown", { n: sources.length }) : tr("aSource.summaryAll", { n: sources.length }));
   ["#exportASourcesBtn", "#exportAJsonBtn"].forEach((sel) => {
     const b = $(sel);
     if (b) { b.classList.toggle("hidden", !batch.counts); b.disabled = false; }
@@ -1657,7 +1706,7 @@ function renderASources(d) {
   $("#aSourceBatchNote").classList.add("hidden");
   if (batch.error) {
     $("#aSourceBatchNote").classList.remove("hidden");
-    $("#aSourceBatchNote").textContent = batch.error;
+    $("#aSourceBatchNote").textContent = window.I18n.serverText(batch.error);
   }
 }
 
@@ -1670,14 +1719,14 @@ async function batchIdentifyASources() {
   const items = window.ASourceBatch.buildBatchSources(sources, d.epochs || []);
   const batches = window.ASourceBatch.chunks(items, 200);
   const old = state.aSourceBatch;
-  if (btn) { btn.disabled = true; btn.textContent = "批量识别中…"; }
+  if (btn) { btn.disabled = true; btn.textContent = tr("anyfield.batchBusy"); }
   ["#exportASourcesBtn", "#exportAJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = true; });
-  if (note) { note.classList.remove("hidden"); note.textContent = `正在批量识别 A 源 ${sources.length} 个（${batches.length} 批）…`; }
+  if (note) { note.classList.remove("hidden"); note.textContent = tr("aSource.loadingBatch", { n: sources.length, batches: batches.length }); }
   const merged = {};
   let counts = {};
   try {
     for (let i = 0; i < batches.length; i++) {
-      if (note) note.textContent = `正在批量识别 A 源 · 第 ${i + 1}/${batches.length} 批…`;
+      if (note) note.textContent = tr("aSource.batchProgress", { i: i + 1, n: batches.length });
       const r = await fetch("/api/identify/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1686,7 +1735,7 @@ async function batchIdentifyASources() {
       const body = await r.json();
       if (!r.ok || body.error) {
         const e = body.error;
-        throw new Error((e && (e.message || e.code)) || "批量识别接口返回错误");
+        throw apiError(e, tr("note.layerApiError", { mode: "batch identify" }));
       }
       (body.results || []).forEach((res) => { merged[String(res.source_id || res.detection_id || "")] = res; });
       counts = window.ASourceBatch.mergeCounts(counts, body.counts);
@@ -1695,17 +1744,17 @@ async function batchIdentifyASources() {
     renderASources(d);
     if (note) {
       note.classList.remove("hidden");
-      note.textContent = `批量识别完成（gaia+2mass+wise）：${$("#aSourceSummary").textContent}`;
+      note.textContent = tr("aSource.batchDone", { summary: $("#aSourceSummary").textContent });
     }
   } catch (e) {
     // 失败不覆盖旧表/旧 badge；只写错误。
     state.aSourceBatch = old;
     if (note) {
       note.classList.remove("hidden");
-      note.textContent = `批量识别失败：${e.message}。A 源表和已有 badge 保持不变。`;
+      note.textContent = tr("aSource.batchFail", { msg: window.I18n.errorText(e) });
     }
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = "批量识别 A 源"; }
+    if (btn) { btn.disabled = false; btn.textContent = tr("aSource.batch"); }
     ["#exportASourcesBtn", "#exportAJsonBtn"].forEach((sel) => { const b = $(sel); if (b) b.disabled = false; });
   }
 }
@@ -1746,7 +1795,7 @@ async function exportBatchServer(kind, format) {
   const batch = isA ? state.aSourceBatch : state.anyfieldBatch;
   const n = isA ? (state.sources || []).length : (state.anyfieldSources || []).length;
   if (!batch.counts || !n) {
-    if (note) { note.classList.remove("hidden"); note.textContent = `尚未批量识别 ${isA ? "A" : "C"} 源`; }
+    if (note) { note.classList.remove("hidden"); note.textContent = isA ? tr("note.exportNotReadyA") : tr("note.exportNotReadyC"); }
     return;
   }
   try {
@@ -1756,9 +1805,9 @@ async function exportBatchServer(kind, format) {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
     });
     if (!r.ok) {
-      let msg = "导出失败";
-      try { const e = await r.json(); msg = e.error?.message || e.error?.code || msg; } catch (err) { /* ignore */ }
-      throw new Error(msg);
+      let err = { code: "INTERNAL" };
+      try { const e = await r.json(); err = e.error || err; } catch (err) { /* ignore */ }
+      throw apiError(err, tr("note.exportServerFail"));
     }
     const blob = await r.blob();
     const cd = r.headers.get("Content-Disposition") || "";
@@ -1771,12 +1820,12 @@ async function exportBatchServer(kind, format) {
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
     if (note) {
       note.classList.remove("hidden");
-      note.textContent = `已导出 ${isA ? "A" : "C"} 源 ${n} 个源（CSV 按候选展开；JSON 保留 candidates/byId）。`;
+      note.textContent = tr("note.exportDone", { n, kind: isA ? "A" : "C" });
     }
   } catch (e) {
     if (note) {
       note.classList.remove("hidden");
-      note.textContent = `导出失败：${e.message}。表格和 badge 未改变。`;
+      note.textContent = tr("note.exportFail", { msg: window.I18n.errorText(e) });
     }
   }
 }
@@ -1786,16 +1835,16 @@ function exportABatchCsv() {
   try {
     const be = window.BatchExport;
     if (!be || !state.aSourceBatch.counts || !(state.sources || []).length) {
-      throw new Error("尚未批量识别 A 源");
+      throw new Error(tr("note.exportNotReadyA"));
     }
     const rows = be.buildRows(state.sources, state.aSourceBatch.byId, "a", state.analysis && state.analysis.epochs);
     downloadTextFile(be.downloadName("A", state.analysis?.target?.id || "target", "csv"), be.toCsv(rows), "text/csv");
     if (note) {
       note.classList.remove("hidden");
-      note.textContent = `已导出 A 源 ${rows.length} 行 CSV（含表头）；导出不改变表格/badge。`;
+      note.textContent = tr("note.exportCsvDone", { n: rows.length });
     }
   } catch (e) {
-    if (note) { note.classList.remove("hidden"); note.textContent = `导出失败：${e.message}。表格和 badge 未改变。`; }
+    if (note) { note.classList.remove("hidden"); note.textContent = tr("note.exportFail", { msg: window.I18n.errorText(e) }); }
   }
 }
 
@@ -1804,16 +1853,16 @@ function exportCBatchCsv() {
   try {
     const be = window.BatchExport;
     if (!be || !state.anyfieldBatch.counts || !(state.anyfieldSources || []).length) {
-      throw new Error("尚未批量识别 C 源");
+      throw new Error(tr("note.exportNotReadyC"));
     }
     const rows = be.buildRows(state.anyfieldSources, state.anyfieldBatch.byId, "c", state.analysis && state.analysis.epochs);
     downloadTextFile(be.downloadName("C", state.analysis?.target?.id || "target", "csv"), be.toCsv(rows), "text/csv");
     if (note) {
       note.classList.remove("hidden");
-      note.textContent = `已导出 C 源 ${rows.length} 行 CSV（含表头）；导出不改变表格/badge。`;
+      note.textContent = tr("note.exportCsvDone", { n: rows.length });
     }
   } catch (e) {
-    if (note) { note.classList.remove("hidden"); note.textContent = `导出失败：${e.message}。表格和 badge 未改变。`; }
+    if (note) { note.classList.remove("hidden"); note.textContent = tr("note.exportFail", { msg: window.I18n.errorText(e) }); }
   }
 }
 
@@ -1910,7 +1959,7 @@ function renderFrame() {
     ctx.stroke();
     ctx.fillStyle = "rgba(255,235,200,.95)";
     ctx.font = "600 17px 'SF Mono', Menlo, monospace";
-    ctx.fillText("目标", x + 22, y - 18);
+    ctx.fillText(tr("canvas.targetLabel"), x + 22, y - 18);
     ctx.restore();
   }
 
@@ -1962,7 +2011,7 @@ function renderFrame() {
     ctx.fillRect(ix, iy, size, 24);
     ctx.fillStyle = "#9fb0ca";
     ctx.font = "600 12px 'SF Mono', Menlo, monospace";
-    ctx.fillText(`轨迹放大 · ${(size / (2 * half)).toFixed(1)}×`, ix + 10, iy + 16);
+    ctx.fillText(tr("canvas.zoom", { factor: (size / (2 * half)).toFixed(1) }), ix + 10, iy + 16);
     ctx.fillStyle = "#f2b35e";
     ctx.textAlign = "right";
     ctx.fillText(`${d.result.fingerprint.displacement_arcsec.toFixed(2)}″`, ix + size - 10, iy + 16);
@@ -1971,7 +2020,7 @@ function renderFrame() {
 
   // 更新文字/滑条/缩略图
   const ep = d.epochs[i];
-  $("#epochLabel").textContent = `${(ep.date_obs || "").slice(0, 10) || "日期缺失"} · ${ep.band || "?"} · ${ep.obsid || "—"}`;
+  $("#epochLabel").textContent = `${(ep.date_obs || "").slice(0, 10) || tr("meta.dateMissing")} · ${ep.band || "?"} · ${ep.obsid || "—"}`;
   $("#timeLabel").textContent = `MJD ${Number(ep.mjd).toFixed(2)} · ${i + 1}/${d.epochs.length}`;
   $("#slider").value = i;
   $$("#strip button").forEach((b, k) => b.classList.toggle("active", k === i));
@@ -2038,7 +2087,7 @@ function drawSources(ctx, frame, n, S, toPx) {
     ctx.fillStyle = "rgba(255,217,160,.98)";
     ctx.font = "600 12px 'SF Mono', Menlo, monospace";
     ctx.textAlign = right ? "left" : "right";
-    ctx.fillText("已锁定", x + (right ? 13 : -13), y - 11);
+    ctx.fillText(tr("legend.locked"), x + (right ? 13 : -13), y - 11);
     ctx.textAlign = "left";
     ctx.restore();
   };
@@ -2143,12 +2192,12 @@ function showTip(hit, clientX, clientY) {
   const s = hit.source;
   const wrap = $(".canvas-wrap").getBoundingClientRect();
   const lines = [
-    `<b>S/N ${Number(s.snr).toFixed(1)}</b> · 第 ${Number(s.frame) + 1} 期 · ${s.epoch_id || ""}`,
+    `<b>S/N ${Number(s.snr).toFixed(1)}</b> · ${esc(tr("meta.epochN", { n: Number(s.frame) + 1 }))} · ${esc(s.epoch_id || "")}`,
     `x ${Number(s.x).toFixed(2)} · y ${Number(s.y).toFixed(2)} <span style="color:#66718a">(common px)</span>`,
     `RA ${Number(s.ra).toFixed(6)}° · Dec ${Number(s.dec).toFixed(6)}°`,
   ];
-  if (SourcePick.isSelectable(s)) lines.push('<span class="tip-ok">点击锁定并由该坐标重新分析</span>');
-  else lines.push(`<span class="tip-warn">${SourcePick.qualityText(s)} · 不可点选</span>`);
+  if (SourcePick.isSelectable(s)) lines.push(`<span class="tip-ok">${esc(tr("tip.lockReanalyze"))}</span>`);
+  else lines.push(`<span class="tip-warn">${esc(sourceQualityText(s))} · ${esc(tr("tip.notSelectable"))}</span>`);
   tip.innerHTML = lines.join("<br>");
   tip.classList.remove("hidden");
   const margin = 8;
@@ -2183,9 +2232,7 @@ function selectSource(src) {
   u.searchParams.set("fov", $("#fov").value);
   u.searchParams.set("lock", "1");
   history.replaceState(null, "", u.toString());
-  note(
-    `已锁定源：RA ${Number(src.ra).toFixed(6)}° · Dec ${Number(src.dec).toFixed(6)}° · S/N ${Number(src.snr).toFixed(1)}；正在以该坐标重新分析…`
-  );
+  note(tr("note.lockSource", { ra: Number(src.ra).toFixed(6), dec: Number(src.dec).toFixed(6), snr: Number(src.snr).toFixed(1) }));
   renderFrame();
   identifyLockedSource(src);
   analyze();
@@ -2205,23 +2252,27 @@ function updateLockedSourceNote(src, ident) {
   // 级联/轨迹节点：note 直接显示星表识别结果，绝不停留在“正在查询”。
   if (src.cascade_source || src.track_source) {
     const status = ident && ident.status ? ident.status : "catalog_unavailable";
-    const label = (ident && ident.label_zh) || CATALOG_TEXT[status] || "星表不可用";
-    const layer = src.track_source ? "轨迹节点" : (src.layer || "分析层节点");
-    note(`已锁定 <b>${esc(layer)}</b> · RA ${Number(src.ra).toFixed(6)}° · Dec ${Number(src.dec).toFixed(6)}° · ${esc(label)}（${esc(status)}）`);
+    const label = window.I18n.catalogLabel(status, ident && (ident.catalog_release || ident.release));
+    const layer = src.track_source ? tr("layer.kind.track") : (window.I18n.hasKey(`layer.kind.${src.layer || "node"}`) ? tr(`layer.kind.${src.layer || "node"}`) : tr("layer.kind.node"));
+    note(tr("note.lockLayerStatus", {
+      layer: esc(layer), ra: Number(src.ra).toFixed(6), dec: Number(src.dec).toFixed(6), label: esc(label), status,
+    }));
     return;
   }
   // A 源锁定后的 note 由 analyze 负责（“正在以该坐标重新分析…”），这里只更新 C 源，
   // 避免 identify 晚到把 analyze 的状态覆盖掉。
   if (!src || !src.c_source) return;
   if (window.LockNote && typeof window.LockNote.sourceNote === "function") {
-    note(window.LockNote.sourceNote(src, ident || { status: "catalog_unavailable", label_zh: "星表不可用" }));
+    note(window.LockNote.sourceNote(src, ident || { status: "catalog_unavailable" }));
     return;
   }
   const ra = Number(src.ra);
   const dec = Number(src.dec);
   const status = ident && ident.status ? ident.status : "catalog_unavailable";
-  const label = (ident && ident.label_zh) || CATALOG_TEXT[status] || "星表不可用";
-  note(`已锁定 C 源 RA <b>${Number.isFinite(ra) ? ra.toFixed(6) : "—"}°</b> · Dec <b>${Number.isFinite(dec) ? dec.toFixed(6) : "—"}°</b> · ${esc(label)}（${esc(status)}）`);
+  const label = window.I18n.catalogLabel(status, ident && (ident.catalog_release || ident.release));
+  note(tr("note.lockCStatus", {
+    ra: Number.isFinite(ra) ? ra.toFixed(6) : "—", dec: Number.isFinite(dec) ? dec.toFixed(6) : "—", label: esc(label), status,
+  }));
 }
 
 async function identifyLockedSource(src) {
@@ -2239,8 +2290,7 @@ async function identifyLockedSource(src) {
   if (!Number.isFinite(mjd) || !Number.isFinite(Number(src.ra)) || !Number.isFinite(Number(src.dec))) {
     state.lockedIdentification = {
       status: "catalog_unavailable",
-      label_zh: "星表不可用",
-      caveats: ["缺少坐标/MJD，无法查询星表。"],
+      caveats: [tr("note.missingCoordsMjd")],
       discovery_claim: false,
     };
     renderLockInfo();
@@ -2268,8 +2318,7 @@ async function identifyLockedSource(src) {
     const ident = await r.json();
     if (!r.ok || ident.error) {
       const e = ident.error;
-      const msg = typeof e === "string" ? e : (e && (e.message || e.code)) || "识别接口返回错误";
-      throw new Error(msg);
+      throw apiError(e, tr("note.identifyApiError"));
     }
     if (state.lockedIdentificationKey !== key) return;
     state.lockedIdentification = ident;
@@ -2277,14 +2326,13 @@ async function identifyLockedSource(src) {
     if (state.lockedIdentificationKey !== key) return;
     state.lockedIdentification = {
       status: "catalog_unavailable",
-      label_zh: "星表不可用",
       catalog_release: null,
       source_id: null,
       sep_arcsec: null,
       confidence: 0,
-      caveats: ["星表识别请求失败：" + e.message],
+      caveats: [tr("note.identifyCaveat", { msg: window.I18n.errorText(e) })],
       discovery_claim: false,
-      disclaimer: "未匹配不等于新天体；星表不可用不代表“未收录”。",
+      disclaimer: tr("note.identifyDisclaimer"),
     };
   } finally {
     if (state.lockedIdentificationKey === key) {
@@ -2311,7 +2359,7 @@ function clearLock(showNote = true) {
   renderLockInfo();
   if (state.analysis) renderFrame();
   if (state.layerMode !== "browse") renderLayerPanel();
-  if (showNote && had) note("已解除源锁定；坐标输入保留，可继续编辑或重新分析。");
+  if (showNote && had) note(tr("note.unlock"));
 }
 
 function resolveLock(d) {
@@ -2374,29 +2422,29 @@ function renderLockInfo() {
   const release = ident && (ident.catalog_release || ident.release);
   const caveats = ident && Array.isArray(ident.caveats) ? ident.caveats.slice(0, 2) : [];
   const catLine = state.lockedIdentifying
-    ? `<div class="lock-catalog"><span class="catalog-badge">识别中</span><em>正在查询 Gaia DR3 星表…</em></div>`
+    ? `<div class="lock-catalog"><span class="catalog-badge">${esc(tr("lock.identifying"))}</span><em>${esc(tr("lock.queryingCatalog"))}</em></div>`
     : ident
       ? `<div class="lock-catalog"><span class="catalog-badge ${esc(ident.status)}">${esc(catalogText(ident))}</span>
           ${sourceId ? `<code>${esc(sourceId)}</code>` : ""}
           ${release ? `<span class="catalog-chip">${esc(release)}</span>` : ""}
           <em>${esc(catalogReasonText(ident))}</em>
-          ${caveats.map((c) => `<div class="catalog-note">${esc(c)}</div>`).join("")}
+          ${caveats.map((c) => `<div class="catalog-note">${esc(window.I18n.serverText(c))}</div>`).join("")}
         </div>`
       : "";
   const origin = s.c_source
-    ? `C ingested · ${String(s.source_id || "")}`
+    ? tr("lock.origin.c", { id: String(s.source_id || "") })
     : s.track_source
-      ? `轨迹 ${s.track_id || ""} · 第 ${Number(s.frame) + 1} 期`
+      ? tr("lock.origin.track", { id: s.track_id || "", n: Number(s.frame) + 1 })
       : s.cascade_source
-        ? `${String(s.layer || "节点")} · 第 ${Number(s.frame) + 1} 期`
-        : `第 ${Number(s.frame) + 1} 期`;
+        ? tr("lock.origin.cascade", { layer: window.I18n.hasKey(`layer.kind.${s.layer || "node"}`) ? tr(`layer.kind.${s.layer || "node"}`) : tr("layer.kind.node"), n: Number(s.frame) + 1 })
+        : tr("lock.origin.frame", { n: Number(s.frame) + 1 });
   el.classList.remove("hidden");
   el.innerHTML = `
-    <div class="lock-head"><span class="lock-dot"></span>已锁定源<button id="unlockBtn" class="ghost small" type="button">解除</button></div>
+    <div class="lock-head"><span class="lock-dot"></span>${esc(tr("lock.head"))}<button id="unlockBtn" class="ghost small" type="button">${esc(tr("lock.unlock"))}</button></div>
     <div class="lock-line">RA <b>${Number(s.ra).toFixed(6)}°</b> · Dec <b>${Number(s.dec).toFixed(6)}°</b></div>
-    <div class="lock-line">S/N <b>${Number(s.snr).toFixed(1)}</b> · flux ${Number(s.flux).toFixed(2)} ± ${Number(s.flux_err).toFixed(2)} · ${esc(origin)} · ${SourcePick.qualityText(s)}</div>
+    <div class="lock-line">S/N <b>${Number(s.snr).toFixed(1)}</b> · flux ${Number(s.flux).toFixed(2)} ± ${Number(s.flux_err).toFixed(2)} · ${esc(origin)} · ${esc(sourceQualityText(s))}</div>
     ${catLine}
-    <div class="lock-hint">${s.cascade_source || s.track_source ? "仅查询星表身份；不触发重新分析，残差/轨迹候选不是新天体。" : "坐标已填入上方并用于分析；C 源由 /api/identify 单独比对星表。"}</div>`;
+    <div class="lock-hint">${esc(s.cascade_source || s.track_source ? tr("lock.hint.layer") : tr("lock.hint.source"))}</div>`;
 }
 
 function syncURL() {
@@ -2404,6 +2452,7 @@ function syncURL() {
   if (!d || !d.target) return;
   const u = new URL(location.href);
   const isPreset = d.target.id && d.target.id !== "custom";
+  u.searchParams.set("lang", window.I18n.lang);
   u.searchParams.set("target", isPreset ? d.target.id : "custom");
   u.searchParams.set("ra", Number(d.target.ra).toFixed(6));
   u.searchParams.set("dec", Number(d.target.dec).toFixed(6));
@@ -2483,18 +2532,18 @@ function drawLightCurve(d) {
   if (d.result.multi_band) {
     ctx.fillStyle = "#66718a";
     ctx.font = "12px 'SF Mono', Menlo, monospace";
-    ctx.fillText("多波段历元：不同探测器流量不可直接比较", 16, h / 2 - 4);
+    ctx.fillText(tr("chart.multiBandNote1"), 16, h / 2 - 4);
     ctx.fillStyle = "#47536b";
     ctx.font = "11px 'SF Mono', Menlo, monospace";
-    ctx.fillText("未做绝对流量定标，因此不评估变光", 16, h / 2 + 16);
-    $("#lcMeta").textContent = "多波段 · 不评估变光";
+    ctx.fillText(tr("chart.multiBandNote2"), 16, h / 2 + 16);
+    $("#lcMeta").textContent = tr("chart.multiBandMeta");
     return;
   }
-  const tr = d.result.track;
-  const flux = tr.flux;
+  const track = d.result.track;
+  const flux = track.flux;
   const med = median(flux.filter((x) => Number.isFinite(x)));
   const pad = { l: 34, r: 8, t: 12, b: 20 };
-  const t0 = Math.min(...tr.t), t1 = Math.max(...tr.t);
+  const t0 = Math.min(...track.t), t1 = Math.max(...track.t);
   const ys = flux.map((f) => f / (med || 1));
   const yMin = Math.min(...ys, 0.98), yMax = Math.max(...ys, 1.02);
   const X = (t) => pad.l + ((t - t0) / Math.max(t1 - t0, 1e-6)) * (w - pad.l - pad.r);
@@ -2510,7 +2559,7 @@ function drawLightCurve(d) {
   ctx.font = "10px 'SF Mono', Menlo, monospace";
   ctx.fillText(yMax.toFixed(2), 4, pad.t + 9);
   ctx.fillText(yMin.toFixed(2), 4, h - pad.b);
-  ctx.fillText("相对流量", pad.l, h - 5);
+  ctx.fillText(tr("chart.relativeFlux"), pad.l, h - 5);
 
   if (d.result.fingerprint.amp_mag > 0.08) {
     const amp = Math.pow(10, 0.4 * d.result.fingerprint.amp_mag / 2);
@@ -2520,29 +2569,29 @@ function drawLightCurve(d) {
   ctx.strokeStyle = "rgba(242,179,94,.55)";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  tr.t.forEach((t, i) => {
+  track.t.forEach((t, i) => {
     const x = X(t), y = Y(ys[i]);
     i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
   });
   ctx.stroke();
-  tr.t.forEach((t, i) => {
+  track.t.forEach((t, i) => {
     ctx.beginPath();
     ctx.arc(X(t), Y(ys[i]), 3.2, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(255,215,150,.95)";
     ctx.fill();
   });
-  $("#lcMeta").textContent = `${tr.t.length} 期 · 基准 ${med.toFixed(2)}`;
+  $("#lcMeta").textContent = tr("chart.epochsBaseline", { n: track.t.length, med: med.toFixed(2) });
 }
 
 function drawTrackPlot(d) {
   const { ctx, w, h } = chartCanvas($("#track"));
-  const tr = d.result.track;
+  const track = d.result.track;
   const pad = { l: 40, r: 14, t: 14, b: 26 };
   ctx.fillStyle = "#050810";
   ctx.fillRect(0, 0, w, h);
-  const n = tr.xi.length;
+  const n = track.xi.length;
   if (!n) return;
-  const xs = tr.xi, ys = tr.eta;
+  const xs = track.xi, ys = track.eta;
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const spanX = Math.max(maxX - minX, 1.2), spanY = Math.max(maxY - minY, 1.2);
@@ -2568,8 +2617,8 @@ function drawTrackPlot(d) {
   // 误差十字 + 点（颜色随时间由青到琥珀）
   for (let i = 0; i < n; i++) {
     const x = X(xs[i]), y = Y(ys[i]);
-    const ex = Math.min(14, Math.max(3, tr.sx[i] * scale));
-    const ey = Math.min(14, Math.max(3, tr.sy[i] * scale));
+    const ex = Math.min(14, Math.max(3, track.sx[i] * scale));
+    const ey = Math.min(14, Math.max(3, track.sy[i] * scale));
     ctx.strokeStyle = "rgba(95,214,232,.55)";
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x - ex, y); ctx.lineTo(x + ex, y); ctx.stroke();
@@ -2581,11 +2630,11 @@ function drawTrackPlot(d) {
   }
   ctx.fillStyle = "#66718a";
   ctx.font = "10px 'SF Mono', Menlo, monospace";
-  ctx.fillText("东 ξ (″)", w - 66, h - 8);
+  ctx.fillText(tr("chart.eastXi"), w - 66, h - 8);
   ctx.save();
   ctx.translate(12, pad.t + 52);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText("北 η (″)", 0, 0);
+  ctx.fillText(tr("chart.northEta"), 0, 0);
   ctx.restore();
   ctx.fillText(`${(maxX - minX).toFixed(1)}″`, pad.l + 2, pad.t + 10);
   ctx.fillText(`${(maxY - minY).toFixed(1)}″`, pad.l + 2, pad.t + 24);
@@ -2614,6 +2663,7 @@ function copyLink() {
   const d = state.analysis;
   if (!d) return;
   const u = new URL(location.href);
+  u.searchParams.set("lang", window.I18n.lang);
   const preset = state.targets.find((t) => t.id === d.target.id);
   const same = preset && Math.abs(preset.ra - d.target.ra) < 1e-6 && Math.abs(preset.dec - d.target.dec) < 1e-6;
   if (same) u.searchParams.set("target", d.target.id);
@@ -2630,8 +2680,8 @@ function copyLink() {
   else u.searchParams.delete("lock");
   navigator.clipboard?.writeText(u.toString());
   const btn = $("#copyLink");
-  btn.textContent = "已复制";
-  setTimeout(() => (btn.textContent = "复制可嵌入链接"), 1400);
+  btn.textContent = tr("action.copied");
+  setTimeout(() => (btn.textContent = tr("action.copyLink")), 1400);
 }
 
 init();

@@ -160,19 +160,24 @@ class CandidateDirectoryUiStaticTest(unittest.TestCase):
             html = fh.read()
         with open(os.path.join(web, "app.js"), encoding="utf-8") as fh:
             js = fh.read()
+        with open(os.path.join(web, "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         self.assertIn("candidateDirectoryBtn", html)
-        self.assertIn("统一候选目录", html)
+        self.assertIn("Unified candidate directory", html)
         self.assertIn("candidateDirectoryPanel", html)
         self.assertIn("exportDirectoryCsvBtn", html)
         self.assertIn("exportDirectoryJsonBtn", html)
-        self.assertIn("候选目录不是发现目录", html)
-        self.assertIn("track 行不是新源", html)
+        self.assertIn("not a discovery catalogue", html)
+        self.assertIn("track rows are not new sources", html)
         self.assertIn("candidate_directory.js", html)
         self.assertIn("/api/tracks", js)
         self.assertIn("openCandidateDirectory", js)
         self.assertIn("CandidateDirectory.build", js)
-        self.assertNotIn("新恒星", html + js)
-        self.assertNotIn("新行星", html + js)
+        for text in (html, js, i18n):
+            self.assertNotIn("新恒星", text)
+            self.assertNotIn("新行星", text)
+            self.assertNotIn("new planet", text.lower())
+            self.assertNotIn("confirmed discovery", text.lower())
 
 
 if __name__ == "__main__":

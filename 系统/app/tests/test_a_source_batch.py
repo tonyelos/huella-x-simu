@@ -69,17 +69,21 @@ class ASourceBatchUiStaticTest(unittest.TestCase):
             html = fh.read()
         with open(os.path.join(APP, "web", "app.js"), encoding="utf-8") as fh:
             js = fh.read()
+        with open(os.path.join(APP, "web", "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         self.assertIn("aSourcePanel", html)
-        self.assertIn("A 检测源（本次分析）", html)
+        self.assertIn("A detections (this analysis)", html)
         self.assertIn("batchASourcesBtn", html)
-        self.assertIn("批量识别 A 源", html)
+        self.assertIn("Batch identify A sources", html)
         self.assertIn("a_source_batch.js", html)
         self.assertIn("/api/identify/batch", js)
         self.assertIn("buildBatchSources", js)
         self.assertIn("chunks(items, 200)", js)
-        self.assertIn("A 源表和已有 badge 保持不变", js)
-        self.assertIn("no_match = 未收录候选", html)
-        self.assertIn("<th>epoch</th><th>S/N</th><th>RA / Dec</th><th>catalog</th>", html)
+        self.assertIn("aSource.batchFail", js)
+        self.assertIn("A-source table and existing badges remain unchanged", i18n)
+        self.assertIn("no_match = uncatalogued candidate", html)
+        for key in ("table.epoch", "table.sn", "table.radec", "table.catalog"):
+            self.assertIn(f'data-i18n="{key}"', html)
         self.assertIn("a-coord", js)
         self.assertIn('</summary>\n        <div class="a-source-actions">', html)
         self.assertIn('id="anyfieldBatchActions"', html)
@@ -90,8 +94,11 @@ class ASourceBatchUiStaticTest(unittest.TestCase):
         self.assertIn(".anyfield-actions { margin-top: 6px; display: flex; flex-wrap: wrap;", css)
         self.assertIn("grid-template-columns: 46px minmax(0, 1fr) 70px", css)
         self.assertIn("width: 31%", css)
-        self.assertNotIn("新恒星", html + js)
-        self.assertNotIn("新行星", html + js)
+        for text in (html, js, i18n):
+            self.assertNotIn("新恒星", text)
+            self.assertNotIn("新行星", text)
+            self.assertNotIn("new planet", text.lower())
+            self.assertNotIn("confirmed discovery", text.lower())
 
 
 if __name__ == "__main__":

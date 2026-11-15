@@ -165,8 +165,10 @@ class MultiCatalogGroupingTest(unittest.TestCase):
     def test_ui_uses_three_catalogs_for_batch_only(self):
         with open(os.path.join(APP, "web", "app.js"), encoding="utf-8") as fh:
             js = fh.read()
+        with open(os.path.join(APP, "web", "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         self.assertIn('catalogs: ["gaia", "2mass", "wise"]', js)
-        self.assertIn("gaia+2mass+wise", js)
+        self.assertIn("gaia+2mass+wise", i18n)
         self.assertIn("crossmatches", js)
         # 单目标 /api/analyze 不应被批量三目录替换
         self.assertIn("build_identification", js) if False else None

@@ -190,15 +190,20 @@ class BatchUiStaticTest(unittest.TestCase):
             html = fh.read()
         with open(os.path.join(APP, "web", "app.js"), encoding="utf-8") as fh:
             js = fh.read()
+        with open(os.path.join(APP, "web", "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         self.assertIn("batchCSourcesBtn", html)
-        self.assertIn("批量识别 C 源", html)
+        self.assertIn("Batch identify C sources", html)
         self.assertIn("/api/identify/batch", js)
         self.assertIn("batchSummary", js)
         self.assertIn("no_match", js)
-        self.assertIn("未收录候选", js)
-        self.assertIn("列表和已有结果保持不变", js)
-        self.assertNotIn("新恒星", html + js)
-        self.assertNotIn("新行星", html + js)
+        self.assertIn("Uncatalogued candidate", i18n)
+        self.assertIn("C-source list and existing results remain unchanged", i18n)
+        for text in (html, js, i18n):
+            self.assertNotIn("新恒星", text)
+            self.assertNotIn("新行星", text)
+            self.assertNotIn("new planet", text.lower())
+            self.assertNotIn("confirmed discovery", text.lower())
 
 
 if __name__ == "__main__":

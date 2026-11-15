@@ -448,25 +448,28 @@ class AnyFieldUiCopyTest(unittest.TestCase):
         web = os.path.join(APP, "web")
         with open(os.path.join(web, "app.js"), encoding="utf-8") as fh:
             js = fh.read()
+        with open(os.path.join(web, "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         with open(os.path.join(web, "index.html"), encoding="utf-8") as fh:
             html = fh.read()
+        ui = js + i18n
         self.assertIn("anyfieldCard", html)
-        self.assertIn("C 索引不完整", js)
-        self.assertIn("使用现有本地数据", js)
-        self.assertIn("C 确认无覆盖", js)
-        self.assertIn("C 服务不可用", js)
+        self.assertIn("C index is incomplete", i18n)
+        self.assertIn("existing local data is used", i18n)
+        self.assertIn("C confirms no coverage", i18n)
+        self.assertIn("C service is unavailable", i18n)
         self.assertIn("footprint_method", js)
         self.assertIn("n_epochs", js)
         self.assertIn("loadCSourcesBtn", html)
         self.assertIn("anyfieldSources", html)
-        self.assertIn("加载 C 源列表", html)
-        self.assertIn("C 源列表", js)
+        self.assertIn("Load C source list", html)
+        self.assertIn("C source list", i18n)
         self.assertIn("/api/sources", js)
         self.assertIn("lockCSource", js)
         self.assertIn("identifyLockedSource", js)
         # 503 文案不能把 C 缺口说成“确认无覆盖”，也不能出现 SIM。
-        self.assertNotIn("SIM", js[js.find("C 索引不完整") - 200 : js.find("C 索引不完整") + 200])
-        self.assertIn("不改变现有本地数据/分析结论", js)
+        self.assertNotIn("SIM", i18n[i18n.find("C index is incomplete") - 200 : i18n.find("C index is incomplete") + 200])
+        self.assertIn("existing local data and analysis conclusions are unchanged", i18n)
 
 
 NODE = shutil.which("node")
@@ -482,11 +485,11 @@ class LockNoteJsTest(unittest.TestCase):
 const ln = require(process.argv[1]);
 const src = {ra: 269.446165, dec: 4.769536, c_source: true};
 const cases = {
-  known: {status: "known_star", label_zh: "Gaia DR3 已知"},
-  ambiguous: {status: "ambiguous", label_zh: "多候选 ambiguous"},
-  insufficient: {status: "insufficient_data", label_zh: "数据不足"},
-  failure: {status: "catalog_unavailable", label_zh: "星表不可用"},
-  timeout: {status: "catalog_unavailable", label_zh: "星表不可用"},
+  known: {status: "known_star", label_zh: "known"},
+  ambiguous: {status: "ambiguous", label_zh: "ambiguous"},
+  insufficient: {status: "insufficient_data", label_zh: "insufficient"},
+  failure: {status: "catalog_unavailable", label_zh: "unavailable"},
+  timeout: {status: "catalog_unavailable", label_zh: "unavailable"},
   empty: null,
 };
 const out = {};
@@ -496,15 +499,15 @@ console.log(JSON.stringify(out));
         proc = subprocess.run([NODE, "-e", script, js_path], capture_output=True, text=True, timeout=30)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         out = json.loads(proc.stdout)
-        self.assertIn("Gaia DR3 已知", out["known"])
+        self.assertIn("Known in catalog", out["known"])
         self.assertIn("known_star", out["known"])
         self.assertIn("ambiguous", out["ambiguous"])
-        self.assertIn("数据不足", out["insufficient"])
+        self.assertIn("Insufficient data", out["insufficient"])
         self.assertIn("insufficient_data", out["insufficient"])
-        self.assertIn("星表不可用", out["failure"])
+        self.assertIn("Catalog unavailable", out["failure"])
         self.assertIn("catalog_unavailable", out["failure"])
-        self.assertIn("星表不可用", out["timeout"])
-        self.assertIn("星表不可用", out["empty"])
+        self.assertIn("Catalog unavailable", out["timeout"])
+        self.assertIn("Catalog unavailable", out["empty"])
         self.assertIn("269.446165", out["known"])
         self.assertIn("4.769536", out["known"])
         for text in out.values():

@@ -1,106 +1,110 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MoveScope · 星动仪 — SPHEREx 天体运动规律识别</title>
+<title>MoveScope · Sky Motion Analyzer — SPHEREx motion-pattern identification</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-page="home">
 <header class="top">
   <div class="brand">
     <div class="logo">◈</div>
     <div>
-      <h1>MoveScope <span class="zh">星动仪</span></h1>
-      <p>从多期 SPHEREx 图像，读出天体的运动规律</p>
+      <h1>MoveScope <span class="zh" data-i18n="brand.tagline">Sky Motion</span></h1>
+      <p data-i18n="brand.subtitle">Read motion patterns from multi-epoch SPHEREx images</p>
     </div>
   </div>
   <div class="top-right">
-    <span id="modeBadge" class="badge ghost">未分析</span>
-    <span id="timeBadge" class="badge ghost hidden">未限定时间</span>
+    <select id="langSelect" class="lang-select" data-lang-select data-i18n-aria-label="lang.label" aria-label="Language">
+      <option value="en">EN</option>
+      <option value="es">ES</option>
+    </select>
+    <span id="modeBadge" class="badge ghost" data-i18n="header.modeBadge.initial">Not analyzed</span>
+    <span id="timeBadge" class="badge ghost hidden" data-i18n="header.timeBadge.none">No time window</span>
     <span id="readyBadge" class="badge ghost">—</span>
-    <label class="switch" title="显示协方差、BIC、质量标记等科研细节">
-      <input type="checkbox" id="expert"><span>研究者模式</span>
+    <label class="switch" data-i18n-title="header.expert.title" title="Show scientific details such as covariance, BIC and quality flags">
+      <input type="checkbox" id="expert"><span data-i18n="header.expert.label">Researcher mode</span>
     </label>
-    <a class="ghost small" href="/cascade">级联/残差</a>
-    <a class="ghost small" href="/tracks">轨迹</a>
-    <button id="theoryBtn" class="ghost small">理论设计</button>
+    <a class="ghost small" href="/cascade" data-i18n="header.link.cascade">Cascade / residuals</a>
+    <a class="ghost small" href="/tracks" data-i18n="header.link.tracks">Tracks</a>
+    <button id="theoryBtn" class="ghost small" data-i18n="header.theory">Theory &amp; design</button>
   </div>
 </header>
 
 <main>
-  <!-- 左：输入 -->
+  <!-- Left: input -->
   <aside class="panel left">
     <section>
-      <h2><span class="num">01</span> 选择天区</h2>
+      <h2><span class="num">01</span> <span data-i18n="section.sky">Select sky field</span></h2>
       <div id="presets" class="presets"></div>
       <div class="fields">
-        <label>赤经 RA <span class="unit">deg</span><input id="ra" inputmode="decimal"></label>
-        <label>赤纬 Dec <span class="unit">deg</span><input id="dec" inputmode="decimal"></label>
-        <label>视场 FOV <span class="unit">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01" title="0.02–3.0 度"></label>
-        <label>窗口 t0 <span class="unit">MJD</span><input id="t0" inputmode="decimal" placeholder="可选"></label>
-        <label>窗口 t1 <span class="unit">MJD</span><input id="t1" inputmode="decimal" placeholder="可选"></label>
-        <label>数据模式
+        <label><span data-i18n="field.ra">RA</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="ra" inputmode="decimal"></label>
+        <label><span data-i18n="field.dec">Dec</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="dec" inputmode="decimal"></label>
+        <label><span data-i18n="field.fov">FOV</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01" data-i18n-title="field.fov.title" title="0.02–3.0 degrees"></label>
+        <label><span data-i18n="field.t0">Window t0</span> <span class="unit" data-i18n="unit.mjd">MJD</span><input id="t0" inputmode="decimal" data-i18n-placeholder="field.optional" placeholder="optional"></label>
+        <label><span data-i18n="field.t1">Window t1</span> <span class="unit" data-i18n="unit.mjd">MJD</span><input id="t1" inputmode="decimal" data-i18n-placeholder="field.optional" placeholder="optional"></label>
+        <label><span data-i18n="field.mode">Data mode</span>
           <select id="mode">
-            <option value="auto">自动（真实优先）</option>
-            <option value="real">仅真实历元</option>
-            <option value="synthetic">模拟时序</option>
-            <option value="sample">离线样本（解析核验）</option>
+            <option value="auto" data-i18n="mode.auto">Auto (real first)</option>
+            <option value="real" data-i18n="mode.real">Real epochs only</option>
+            <option value="synthetic" data-i18n="mode.synthetic">Synthetic time series</option>
+            <option value="sample" data-i18n="mode.sample">Offline sample (parse check)</option>
           </select>
         </label>
       </div>
-      <button id="runBtn" class="primary"><span class="dot"></span>识别运动规律</button>
-      <div id="sourceNote" class="note">选择目标或输入坐标后开始。</div>
+      <button id="runBtn" class="primary"><span class="dot"></span><span data-i18n="btn.identify">Identify motion pattern</span></button>
+      <div id="sourceNote" class="note" data-i18n="note.start">Choose a target or enter coordinates to begin.</div>
       <details id="aSourcePanel" class="a-source-panel hidden">
         <summary>
-          <span>A 检测源（本次分析）</span>
-          <b id="aSourceCount" class="a-source-count">0</b> 个
+          <span data-i18n="aSource.summary">A detections (this analysis)</span>
+          <b id="aSourceCount" class="a-source-count">0</b> <span data-i18n="aSource.countSuffix">sources</span>
         </summary>
         <div class="a-source-actions">
-          <button id="batchASourcesBtn" class="ghost small" type="button">批量识别 A 源</button>
-          <button id="exportASourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
-          <button id="exportAJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
-          <button id="candidateDirectoryBtn" class="ghost small hidden" type="button">统一候选目录</button>
+          <button id="batchASourcesBtn" class="ghost small" type="button" data-i18n="aSource.batch">Batch identify A sources</button>
+          <button id="exportASourcesBtn" class="ghost small hidden" type="button" data-i18n="aSource.exportCsv">Export CSV</button>
+          <button id="exportAJsonBtn" class="ghost small hidden" type="button" data-i18n="aSource.exportJson">Export JSON</button>
+          <button id="candidateDirectoryBtn" class="ghost small hidden" type="button" data-i18n="aSource.directory">Unified candidate directory</button>
         </div>
         <div id="aSourceBatchNote" class="anyfield-source-note hidden" aria-live="polite"></div>
         <div id="aSourceTableWrap" class="a-source-table-wrap">
           <table class="a-source-table">
-            <thead><tr><th>epoch</th><th>S/N</th><th>RA / Dec</th><th>catalog</th></tr></thead>
+            <thead><tr><th data-i18n="table.epoch">epoch</th><th data-i18n="table.sn">S/N</th><th data-i18n="table.radec">RA / Dec</th><th data-i18n="table.catalog">catalog</th></tr></thead>
             <tbody id="aSourceRows"></tbody>
           </table>
         </div>
         <div id="aSourceSummary" class="anyfield-source-note"></div>
-        <div class="anyfield-source-note">点击行锁定该 A 源；批量 badge 只是星表身份，不是发现声明。no_match = 未收录候选。</div>
+        <div class="anyfield-source-note" data-i18n="aSource.note">Click a row to lock that A source; batch badges are catalog identities, not discovery claims. no_match = uncatalogued candidate.</div>
       </details>
       <details id="candidateDirectoryPanel" class="candidate-directory hidden">
-        <summary>统一候选目录 <b id="candidateDirectoryCount">0</b> 行</summary>
+        <summary><span data-i18n="dir.summary">Unified candidate directory</span> <b id="candidateDirectoryCount">0</b> <span data-i18n="dir.rows">rows</span></summary>
         <div id="candidateDirectoryNote" class="anyfield-source-note"></div>
         <div class="candidate-directory-actions">
-          <button id="exportDirectoryCsvBtn" class="ghost small hidden" type="button">导出 CSV</button>
-          <button id="exportDirectoryJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
+          <button id="exportDirectoryCsvBtn" class="ghost small hidden" type="button" data-i18n="aSource.exportCsv">Export CSV</button>
+          <button id="exportDirectoryJsonBtn" class="ghost small hidden" type="button" data-i18n="aSource.exportJson">Export JSON</button>
         </div>
         <div id="candidateDirectoryCounts" class="anyfield-source-note"></div>
         <div class="candidate-directory-table-wrap">
           <table class="candidate-directory-table">
-            <thead><tr><th>origin</th><th>epoch/track</th><th>RA / Dec</th><th>status/level</th><th>catalog</th><th>sep</th><th>caveats</th></tr></thead>
+            <thead><tr><th data-i18n="table.origin">origin</th><th data-i18n="table.epochTrack">epoch/track</th><th data-i18n="table.radec">RA / Dec</th><th data-i18n="table.statusLevel">status/level</th><th data-i18n="table.catalog">catalog</th><th data-i18n="table.sep">sep</th><th data-i18n="table.caveats">caveats</th></tr></thead>
             <tbody id="candidateDirectoryRows"></tbody>
           </table>
         </div>
-        <div class="anyfield-source-note">候选目录不是发现目录；track 行不是新源，节点不另算源。</div>
+        <div class="anyfield-source-note" data-i18n="dir.note">Candidate directory is not a discovery catalogue; track rows are not new sources, and track nodes are not counted as separate sources.</div>
       </details>
       <section id="anyfieldCard" class="anyfield-card hidden" aria-live="polite">
         <div class="anyfield-head">
-          <span>C 任意天区 · P0</span>
+          <span data-i18n="anyfield.title">C any-field · P0</span>
           <span id="anyfieldBadge" class="anyfield-badge">—</span>
         </div>
         <div id="anyfieldBody" class="anyfield-body"></div>
         <div class="anyfield-actions">
-          <button id="loadCSourcesBtn" class="ghost small hidden" type="button">加载 C 源列表</button>
+          <button id="loadCSourcesBtn" class="ghost small hidden" type="button" data-i18n="anyfield.load">Load C source list</button>
         </div>
         <div id="anyfieldBatchActions" class="anyfield-actions anyfield-batch-actions hidden">
-          <button id="batchCSourcesBtn" class="ghost small hidden" type="button">批量识别 C 源</button>
-          <button id="exportCSourcesBtn" class="ghost small hidden" type="button">导出 CSV</button>
-          <button id="exportCJsonBtn" class="ghost small hidden" type="button">导出 JSON</button>
+          <button id="batchCSourcesBtn" class="ghost small hidden" type="button" data-i18n="anyfield.batch">Batch identify C sources</button>
+          <button id="exportCSourcesBtn" class="ghost small hidden" type="button" data-i18n="aSource.exportCsv">Export CSV</button>
+          <button id="exportCJsonBtn" class="ghost small hidden" type="button" data-i18n="aSource.exportJson">Export JSON</button>
         </div>
         <div id="anyfieldBatchNote" class="anyfield-source-note hidden" aria-live="polite"></div>
         <div id="anyfieldSources" class="anyfield-sources hidden" aria-live="polite"></div>
@@ -109,86 +113,86 @@
     </section>
 
     <section>
-      <h2><span class="num">02</span> 数据就绪度</h2>
+      <h2><span class="num">02</span> <span data-i18n="section.readiness">Data readiness</span></h2>
       <div id="readiness" class="readiness">
-        <div class="ready-row" data-level="L0"><b>L0</b><span>1 期 · 只能判有无源</span></div>
-        <div class="ready-row" data-level="L1"><b>L1</b><span>2 期 · 一次位移</span></div>
-        <div class="ready-row" data-level="L2"><b>L2</b><span>3–5 期 · 速率与方向</span></div>
-        <div class="ready-row" data-level="L3"><b>L3</b><span>≥6 期 · 可判加速/周期</span></div>
+        <div class="ready-row" data-level="L0"><b>L0</b><span data-i18n="ready.L0">1 epoch · can only tell whether a source exists</span></div>
+        <div class="ready-row" data-level="L1"><b>L1</b><span data-i18n="ready.L1">2 epochs · one displacement only</span></div>
+        <div class="ready-row" data-level="L2"><b>L2</b><span data-i18n="ready.L2">3–5 epochs · rate and direction</span></div>
+        <div class="ready-row" data-level="L3"><b>L3</b><span data-i18n="ready.L3">≥6 epochs · acceleration/period assessable</span></div>
       </div>
       <div id="quality" class="flags expert-only"></div>
     </section>
 
     <section class="expert-only">
-      <h2><span class="num">03</span> 观测配置</h2>
+      <h2><span class="num">03</span> <span data-i18n="section.obs">Observation configuration</span></h2>
       <div id="epochList" class="epoch-list"></div>
       <div id="matchStats" class="match-stats"></div>
     </section>
   </aside>
 
-  <!-- 中：天区视图 -->
+  <!-- Centre: sky viewer -->
   <section class="panel center">
-    <div class="layer-bar" role="group" aria-label="分析层模式">
+    <div class="layer-bar" role="group" data-i18n-aria-label="layer.aria" aria-label="Analysis layer">
       <div class="layer-tabs">
-        <button type="button" data-layer-mode="browse" class="active">普通</button>
-        <button type="button" data-layer-mode="cascade">级联/残差</button>
-        <button type="button" data-layer-mode="tracks">轨迹</button>
+        <button type="button" data-layer-mode="browse" class="active" data-i18n="layer.browse">Browse</button>
+        <button type="button" data-layer-mode="cascade" data-i18n="layer.cascade">Cascade / residuals</button>
+        <button type="button" data-layer-mode="tracks" data-i18n="layer.tracks">Tracks</button>
       </div>
-      <a id="detailLink" class="ghost small hidden" href="/cascade" target="_blank" rel="noopener">详细表格 ↗</a>
+      <a id="detailLink" class="ghost small hidden" href="/cascade" target="_blank" rel="noopener" data-i18n="layer.detail.cascade">Detailed cascade table ↗</a>
     </div>
     <div class="viewer-head">
       <div class="viewer-title">
-        <span class="eyebrow">SKY PATCH</span>
-        <strong id="epochLabel">等待分析</strong>
+        <span class="eyebrow" data-i18n="viewer.eyebrow">SKY PATCH</span>
+        <strong id="epochLabel" data-i18n="viewer.waiting">Waiting for analysis</strong>
       </div>
-      <div class="modes" role="group" aria-label="显示模式">
-        <button data-mode="blink" class="active">闪烁</button>
-        <button data-mode="stack">叠加</button>
-        <button data-mode="diff">相减</button>
-        <button data-mode="track">轨迹</button>
+      <div class="modes" role="group" data-i18n-aria-label="modes.aria" aria-label="Display mode">
+        <button data-mode="blink" class="active" data-i18n="mode.blink">Blink</button>
+        <button data-mode="stack" data-i18n="mode.stack">Stack</button>
+        <button data-mode="diff" data-i18n="mode.diff">Difference</button>
+        <button data-mode="track" data-i18n="mode.track">Track</button>
       </div>
     </div>
     <div class="canvas-wrap">
       <canvas id="sky" width="936" height="936"></canvas>
       <div id="canvasEmpty" class="canvas-empty">
         <div class="glyph">✧</div>
-        <p>输入一个天区，让多期图像动起来</p>
-        <span>blink · stack · difference · trajectory</span>
+        <p data-i18n="canvas.emptyTitle">Enter a sky field and bring multi-epoch images to life</p>
+        <span data-i18n="canvas.emptySub">blink · stack · difference · trajectory</span>
       </div>
-      <div id="canvasLoading" class="canvas-loading hidden"><div class="spinner"></div><p>读取历元 / 测量 / 拟合…</p></div>
+      <div id="canvasLoading" class="canvas-loading hidden"><div class="spinner"></div><p data-i18n="canvas.loading">Reading epochs / measurements / fit…</p></div>
       <div id="skyTip" class="sky-tip hidden"></div>
     </div>
     <div class="timeline">
-      <button id="play" aria-label="播放">▶</button>
+      <button id="play" data-i18n-aria-label="timeline.play" aria-label="Play">▶</button>
       <input type="range" id="slider" min="0" max="0" value="0">
       <span id="timeLabel">—</span>
     </div>
     <div class="strip" id="strip"></div>
     <div class="legend">
-      <span><i class="sw source"></i>检测源 · 可点选</span>
-      <span><i class="sw locked"></i>已锁定</span>
-      <span><i class="sw target"></i>目标测量位置</span>
-      <span><i class="sw trail"></i>轨迹</span>
-      <span class="muted" id="stretchNote">asinh · 6–99.6%</span>
+      <span><i class="sw source"></i><span data-i18n="legend.source">Detection · clickable</span></span>
+      <span><i class="sw locked"></i><span data-i18n="legend.locked">Locked</span></span>
+      <span><i class="sw target"></i><span data-i18n="legend.target">Target measurement position</span></span>
+      <span><i class="sw trail"></i><span data-i18n="legend.trail">Track</span></span>
+      <span class="muted" id="stretchNote" data-i18n="stretch.label">asinh · 6–99.6%</span>
     </div>
   </section>
 
-  <!-- 右：鉴定卡 -->
+  <!-- Right: identification card -->
   <aside class="panel right">
     <section id="layerPanel" class="layer-panel hidden" aria-live="polite">
-      <div class="layer-panel-head"><span id="layerTitle">分析层</span><span id="layerBadge" class="badge ghost">—</span></div>
+      <div class="layer-panel-head"><span id="layerTitle" data-i18n="layer.title.default">Analysis layer</span><span id="layerBadge" class="badge ghost">—</span></div>
       <div id="layerStats" class="layer-stats"></div>
       <div id="layerToggles" class="layer-toggles"></div>
       <div id="layerDetail" class="layer-detail"></div>
-      <div id="layerDisclaimer" class="layer-disclaimer">候选不是新天体；不做发现声明。</div>
+      <div id="layerDisclaimer" class="layer-disclaimer" data-i18n="layer.disclaimer.default">Candidates are not new objects; no discovery claim.</div>
     </section>
     <div id="verdict" class="verdict empty">
-      <div class="eyebrow">MOTION FINGERPRINT</div>
+      <div class="eyebrow" data-i18n="verdict.eyebrow">MOTION FINGERPRINT</div>
       <div class="verdict-main">
         <div class="class-dot"></div>
         <div>
-          <h3>尚未分析</h3>
-          <p>运行一次识别，查看运动规律与证据链。</p>
+          <h3 data-i18n="verdict.emptyTitle">Not analyzed yet</h3>
+          <p data-i18n="verdict.emptyText">Run an identification to see motion patterns and the evidence chain.</p>
         </div>
       </div>
     </div>
@@ -197,7 +201,7 @@
 
     <section id="catalogCard" class="catalog-card hidden" aria-live="polite">
       <div class="catalog-head">
-        <span>星表识别 · 目标源</span>
+        <span data-i18n="catalog.head">Catalog identification · target source</span>
         <span id="catalogBadge" class="catalog-badge">—</span>
       </div>
       <div id="catalogBody" class="catalog-body"></div>
@@ -207,64 +211,65 @@
     <section id="metrics" class="metrics hidden"></section>
 
     <section class="charts hidden" id="charts">
-      <div class="chart-head"><span>光变曲线</span><span class="muted" id="lcMeta"></span></div>
+      <div class="chart-head"><span data-i18n="chart.lightCurve">Light curve</span><span class="muted" id="lcMeta"></span></div>
       <canvas id="lc" width="560" height="220"></canvas>
-      <div class="chart-head"><span>切平面轨迹</span><span class="muted" id="trackMeta"></span></div>
+      <div class="chart-head"><span data-i18n="chart.trackPlane">Tangent-plane track</span><span class="muted" id="trackMeta"></span></div>
       <canvas id="track" width="560" height="300"></canvas>
     </section>
 
     <section class="models hidden expert-only" id="modelsWrap">
-      <div class="chart-head"><span>模型选择 · BIC</span><span class="muted">概率</span></div>
+      <div class="chart-head"><span data-i18n="chart.models">Model selection · BIC</span><span class="muted" data-i18n="chart.probability">Probability</span></div>
       <div id="models"></div>
     </section>
 
     <section class="evidence hidden" id="evidenceWrap">
-      <h4>证据链</h4>
+      <h4 data-i18n="evidence.title">Evidence chain</h4>
       <ul id="evidence"></ul>
-      <div class="falsifier"><b>可证伪条件</b><p id="falsifier"></p></div>
+      <div class="falsifier"><b data-i18n="evidence.falsifier">Falsifiability conditions</b><p id="falsifier"></p></div>
       <div id="caveats" class="caveats hidden"></div>
       <div class="truthbox hidden" id="truthBox"></div>
     </section>
 
     <div class="actions">
-      <button id="download" class="ghost small" disabled>下载 JSON</button>
-      <button id="copyLink" class="ghost small" disabled>复制可嵌入链接</button>
+      <button id="download" class="ghost small" disabled data-i18n="action.download">Download JSON</button>
+      <button id="copyLink" class="ghost small" disabled data-i18n="action.copyLink">Copy embeddable link</button>
     </div>
   </aside>
 </main>
 
 <footer class="foot">
-  <span>数据：NASA/IPAC IRSA · SPHEREx level2（QR3 / DR1）</span>
-  <span>方法：切平面加权最小二乘 · BIC 模型选择 · 参考星相对天体测量</span>
-  <span>模拟数据均带 <b>SIM/HYBRID</b> 标识</span>
+  <span data-i18n="footer.data">Data: NASA/IPAC IRSA · SPHEREx level2 (QR3 / DR1)</span>
+  <span data-i18n="footer.method">Method: tangent-plane weighted least squares · BIC model selection · reference-star relative astrometry</span>
+  <span data-i18n-html="footer.sim">Simulated data are always labelled <b>SIM/HYBRID</b></span>
 </footer>
 
 <div id="theoryModal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal-card">
-    <button class="close" id="closeTheory">✕</button>
-    <div class="eyebrow">THEORY · 理论设计编排</div>
-    <h2>一个天体，五类运动规律</h2>
-    <p class="lead">工具不靠"看图猜"，而是把位置序列与亮度序列分别拟合，再用 BIC 在模型族里选一个，最后输出可证伪的结论。</p>
+    <button class="close" id="closeTheory" data-i18n-aria-label="theory.close" aria-label="Close">✕</button>
+    <div class="eyebrow" data-i18n="theory.eyebrow">THEORY · Design overview</div>
+    <h2 data-i18n="theory.title">One object, five motion patterns</h2>
+    <p class="lead" data-i18n="theory.lead">The tool does not guess from images. It fits the position series and the brightness series separately, selects one model family by BIC, and reports falsifiable conclusions.</p>
     <div class="theory-grid">
-      <div><b>① 测量</b><p>PSF 匹配滤波探测；PSF 模板拟合质心；孔径测光；FLAGS 三级掩膜；参考星仿射定标。</p></div>
-      <div><b>② 模型族</b><p>M0 静止 · M1 变光 · M2 匀速自行 · M3 自行+视差 · M4 自行+加速。位置与流量联合 χ²。</p></div>
-      <div><b>③ 判据</b><p>ΔBIC &gt; 6 且参数 &gt; 3σ 才下结论；数据就绪度 L0–L3 决定结论强度。</p></div>
-      <div><b>④ 反例</b><p>变星位置不动、亮度变。位置通道与流量通道分离，避免把"变亮"误判成"移动"。</p></div>
+      <div><b data-i18n="theory.grid1.title">① Measurement</b><p data-i18n="theory.grid1.text">PSF matched-filter detection; PSF-template centroid; aperture photometry; three-stage FLAGS mask; affine calibration against reference stars.</p></div>
+      <div><b data-i18n="theory.grid2.title">② Model family</b><p data-i18n="theory.grid2.text">M0 stationary · M1 variable · M2 uniform proper motion · M3 proper motion + parallax · M4 proper motion + acceleration. Joint χ² over position and flux.</p></div>
+      <div><b data-i18n="theory.grid3.title">③ Criteria</b><p data-i18n="theory.grid3.text">A conclusion requires ΔBIC &gt; 6 and parameters &gt; 3σ; data readiness L0–L3 sets the strength of the conclusion.</p></div>
+      <div><b data-i18n="theory.grid4.title">④ Counterexample</b><p data-i18n="theory.grid4.text">A variable star stays put while its brightness changes. Position and flux channels are separate, so “brighter” is not mistaken for “moving”.</p></div>
     </div>
     <table class="theory-table">
-      <thead><tr><th>规律</th><th>生成机制</th><th>可观测签名</th><th>最少历元</th></tr></thead>
+      <thead><tr><th data-i18n="theory.table.pattern">Pattern</th><th data-i18n="theory.table.mechanism">Generating mechanism</th><th data-i18n="theory.table.signature">Observable signature</th><th data-i18n="theory.table.minEpochs">Minimum epochs</th></tr></thead>
       <tbody>
-        <tr><td>S 静止</td><td>背景恒星/星系</td><td>斜率与 0 相容</td><td>2（给上限）</td></tr>
-        <tr><td>V 变光</td><td>脉动/爆发/食变/AGN</td><td>流量显著变，位置不变</td><td>3</td></tr>
-        <tr><td>L 匀速直线</td><td>近邻恒星自行</td><td>切平面直线，斜率显著</td><td>3</td></tr>
-        <tr><td>A 加速/弯曲</td><td>太阳系天体/双星</td><td>二次项显著优于直线</td><td>4</td></tr>
-        <tr><td>P 视差</td><td>地球绕日</td><td>残差与地球位置矢量相关</td><td>≥6，跨 1 年</td></tr>
+        <tr><td data-i18n="theory.rowS">S stationary</td><td data-i18n="theory.rowS.mechanism">Background star / galaxy</td><td data-i18n="theory.rowS.signature">Slope consistent with 0</td><td data-i18n="theory.rowS.min">2 (upper limit)</td></tr>
+        <tr><td data-i18n="theory.rowV">V variable</td><td data-i18n="theory.rowV.mechanism">Pulsation / outburst / eclipse / AGN</td><td data-i18n="theory.rowV.signature">Flux changes significantly, position does not</td><td data-i18n="theory.rowV.min">3</td></tr>
+        <tr><td data-i18n="theory.rowL">L uniform linear</td><td data-i18n="theory.rowL.mechanism">Nearby-star proper motion</td><td data-i18n="theory.rowL.signature">Tangent-plane straight line, significant slope</td><td data-i18n="theory.rowL.min">3</td></tr>
+        <tr><td data-i18n="theory.rowA">A accelerating / curved</td><td data-i18n="theory.rowA.mechanism">Solar System object / binary</td><td data-i18n="theory.rowA.signature">Quadratic term significantly better than a line</td><td data-i18n="theory.rowA.min">4</td></tr>
+        <tr><td data-i18n="theory.rowP">P parallax</td><td data-i18n="theory.rowP.mechanism">Earth's orbit around the Sun</td><td data-i18n="theory.rowP.signature">Residuals correlate with Earth's position vector</td><td data-i18n="theory.rowP.min">≥6, spanning 1 year</td></tr>
       </tbody>
     </table>
-    <p class="fine">完整文档：docs/01_理论设计编排.md · 数据访问：实测 IRSA 静态切片 + S3 头部探测（TAP/SIA 在采集时段不可用）。</p>
+    <p class="fine" data-i18n="theory.fine">Full documentation: internal theory-design notes (Chinese). Data access: static IRSA slices + S3 header probes (TAP/SIA unavailable during collection).</p>
   </div>
 </div>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/source_pick.js"></script>
 <script src="/static/lock_note.js"></script>
 <script src="/static/a_source_batch.js"></script>

@@ -513,12 +513,15 @@ class AnalyzeHTTPIdentificationTest(unittest.TestCase):
         web = os.path.join(APP, "web")
         with open(os.path.join(web, "app.js"), encoding="utf-8") as fh:
             app_js = fh.read()
+        with open(os.path.join(web, "i18n.js"), encoding="utf-8") as fh:
+            i18n = fh.read()
         with open(os.path.join(web, "index.html"), encoding="utf-8") as fh:
             index = fh.read()
-        for text in (app_js, index):
-            for phrase in ("新恒星", "新行星", "首次发现", "发现新"):
-                self.assertNotIn(phrase, text)
-        self.assertIn("未匹配不等于新天体", app_js)
+        for text in (app_js, index, i18n):
+            for phrase in ("新恒星", "新行星", "首次发现", "发现新", "new planet", "confirmed discovery", "nuevo planeta", "descubrimiento confirmado"):
+                self.assertNotIn(phrase, text.lower() if phrase.isascii() else text)
+        self.assertIn("Unmatched does not mean a new object", i18n)
+        self.assertIn("Sin coincidencia no significa un objeto nuevo", i18n)
         for status in ("known_star", "ambiguous", "uncatalogued_candidate", "catalog_unavailable"):
             self.assertIn(status, app_js)
         self.assertIn("RUWE", app_js)

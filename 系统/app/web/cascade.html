@@ -1,46 +1,50 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MoveScope · 级联 / 残差检测</title>
+<title>MoveScope · Cascade / residual detection</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-page="cascade">
 <header class="top">
   <div class="brand">
     <div class="logo">◈</div>
     <div>
-      <h1>MoveScope <span class="zh">级联 / 残差</span></h1>
-      <p>L1 高召回检测 → 掩膜已检测源 → 残差低阈值复检</p>
+      <h1>MoveScope <span class="zh" data-i18n="cascade.tagline">Cascade / residuals</span></h1>
+      <p data-i18n="cascade.subtitle">L1 high-recall detection → mask detected sources → residual low-threshold recheck</p>
     </div>
   </div>
   <div class="top-right">
-    <span class="badge ghost">CASCADE MVP</span>
-    <a id="viewLink" class="ghost small hidden" href="http://127.0.0.1:8830/" target="_blank" rel="noopener">回到视图</a>
-    <a class="ghost small" href="/tracks">轨迹层</a>
-    <a class="ghost small" href="/">← 返回主应用</a>
+    <select id="langSelect" class="lang-select" data-lang-select data-i18n-aria-label="lang.label" aria-label="Language">
+      <option value="en">EN</option>
+      <option value="es">ES</option>
+    </select>
+    <span class="badge ghost" data-i18n="header.cascade.badge">CASCADE MVP</span>
+    <a id="viewLink" class="ghost small hidden" href="http://127.0.0.1:8830/" target="_blank" rel="noopener" data-i18n="header.cascade.linkView">Back to view</a>
+    <a class="ghost small" href="/tracks" data-i18n="header.cascade.linkTracks">Tracks layer</a>
+    <a class="ghost small" href="/" data-i18n="header.cascade.back">← Back to main app</a>
   </div>
 </header>
 
 <main class="cascade-main">
   <section class="panel cascade-controls">
-    <h2><span class="num">01</span> 选择历元</h2>
+    <h2><span class="num">01</span> <span data-i18n="section.sky">Select sky field</span></h2>
     <div class="fields cascade-fields">
-      <label>目标预设
+      <label><span data-i18n="cascade.targetPreset">Target preset</span>
         <select id="targetSelect"></select>
       </label>
-      <label>赤经 RA <span class="unit">deg</span><input id="ra" inputmode="decimal" placeholder="自定义坐标"></label>
-      <label>赤纬 Dec <span class="unit">deg</span><input id="dec" inputmode="decimal" placeholder="自定义坐标"></label>
-      <label>视场 FOV <span class="unit">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01"></label>
-      <label>窗口 t0 <span class="unit">MJD</span><input id="t0" inputmode="decimal" placeholder="可选"></label>
-      <label>窗口 t1 <span class="unit">MJD</span><input id="t1" inputmode="decimal" placeholder="可选"></label>
+      <label><span data-i18n="field.ra">RA</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="ra" inputmode="decimal" data-i18n-placeholder="cascade.coordPlaceholder" placeholder="custom coordinates"></label>
+      <label><span data-i18n="field.dec">Dec</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="dec" inputmode="decimal" data-i18n-placeholder="cascade.coordPlaceholder" placeholder="custom coordinates"></label>
+      <label><span data-i18n="field.fov">FOV</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01"></label>
+      <label><span data-i18n="field.t0">Window t0</span> <span class="unit" data-i18n="unit.mjd">MJD</span><input id="t0" inputmode="decimal" data-i18n-placeholder="field.optional" placeholder="optional"></label>
+      <label><span data-i18n="field.t1">Window t1</span> <span class="unit" data-i18n="unit.mjd">MJD</span><input id="t1" inputmode="decimal" data-i18n-placeholder="field.optional" placeholder="optional"></label>
     </div>
-    <button id="runCascade" class="primary"><span class="dot"></span>运行级联检测</button>
-    <div id="cascadeNote" class="note">正在加载目标…</div>
-    <div class="cascade-warning">
-      <b>边界</b>：残差候选只是“L1 之外的次级峰”，<b>不是新天体</b>；未匹配不等于新星。
-      级联层不做运动/变光判定，也不输出发现声明。
+    <button id="runCascade" class="primary"><span class="dot"></span><span data-i18n="cascade.run">Run cascade detection</span></button>
+    <div id="cascadeNote" class="note" data-i18n="cascade.loadingTargets">Loading targets…</div>
+    <div class="cascade-warning" data-i18n-html="cascade.warning">
+      <b>Boundary</b>: residual candidates are only “secondary peaks outside L1”, <b>not new objects</b>; unmatched does not mean a new star.
+      The cascade layer makes no motion/variability decision and no discovery claim.
     </div>
   </section>
 
@@ -49,11 +53,12 @@
 </main>
 
 <footer class="foot">
-  <span>数据：SPHEREx level2（本地/DB 历元）</span>
-  <span>层：L1 6σ ≤80/期 · masked 2px · residual 5σ ≤80/期</span>
-  <span>残差候选 ≠ 新天体</span>
+  <span data-i18n="cascade.footer.data">Data: SPHEREx level2 (local / DB epochs)</span>
+  <span data-i18n="cascade.footer.layers">Layers: L1 6σ ≤80/epoch · masked 2 px · residual 5σ ≤80/epoch</span>
+  <span data-i18n="cascade.footer.boundary">Residual candidates ≠ new objects</span>
 </footer>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/cascade.js"></script>
 </body>
 </html>

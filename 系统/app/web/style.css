@@ -39,6 +39,8 @@ button, input, select { font-family: inherit; }
 /* ---------- top ---------- */
 .top {
   display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
   padding: 18px 26px 14px;
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(6px);
@@ -53,7 +55,7 @@ button, input, select { font-family: inherit; }
 .brand h1 { font-size: 19px; letter-spacing: .02em; }
 .brand h1 .zh { color: var(--muted); font-weight: 500; font-size: 14px; margin-left: 6px; }
 .brand p { color: var(--muted); font-size: 12px; margin-top: 3px; }
-.top-right { display: flex; align-items: center; gap: 10px; }
+.top-right { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .badge {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .12em;
   padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line2);
@@ -69,6 +71,13 @@ button, input, select { font-family: inherit; }
 .badge.l2 { color: var(--amber); border-color: rgba(242,179,94,.35); }
 .badge.l3 { color: var(--green); border-color: rgba(110,231,168,.4); }
 
+.lang-select {
+  appearance: none; background: rgba(255,255,255,.03); border: 1px solid var(--line2);
+  color: var(--ink2); border-radius: 8px; padding: 6px 8px; font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .08em; cursor: pointer;
+}
+.lang-select:hover { border-color: var(--amber); color: var(--amber2); }
+.lang-select:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px rgba(242,179,94,.1); }
 .switch { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; cursor: pointer; user-select: none; }
 .switch input { appearance: none; width: 30px; height: 17px; border-radius: 999px; background: #1a2338; border: 1px solid var(--line2); position: relative; cursor: pointer; transition: .15s; }
 .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #56617a; transition: .15s; }
@@ -104,7 +113,7 @@ main {
 .preset span { font-family: var(--mono); font-size: 9.5px; color: var(--muted); letter-spacing: .02em; }
 .preset:hover { border-color: var(--line2); transform: translateY(-1px); }
 .preset.active { border-color: rgba(242,179,94,.55); background: rgba(242,179,94,.08); box-shadow: 0 0 0 1px rgba(242,179,94,.1) inset; }
-.preset.official b::after { content: "官方"; font-size: 8.5px; color: var(--amber); border: 1px solid rgba(242,179,94,.4); padding: 1px 4px; border-radius: 4px; margin-left: 5px; vertical-align: 1px; letter-spacing: .08em; }
+.preset.official .official-tag { display: inline-block; font-size: 8.5px; color: var(--amber); border: 1px solid rgba(242,179,94,.4); padding: 1px 4px; border-radius: 4px; margin-left: 5px; vertical-align: 1px; letter-spacing: .08em; font-weight: 500; }
 
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 12px; }
 .fields label { display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--muted); letter-spacing: .04em; }

@@ -258,12 +258,12 @@ class CascadePageStaticTest(unittest.TestCase):
             js = fh.read()
         with open(os.path.join(web, "index.html"), encoding="utf-8") as fh:
             index = fh.read()
-        self.assertIn("残差候选", html)
-        self.assertIn("不是新天体", html)
+        self.assertIn("Residual candidates", html)
+        self.assertIn("not new objects", html)
         self.assertIn("/api/cascade", js)
         self.assertIn("/api/identify", js)
         self.assertIn("catalog_unavailable", js)
-        self.assertIn("残差候选", js)
+        self.assertIn("cascade.layer.residual", js)
         self.assertIn("/cascade", index)
         self.assertIn('id="t0"', html)
         self.assertIn('id="t1"', html)
@@ -275,6 +275,8 @@ class CascadePageStaticTest(unittest.TestCase):
             self.assertNotIn("新恒星", text)
             self.assertNotIn("新行星", text)
             self.assertNotIn("发现新", text)
+            self.assertNotIn("new planet", text.lower())
+            self.assertNotIn("confirmed discovery", text.lower())
 
 
 if __name__ == "__main__":

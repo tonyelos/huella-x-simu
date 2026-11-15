@@ -1,37 +1,50 @@
 /* MoveScope · 跨历元轨迹候选页
  * D0–D4 是候选分级，不是发现确认；节点识别走 /api/identify。
  */
+window.I18n.init();
+const tr = (key, params) => window.I18n.t(key, params);
 const $ = (sel) => document.querySelector(sel);
-const state = { targets: [], tracks: [], selected: null };
-const LEVEL_TEXT = {
-  D0: "D0 artifact",
-  D1: "D1 known catalog",
-  D2: "D2 not implemented",
-  D3: "D3 unknown moving",
-  D4: "D4 unknown stationary",
-};
+const state = { targets: [], tracks: [], selected: null, data: null };
+
+function levelText(level) {
+  const key = `tracks.level.${level}`;
+  return window.I18n.hasKey(key) ? tr(key) : level;
+}
+
+function targetDisplayName(t) {
+  if (!t) return "";
+  const fallback = { m101: "target.m101", campo_a: "target.campo_a" }[t.id];
+  if (fallback && window.I18n.hasKey(fallback)) return tr(fallback);
+  return /[\u4e00-\u9fff]/.test(String(t.name || "")) ? (fallback ? tr(fallback) : String(t.name || t.id || "")) : (t.name || t.id || "");
+}
+
+function apiError(e, fallback) {
+  const err = new Error((e && (e.message || e.code)) || fallback || tr("apiError.generic"));
+  if (e && e.code) err.code = e.code;
+  return err;
+}
 
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function fmt(v, digits = 5) { return v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(digits); }
 function note(html, cls = "") { const el = $("#tracksNote"); el.innerHTML = html; el.className = "note " + cls; }
-function qualityText(n) { return Array.isArray(n.quality) && n.quality.length ? n.quality.join(" · ") : "—"; }
+function qualityText(n) { return window.I18n.qualityText(n); }
 
 function readTimeWindow() {
   const t0 = $("#t0").value.trim();
   const t1 = $("#t1").value.trim();
   if (!t0 && !t1) return { ok: true, t0: null, t1: null };
-  if (!t0 || !t1) return { ok: false, error: "t0 与 t1 必须同时填写（MJD）。" };
+  if (!t0 || !t1) return { ok: false, error: tr("note.readTimeBoth") };
   const a = Number(t0), b = Number(t1);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: "t0/t1 必须是 MJD 数字。" };
-  if (a > b) return { ok: false, error: "t0 必须 ≤ t1。" };
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: tr("note.readTimeNumber") };
+  if (a > b) return { ok: false, error: tr("note.readTimeOrder") };
   return { ok: true, t0: a, t1: b };
 }
 
 function timeFilterText(tf) {
-  if (!tf || !tf.filtered) return tf && tf.requested != null ? `全时段 ${tf.requested} 期` : "全时段";
-  return `来自视图 / 时间窗口 MJD ${Number(tf.t0).toFixed(3)}–${Number(tf.t1).toFixed(3)} / 保留 ${tf.kept}/${tf.requested} 期`;
+  if (!tf || !tf.filtered) return tf && tf.requested != null ? tr("time.allPeriodsRequested", { n: tf.requested }) : tr("time.allPeriods");
+  return tr("time.window", { t0: Number(tf.t0).toFixed(3), t1: Number(tf.t1).toFixed(3), kept: tf.kept, requested: tf.requested });
 }
 
 function updateViewLink(sel, fov, win) {
@@ -59,18 +72,18 @@ function nodeRows(track) {
     <td>${fmt(n.dec)}</td>
     <td>${fmt(n.snr, 1)}</td>
     <td>${esc(qualityText(n))}</td>
-    <td><button type="button" class="ghost small" data-ident-track="${esc(track.track_id)}" data-ident-node="${i}">识别</button></td>
+    <td><button type="button" class="ghost small" data-ident-track="${esc(track.track_id)}" data-ident-node="${i}">${esc(tr("tracks.identifyButton"))}</button></td>
   </tr>`).join("");
 }
 
 function trackCard(t) {
-  const caveats = (t.caveats || []).length ? `<div class="track-caveats">${t.caveats.map((c) => esc(c)).join(" · ")}</div>` : "";
+  const caveats = (t.caveats || []).length ? `<div class="track-caveats">${t.caveats.map((c) => esc(window.I18n.serverText(c))).join(" · ")}</div>` : "";
   return `<article class="track-card ${esc(t.level)}">
     <div class="track-head">
-      <div><b>${esc(t.track_id)}</b><br><span>${esc(t.model)} · ${t.n_epochs} 期 · confidence ${fmt(t.confidence, 2)}</span></div>
+      <div><b>${esc(t.track_id)}</b><br><span>${esc(t.model)} · ${esc(tr("layer.stats.epochs", { n: t.n_epochs }))} · ${esc(tr("tracks.confidence"))} ${fmt(t.confidence, 2)}</span></div>
       <div class="track-badges">
-        <span class="track-level ${esc(t.level)}">${esc(t.level)} · ${esc(LEVEL_TEXT[t.level] || t.level)}</span>
-        <span class="cascade-badge">catalog: ${esc(t.catalog || "none")}</span>
+        <span class="track-level ${esc(t.level)}">${esc(levelText(t.level) || t.level)}</span>
+        <span class="cascade-badge">${esc(tr("tracks.catalogLabel"))}: ${esc(t.catalog || "none")}</span>
       </div>
     </div>
     <div class="track-body">
@@ -81,9 +94,9 @@ function trackCard(t) {
       ${caveats}
     </div>
     <details class="track-nodes">
-      <summary>节点 ${t.n_epochs} 个 · 展开</summary>
+      <summary>${esc(tr("tracks.expand", { n: t.n_epochs }))}</summary>
       <table class="track-node-table">
-        <thead><tr><th>epoch</th><th>stage</th><th>RA</th><th>Dec</th><th>S/N</th><th>quality</th><th></th></tr></thead>
+        <thead><tr><th>${esc(tr("table.epoch"))}</th><th>${esc(tr("table.stage"))}</th><th>${esc(tr("table.ra"))}</th><th>${esc(tr("table.dec"))}</th><th>${esc(tr("table.sn"))}</th><th>${esc(tr("table.quality"))}</th><th></th></tr></thead>
         <tbody>${nodeRows(t)}</tbody>
       </table>
       <div class="track-ident" id="trackIdent-${esc(t.track_id)}"></div>
@@ -92,16 +105,21 @@ function trackCard(t) {
 }
 
 function render(data) {
+  state.data = data;
   state.tracks = data.tracks || [];
   const c = data.counts || {};
   $("#trackSummary").classList.remove("hidden");
   $("#trackSummary").innerHTML = ["D0", "D1", "D2", "D3", "D4"].map((lv) =>
-    `<div class="cascade-stat"><b>${c[lv] ?? 0}</b><span>${lv} ${esc((LEVEL_TEXT[lv] || "").split(" ").slice(1).join(" "))}</span></div>`
+    `<div class="cascade-stat"><b>${c[lv] ?? 0}</b><span>${esc(levelText(lv))}</span></div>`
   ).join("");
-  note(`<b>${esc(data.mode || "?")}</b> · ${timeFilterText(data.time_filter)} · ${data.insufficient ? "<b>insufficient</b> · " : ""}${cascadeText(data.cascade_counts)} · ${esc(data.note || "")}`);
+  const insufficientNote = data.insufficient && data.time_filter
+    ? " " + tr("tracks.insufficientNote", { kept: data.time_filter.kept })
+    : "";
+  const modeLabel = data.mode && window.I18n.hasKey(`mode.short.${data.mode}`) ? tr(`mode.short.${data.mode}`) : (data.mode || "?");
+  note(`<b>${esc(modeLabel)}</b> · ${esc(timeFilterText(data.time_filter))} · ${data.insufficient ? "<b>insufficient</b> · " : ""}${esc(cascadeText(data.cascade_counts))} · ${esc(window.I18n.modeNote(data) + insufficientNote)}`);
   const shown = state.tracks.slice(0, 120);
   $("#trackList").innerHTML = shown.length ? shown.map(trackCard).join("") :
-    '<div class="track-empty">没有 tracklet。数据不足/没有节点时不伪造轨迹。</div>';
+    `<div class="track-empty">${esc(tr("tracks.empty"))}</div>`;
   $("#trackList").onclick = (e) => {
     const btn = e.target.closest("button[data-ident-track]");
     if (!btn) return;
@@ -119,7 +137,7 @@ function cascadeText(c) {
 async function identifyNode(track, node) {
   const box = document.getElementById(`trackIdent-${track.track_id}`);
   if (!box) return;
-  box.innerHTML = '<span class="muted">正在查询星表…</span>';
+  box.innerHTML = `<span class="muted">${esc(tr("tracks.querying"))}</span>`;
   try {
     const r = await fetch("/api/identify", {
       method: "POST",
@@ -133,17 +151,17 @@ async function identifyNode(track, node) {
     const d = await r.json();
     if (!r.ok || d.error) {
       const e = d.error;
-      throw new Error((e && (e.message || e.code)) || "identify 请求失败");
+      throw apiError(e, tr("tracks.identifyRequestError"));
     }
     const status = d.status || "catalog_unavailable";
-    const label = d.label_zh || (status === "catalog_unavailable" ? "星表不可用" : status);
+    const label = window.I18n.catalogLabel(status, d.catalog_release || d.release);
     box.innerHTML = `<span class="catalog-badge ${esc(status)}">${esc(label)}</span>
       <span class="muted">${esc(status)}${d.catalog_release ? " · " + esc(d.catalog_release) : ""}${d.source_id ? " · " + esc(d.source_id) : ""}</span>
-      ${(d.caveats || []).map((x) => `<div class="catalog-note">${esc(x)}</div>`).join("")}`;
+      ${window.I18n.serverList(d.caveats).map((x) => `<div class="catalog-note">${esc(x)}</div>`).join("")}`;
   } catch (e) {
-    box.innerHTML = `<span class="catalog-badge catalog_unavailable">星表不可用</span>
-      <span class="muted">${esc(e.message)}</span>
-      <div class="catalog-note">星表不可用，不能判断节点是否已知；这不是“未匹配”。</div>`;
+    box.innerHTML = `<span class="catalog-badge catalog_unavailable">${esc(window.I18n.catalogLabel("catalog_unavailable"))}</span>
+      <span class="muted">${esc(window.I18n.errorText(e))}</span>
+      <div class="catalog-note">${esc(tr("tracks.identifyUnavailable"))}</div>`;
   }
 }
 
@@ -161,7 +179,7 @@ function selectedTarget() {
 async function runTracks() {
   const fov = parseFloat($("#fov").value);
   if (!Number.isFinite(fov) || fov < 0.02 || fov > 3.0) {
-    note("FOV 需在 0.02–3.0 度之间。", "err");
+    note(tr("note.fovInvalid", { value: esc($("#fov").value) }), "err");
     return;
   }
   const win = readTimeWindow();
@@ -171,7 +189,7 @@ async function runTracks() {
   if (sel.target_id) params.set("target_id", sel.target_id);
   else {
     if (!Number.isFinite(sel.ra) || !Number.isFinite(sel.dec)) {
-      note("请输入有效的 RA / Dec，或选择一个预设目标。", "err");
+      note(tr("note.raDecInvalid"), "err");
       return;
     }
     params.set("ra", String(sel.ra));
@@ -183,16 +201,17 @@ async function runTracks() {
   updateViewLink(sel, fov, win);
   const btn = $("#runTracks");
   btn.disabled = true;
-  note("正在取历元、跑 cascade 并关联 tracklet…");
+  note(tr("tracks.noteRunning"));
   try {
     const r = await fetch("/api/tracks?" + params.toString());
     const d = await r.json();
     if (!r.ok || d.error) {
       const e = d.error;
-      throw new Error((e && (e.message || e.code)) || "轨迹接口返回错误");
+      throw apiError(e, tr("tracks.runError", { msg: "" }));
     }
     render(d);
     const u = new URL(location.href);
+    u.searchParams.set("lang", window.I18n.lang);
     if (sel.target_id) { u.searchParams.set("target_id", sel.target_id); u.searchParams.delete("ra"); u.searchParams.delete("dec"); }
     else { u.searchParams.set("ra", String(sel.ra)); u.searchParams.set("dec", String(sel.dec)); u.searchParams.delete("target_id"); }
     u.searchParams.set("fov", String(fov));
@@ -202,7 +221,7 @@ async function runTracks() {
   } catch (e) {
     $("#trackSummary").classList.add("hidden");
     $("#trackList").innerHTML = "";
-    note(`轨迹不可用：${esc(e.message)}。没有展示 SIM/伪造轨迹。`, "err");
+    note(tr("tracks.runError", { msg: esc(window.I18n.errorText(e)) }), "err");
   } finally {
     btn.disabled = false;
   }
@@ -211,9 +230,11 @@ async function runTracks() {
 function fillTargets(targets) {
   state.targets = targets || [];
   const sel = $("#targetSelect");
-  sel.innerHTML = '<option value="">自定义坐标</option>' + state.targets.map((t) =>
-    `<option value="${esc(t.id)}">${esc(t.name_zh || t.name)}</option>`
+  const current = sel.value;
+  sel.innerHTML = `<option value="">${esc(tr("cascade.coordPlaceholder"))}</option>` + state.targets.map((t) =>
+    `<option value="${esc(t.id)}">${esc(targetDisplayName(t))}</option>`
   ).join("");
+  if (current != null) sel.value = current;
   sel.onchange = () => {
     const t = state.targets.find((x) => x.id === sel.value);
     if (t) { $("#ra").value = t.ra; $("#dec").value = t.dec; }
@@ -227,7 +248,7 @@ async function init() {
     const d = await r.json();
     fillTargets(d.targets || []);
   } catch (e) {
-    note("目标列表不可用：" + e.message, "err");
+    note(tr("tracks.targetListFail", { msg: window.I18n.errorText(e) }), "err");
   }
   const u = new URL(location.href);
   const tid = u.searchParams.get("target_id");
@@ -235,6 +256,7 @@ async function init() {
   const dec = u.searchParams.get("dec");
   const fov = u.searchParams.get("fov");
   if (fov) $("#fov").value = fov;
+  u.searchParams.set("lang", window.I18n.lang);
   const t0 = u.searchParams.get("t0");
   const t1 = u.searchParams.get("t1");
   if (t0) $("#t0").value = t0;
@@ -252,5 +274,10 @@ async function init() {
   updateViewLink(selectedTarget(), parseFloat($("#fov").value), readTimeWindow());
   runTracks();
 }
+
+window.I18n.onChange(() => {
+  fillTargets(state.targets);
+  if (state.data) render(state.data);
+});
 
 init();

@@ -49,8 +49,8 @@
   function statusLabel(status, result) {
     if (result && result.label_zh) return result.label_zh;
     return {
-      known: "known", ambiguous: "ambiguous", no_match: "未收录候选",
-      insufficient: "数据不足", unknown: "未识别", conflict: "状态冲突",
+      known: "known", ambiguous: "ambiguous", no_match: "uncatalogued candidate",
+      insufficient: "insufficient data", unknown: "unidentified", conflict: "status conflict",
     }[status] || status;
   }
 

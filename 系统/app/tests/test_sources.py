@@ -355,7 +355,7 @@ console.log(JSON.stringify({
         self.assertAlmostEqual(out["roundtrip"][1], 49.5, places=6)
         self.assertAlmostEqual(out["sep"], 1e-4, places=9)
         self.assertAlmostEqual(out["nearest"]["source"]["ra"], 10.0, places=6)
-        self.assertEqual(out["qualityText"], "饱和")
+        self.assertEqual(out["qualityText"], "Saturated")
         self.assertTrue(out["selectable"])
         self.assertFalse(out["flaggedSelectable"])
 

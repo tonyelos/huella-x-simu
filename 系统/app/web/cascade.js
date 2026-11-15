@@ -5,6 +5,8 @@
  * - 不在前端做星表匹配/运动判定；
  * - 星表不可用时明确显示，不写成“未匹配”。
  */
+window.I18n.init();
+const tr = (key, params) => window.I18n.t(key, params);
 const $ = (sel) => document.querySelector(sel);
 const state = {
   targets: [],
@@ -13,8 +15,21 @@ const state = {
   byId: new Map(),
 };
 
+function apiError(e, fallback) {
+  const err = new Error((e && (e.message || e.code)) || fallback || tr("apiError.generic"));
+  if (e && e.code) err.code = e.code;
+  return err;
+}
+
 function esc(value) {
   return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function targetDisplayName(t) {
+  if (!t) return "";
+  const fallback = { m101: "target.m101", campo_a: "target.campo_a" }[t.id];
+  if (fallback && window.I18n.hasKey(fallback)) return tr(fallback);
+  return /[\u4e00-\u9fff]/.test(String(t.name || "")) ? (fallback ? tr(fallback) : String(t.name || t.id || "")) : (t.name || t.id || "");
 }
 
 function fmtNum(v, digits = 5) {
@@ -29,16 +44,16 @@ function readTimeWindow() {
   const t0 = $("#t0").value.trim();
   const t1 = $("#t1").value.trim();
   if (!t0 && !t1) return { ok: true, t0: null, t1: null };
-  if (!t0 || !t1) return { ok: false, error: "t0 与 t1 必须同时填写（MJD）。" };
+  if (!t0 || !t1) return { ok: false, error: tr("note.readTimeBoth") };
   const a = Number(t0), b = Number(t1);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: "t0/t1 必须是 MJD 数字。" };
-  if (a > b) return { ok: false, error: "t0 必须 ≤ t1。" };
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return { ok: false, error: tr("note.readTimeNumber") };
+  if (a > b) return { ok: false, error: tr("note.readTimeOrder") };
   return { ok: true, t0: a, t1: b };
 }
 
 function timeFilterText(tf) {
-  if (!tf || !tf.filtered) return tf && tf.requested != null ? `全时段 ${tf.requested} 期` : "全时段";
-  return `来自视图 / 时间窗口 MJD ${Number(tf.t0).toFixed(3)}–${Number(tf.t1).toFixed(3)} / 保留 ${tf.kept}/${tf.requested} 期`;
+  if (!tf || !tf.filtered) return tf && tf.requested != null ? tr("time.allPeriodsRequested", { n: tf.requested }) : tr("time.allPeriods");
+  return tr("time.window", { t0: Number(tf.t0).toFixed(3), t1: Number(tf.t1).toFixed(3), kept: tf.kept, requested: tf.requested });
 }
 
 function updateViewLink(sel, fov, win) {
@@ -65,12 +80,11 @@ function note(html, cls = "") {
 }
 
 function qualityText(src) {
-  const q = Array.isArray(src.quality) ? src.quality : [];
-  return q.length ? q.join(" · ") : "—";
+  return window.I18n.qualityText(src);
 }
 
 function sourceTable(rows, stageLabel) {
-  if (!rows || !rows.length) return '<div class="cascade-empty">本层没有源</div>';
+  if (!rows || !rows.length) return `<div class="cascade-empty">${esc(tr("cascade.layer.none"))}</div>`;
   const shown = rows.slice(0, 80);
   const trs = shown.map((s) => {
     const sid = esc(s.source_id || "");
@@ -83,19 +97,19 @@ function sourceTable(rows, stageLabel) {
     </tr>`;
   }).join("");
   return `<table class="cascade-table">
-    <thead><tr><th>stage</th><th>S/N</th><th>RA</th><th>Dec</th><th>quality</th></tr></thead>
+    <thead><tr><th>${esc(tr("table.stage"))}</th><th>${esc(tr("table.sn"))}</th><th>${esc(tr("table.ra"))}</th><th>${esc(tr("table.dec"))}</th><th>${esc(tr("table.quality"))}</th></tr></thead>
     <tbody>${trs}</tbody>
-  </table>${rows.length > 80 ? `<div class="cascade-empty">仅显示前 80 / 共 ${rows.length} 个；计数为全量。</div>` : ""}`;
+  </table>${rows.length > 80 ? `<div class="cascade-empty">${esc(tr("cascade.layer.showing", { n: rows.length }))}</div>` : ""}`;
 }
 
 function renderEpoch(ep) {
   const layers = [
-    ["L1 检测源", ep.counts.l1, sourceTable(ep.l1, "L1")],
-    ["残差候选（residual）", ep.counts.residual, sourceTable(ep.residual, "residual")],
+    [tr("cascade.layer.l1"), ep.counts.l1, sourceTable(ep.l1, "L1")],
+    [tr("cascade.layer.residual"), ep.counts.residual, sourceTable(ep.residual, "residual")],
   ];
   const maskedTable = ep.counts.masked
-    ? `<details class="cascade-layer"><summary>被掩膜 / 已检测（${ep.counts.masked}）— reason=already_detected</summary>${sourceTable(ep.masked, "masked")}</details>`
-    : '<div class="cascade-layer"><h4>被掩膜 / 已检测</h4><div class="cascade-empty">本历元没有 L1 源需要掩膜</div></div>';
+    ? `<details class="cascade-layer"><summary>${esc(tr("cascade.layer.maskedCount", { n: ep.counts.masked }))}</summary>${sourceTable(ep.masked, "masked")}</details>`
+    : `<div class="cascade-layer"><h4>${esc(tr("cascade.layer.masked"))}</h4><div class="cascade-empty">${esc(tr("cascade.layer.maskedNone"))}</div></div>`;
   return `<article class="cascade-epoch">
     <div class="cascade-epoch-head">
       <div><b>${esc(ep.epoch_id)}</b><br><span>MJD ${fmtNum(ep.mjd, 3)} · ${esc(ep.band || "?")} · ${esc(ep.provenance || "?")}</span></div>
@@ -107,7 +121,7 @@ function renderEpoch(ep) {
     </div>
     ${layers.map(([title, n, table]) => `<div class="cascade-layer"><h4>${title}（${n}）</h4>${table}</div>`).join("")}
     ${maskedTable}
-    ${ep.error ? `<div class="cascade-detail">本历元级联失败：${esc(ep.error)}</div>` : ""}
+    ${ep.error ? `<div class="cascade-detail">${esc(tr("cascade.layer.failed", { err: window.I18n.serverText(ep.error) }))}</div>` : ""}
   </article>`;
 }
 
@@ -120,14 +134,15 @@ function render(data) {
     (ep.masked || []).forEach((s) => state.byId.set(s.source_id, { ...s, mjd: ep.mjd, epoch_id: ep.epoch_id }));
   });
   const c = data.counts || {};
+  const modeLabel = data.mode && window.I18n.hasKey(`mode.short.${data.mode}`) ? tr(`mode.short.${data.mode}`) : (data.mode || "?");
   $("#summary").classList.remove("hidden");
   $("#summary").innerHTML = `
-    <div class="cascade-stat"><b>${c.n_epochs ?? 0}</b><span>历元</span></div>
-    <div class="cascade-stat"><b>${c.l1 ?? 0}</b><span>L1 源</span></div>
-    <div class="cascade-stat"><b>${c.masked ?? 0}</b><span>Masked</span></div>
-    <div class="cascade-stat"><b>${c.residual ?? 0}</b><span>Residual</span></div>
-    <div class="cascade-stat"><b>${esc(data.mode || "?")}</b><span>数据模式</span></div>`;
-  note(`<b>${esc(data.mode || "?")}</b> · ${timeFilterText(data.time_filter)} · ${c.n_epochs ?? 0} 历元 · ${esc(data.note || "")}`);
+    <div class="cascade-stat"><b>${c.n_epochs ?? 0}</b><span>${esc(tr("cascade.summary.epochs"))}</span></div>
+    <div class="cascade-stat"><b>${c.l1 ?? 0}</b><span>${esc(tr("cascade.summary.l1"))}</span></div>
+    <div class="cascade-stat"><b>${c.masked ?? 0}</b><span>${esc(tr("cascade.summary.masked"))}</span></div>
+    <div class="cascade-stat"><b>${c.residual ?? 0}</b><span>${esc(tr("cascade.summary.residual"))}</span></div>
+    <div class="cascade-stat"><b>${esc(modeLabel)}</b><span>${esc(tr("cascade.summary.mode"))}</span></div>`;
+  note(`<b>${esc(modeLabel)}</b> · ${esc(timeFilterText(data.time_filter))} · ${esc(window.I18n.modeNote(data))}`);
   const oldDetail = $("#sourceDetail");
   if (oldDetail) oldDetail.remove();
   state.selected = null;
@@ -138,7 +153,7 @@ function render(data) {
   const before = $("#epochs");
   before.parentNode.insertBefore(detail, before);
   $("#epochs").innerHTML = (data.epochs || []).map(renderEpoch).join("") ||
-    '<div class="cascade-empty">没有历元。</div>';
+    `<div class="cascade-empty">${esc(tr("cascade.empty"))}</div>`;
   $("#epochs").onclick = (e) => {
     const tr = e.target.closest("tr[data-source-id]");
     if (tr) selectSource(tr.dataset.sourceId);
@@ -154,12 +169,12 @@ function selectSource(id) {
   if (!detail) return;
   detail.classList.remove("hidden");
   detail.innerHTML = `
-    <b>已选源</b> · ${esc(s.stage)} · <code>${esc(s.source_id)}</code><br>
+    <b>${esc(tr("cascade.selected"))}</b> · ${esc(s.stage)} · <code>${esc(s.source_id)}</code><br>
     RA <b>${fmtNum(s.ra)}°</b> · Dec <b>${fmtNum(s.dec)}°</b> · S/N <b>${fmtSnr(s.snr)}</b> · MJD ${fmtNum(s.mjd, 3)}<br>
     ${s.parent ? `parent: <code>${esc(s.parent)}</code> · ` : ""}${s.masked_by ? `masked_by: <code>${esc(s.masked_by)}</code> · ` : ""}${s.reason ? `reason: ${esc(s.reason)} · ` : ""}quality: ${esc(qualityText(s))}
     <div class="cascade-ident" id="cascadeIdent">
-      <button id="identifyCascade" class="ghost small" type="button">用 /api/identify 识别</button>
-      <span class="muted">只查星表身份；残差候选不是新天体。</span>
+      <button id="identifyCascade" class="ghost small" type="button">${esc(tr("cascade.identifyButton"))}</button>
+      <span class="muted">${esc(tr("cascade.identifyHint"))}</span>
     </div>`;
   $("#identifyCascade").onclick = identifySelected;
 }
@@ -168,7 +183,7 @@ async function identifySelected() {
   const s = state.selected;
   const box = $("#cascadeIdent");
   if (!s || !box) return;
-  box.innerHTML = '<span class="muted">正在查询星表…</span>';
+  box.innerHTML = `<span class="muted">${esc(tr("cascade.querying"))}</span>`;
   try {
     const r = await fetch("/api/identify", {
       method: "POST",
@@ -185,20 +200,20 @@ async function identifySelected() {
     const d = await r.json();
     if (!r.ok || d.error) {
       const e = d.error;
-      throw new Error((e && (e.message || e.code)) || "identify 请求失败");
+      throw apiError(e, tr("cascade.identifyRequestError"));
     }
     const status = d.status || "catalog_unavailable";
-    const label = d.label_zh || (status === "catalog_unavailable" ? "星表不可用" : status);
-    const caveats = (d.caveats || []).map((x) => `<div class="catalog-note">${esc(x)}</div>`).join("");
+    const label = window.I18n.catalogLabel(status, d.catalog_release || d.release);
+    const caveats = window.I18n.serverList(d.caveats).map((x) => `<div class="catalog-note">${esc(x)}</div>`).join("");
     box.innerHTML = `
       <span class="catalog-badge ${esc(status)}">${esc(label)}</span>
       <span class="muted">${esc(status)}${d.catalog_release ? ` · ${esc(d.catalog_release)}` : ""}${d.source_id ? ` · ${esc(d.source_id)}` : ""}</span>
       ${caveats}
-      <div class="catalog-note">${esc(d.disclaimer || "残差候选不是新天体；未匹配不等于新星。")}</div>`;
+      <div class="catalog-note">${esc(tr("catalog.disclaimer"))}</div>`;
   } catch (e) {
-    box.innerHTML = `<span class="catalog-badge catalog_unavailable">星表不可用</span>
-      <span class="muted">${esc(e.message)}</span>
-      <div class="catalog-note">星表不可用，不能判断该源是否已知；这不是“未匹配”。</div>`;
+    box.innerHTML = `<span class="catalog-badge catalog_unavailable">${esc(window.I18n.catalogLabel("catalog_unavailable"))}</span>
+      <span class="muted">${esc(window.I18n.errorText(e))}</span>
+      <div class="catalog-note">${esc(tr("cascade.identifyUnavailable"))}</div>`;
   }
 }
 
@@ -216,7 +231,7 @@ function selectedTarget() {
 async function runCascade() {
   const fov = parseFloat($("#fov").value);
   if (!Number.isFinite(fov) || fov < 0.02 || fov > 3.0) {
-    note("FOV 需在 0.02–3.0 度之间。", "err");
+    note(tr("note.fovInvalid", { value: esc($("#fov").value) }), "err");
     return;
   }
   const win = readTimeWindow();
@@ -226,7 +241,7 @@ async function runCascade() {
   if (sel.target_id) params.set("target_id", sel.target_id);
   else {
     if (!Number.isFinite(sel.ra) || !Number.isFinite(sel.dec)) {
-      note("请输入有效的 RA / Dec，或选择一个预设目标。", "err");
+      note(tr("note.raDecInvalid"), "err");
       return;
     }
     params.set("ra", String(sel.ra));
@@ -238,16 +253,17 @@ async function runCascade() {
   updateViewLink(sel, fov, win);
   const btn = $("#runCascade");
   btn.disabled = true;
-  note("正在取历元并跑级联层…");
+  note(tr("cascade.noteRunning"));
   try {
     const r = await fetch("/api/cascade?" + params.toString());
     const d = await r.json();
     if (!r.ok || d.error) {
       const e = d.error;
-      throw new Error((e && (e.message || e.code)) || "级联接口返回错误");
+      throw apiError(e, tr("cascade.runError", { msg: "" }));
     }
     render(d);
     const u = new URL(location.href);
+    u.searchParams.set("lang", window.I18n.lang);
     if (sel.target_id) {
       u.searchParams.set("target_id", sel.target_id);
       u.searchParams.delete("ra");
@@ -264,7 +280,7 @@ async function runCascade() {
   } catch (e) {
     $("#summary").classList.add("hidden");
     $("#epochs").innerHTML = "";
-    note(`级联不可用：${esc(e.message)}。没有展示 SIM/伪造源。`, "err");
+    note(tr("cascade.runError", { msg: esc(window.I18n.errorText(e)) }), "err");
   } finally {
     btn.disabled = false;
   }
@@ -273,9 +289,11 @@ async function runCascade() {
 function fillTargets(targets) {
   state.targets = targets || [];
   const sel = $("#targetSelect");
-  sel.innerHTML = '<option value="">自定义坐标</option>' + state.targets.map((t) =>
-    `<option value="${esc(t.id)}">${esc(t.name_zh || t.name)}</option>`
+  const current = sel.value;
+  sel.innerHTML = `<option value="">${esc(tr("cascade.coordPlaceholder"))}</option>` + state.targets.map((t) =>
+    `<option value="${esc(t.id)}">${esc(targetDisplayName(t))}</option>`
   ).join("");
+  if (current != null) sel.value = current;
   sel.onchange = () => {
     const t = state.targets.find((x) => x.id === sel.value);
     if (t) {
@@ -292,7 +310,7 @@ async function init() {
     const d = await r.json();
     fillTargets(d.targets || []);
   } catch (e) {
-    note("目标列表不可用：" + e.message, "err");
+    note(tr("cascade.targetListFail", { msg: window.I18n.errorText(e) }), "err");
   }
   const u = new URL(location.href);
   const tid = u.searchParams.get("target_id");
@@ -300,6 +318,7 @@ async function init() {
   const dec = u.searchParams.get("dec");
   const fov = u.searchParams.get("fov");
   if (fov) $("#fov").value = fov;
+  u.searchParams.set("lang", window.I18n.lang);
   const t0 = u.searchParams.get("t0");
   const t1 = u.searchParams.get("t1");
   if (t0) $("#t0").value = t0;
@@ -322,5 +341,13 @@ async function init() {
   updateViewLink(selectedTarget(), parseFloat($("#fov").value), readTimeWindow());
   runCascade();
 }
+
+window.I18n.onChange(() => {
+  fillTargets(state.targets);
+  if (state.data) {
+    render(state.data);
+    if (state.selected) selectSource(state.selected.source_id);
+  }
+});
 
 init();

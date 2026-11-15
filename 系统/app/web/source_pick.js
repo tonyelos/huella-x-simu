@@ -17,11 +17,11 @@
   "use strict";
 
   const QUALITY_LABEL = {
-    SATURATED: "饱和",
-    LOW_SNR: "低 S/N",
-    EDGE: "边缘",
-    OUT_OF_FRAME: "帧外",
-    DUPLICATE: "重复",
+    SATURATED: "Saturated",
+    LOW_SNR: "Low S/N",
+    EDGE: "Edge",
+    OUT_OF_FRAME: "Out of frame",
+    DUPLICATE: "Duplicate",
   };
 
   function qualityFlags(src) {
@@ -34,8 +34,11 @@
   }
 
   function qualityText(src) {
+    if (typeof window !== "undefined" && window.I18n && typeof window.I18n.qualityText === "function") {
+      return window.I18n.qualityText(src);
+    }
     const flags = qualityFlags(src);
-    return flags.length ? flags.map((f) => QUALITY_LABEL[f] || f).join(" · ") : "质量良好";
+    return flags.length ? flags.map((f) => QUALITY_LABEL[f] || f).join(" · ") : "Good quality";
   }
 
   function sourcesForFrame(sources, frame) {

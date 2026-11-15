@@ -1,44 +1,48 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MoveScope · 跨历元轨迹候选</title>
+<title>MoveScope · Cross-epoch track candidates</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body data-page="tracks">
 <header class="top">
   <div class="brand">
     <div class="logo">◈</div>
     <div>
-      <h1>MoveScope <span class="zh">跨历元轨迹</span></h1>
-      <p>L1 + residual 节点 → tracklet → D0–D4 候选分级</p>
+      <h1>MoveScope <span class="zh" data-i18n="tracks.tagline">Cross-epoch tracks</span></h1>
+      <p data-i18n="tracks.subtitle">L1 + residual nodes → tracklet → D0–D4 candidate grading</p>
     </div>
   </div>
   <div class="top-right">
-    <span class="badge ghost">TRACKS MVP</span>
-    <a id="viewLink" class="ghost small hidden" href="http://127.0.0.1:8830/" target="_blank" rel="noopener">回到视图</a>
-    <a class="ghost small" href="/cascade">级联/残差</a>
-    <a class="ghost small" href="/">← 主应用</a>
+    <select id="langSelect" class="lang-select" data-lang-select data-i18n-aria-label="lang.label" aria-label="Language">
+      <option value="en">EN</option>
+      <option value="es">ES</option>
+    </select>
+    <span class="badge ghost" data-i18n="header.tracks.badge">TRACKS MVP</span>
+    <a id="viewLink" class="ghost small hidden" href="http://127.0.0.1:8830/" target="_blank" rel="noopener" data-i18n="header.cascade.linkView">Back to view</a>
+    <a class="ghost small" href="/cascade" data-i18n="header.tracks.linkCascade">Cascade / residuals</a>
+    <a class="ghost small" href="/" data-i18n="header.tracks.back">← Main app</a>
   </div>
 </header>
 
 <main class="cascade-main">
   <section class="panel cascade-controls">
-    <h2><span class="num">01</span> 选择天区</h2>
+    <h2><span class="num">01</span> <span data-i18n="section.sky">Select sky field</span></h2>
     <div class="fields cascade-fields">
-      <label>目标预设<select id="targetSelect"></select></label>
-      <label>赤经 RA <span class="unit">deg</span><input id="ra" inputmode="decimal"></label>
-      <label>赤纬 Dec <span class="unit">deg</span><input id="dec" inputmode="decimal"></label>
-      <label>视场 FOV <span class="unit">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01"></label>
-      <label>窗口 t0 <span class="unit">MJD</span><input id="t0" inputmode="decimal" placeholder="可选"></label>
-      <label>窗口 t1 <span class="unit">MJD</span><input id="t1" inputmode="decimal" placeholder="可选"></label>
+      <label><span data-i18n="cascade.targetPreset">Target preset</span><select id="targetSelect"></select></label>
+      <label><span data-i18n="field.ra">RA</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="ra" inputmode="decimal"></label>
+      <label><span data-i18n="field.dec">Dec</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="dec" inputmode="decimal"></label>
+      <label><span data-i18n="field.fov">FOV</span> <span class="unit" data-i18n="unit.deg">deg</span><input id="fov" inputmode="decimal" value="0.2" min="0.02" max="3.0" step="0.01"></label>
+      <label><span data-i18n="field.t0">Window t0</span> <span class="unit" data-i18n="unit.mjd">MJD</span><input id="t0" inputmode="decimal" data-i18n-placeholder="field.optional" placeholder="optional"></label>
+      <label><span data-i18n="field.t1">Window t1</span> <span class="unit" data-i18n="unit.mjd">MJD</span><input id="t1" inputmode="decimal" data-i18n-placeholder="field.optional" placeholder="optional"></label>
     </div>
-    <button id="runTracks" class="primary"><span class="dot"></span>运行轨迹发现</button>
-    <div id="tracksNote" class="note">正在加载目标…</div>
-    <div class="cascade-warning">
-      <b>边界</b>：轨迹候选不是新天体；D5 才需要人工/后续确认。
-      D0–D4 是候选分级，不构成发现声明。4 期数据下关联本身有歧义。
+    <button id="runTracks" class="primary"><span class="dot"></span><span data-i18n="tracks.run">Run track search</span></button>
+    <div id="tracksNote" class="note" data-i18n="cascade.loadingTargets">Loading targets…</div>
+    <div class="cascade-warning" data-i18n-html="tracks.warning">
+      <b>Boundary</b>: track candidates are not new objects; only D5 requires manual/follow-up confirmation.
+      D0–D4 are candidate grades, not a discovery claim; at 4 epochs the association itself is ambiguous.
     </div>
   </section>
 
@@ -47,10 +51,11 @@
 </main>
 
 <footer class="foot">
-  <span>层：D0 artifact · D1 known catalog · D2 未做 · D3 unknown moving · D4 unknown stationary</span>
-  <span>轨迹候选 ≠ 新天体；D5 人工/后续确认</span>
+  <span data-i18n="tracks.footer.levels">Layers: D0 artifact · D1 known catalog · D2 not implemented · D3 unknown moving · D4 unknown stationary</span>
+  <span data-i18n="tracks.footer.boundary">Track candidates ≠ new objects; D5 requires manual/follow-up confirmation</span>
 </footer>
 
+<script src="/static/i18n.js"></script>
 <script src="/static/tracks.js"></script>
 </body>
 </html>
