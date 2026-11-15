@@ -247,7 +247,7 @@ function batchBadgeFor(result) {
   }
   if (result.status === "known_star") return '<span class="batch-badge known_star">known</span>';
   if (result.status === "ambiguous") return '<span class="batch-badge ambiguous">ambiguous</span>';
-  if (result.status === "catalog_unavailable") return '<span class="batch-badge catalog_unavailable">catalog_unavailable</span>';
+  if (result.status === "catalog_unavailable") return '<span class="batch-badge catalog_unavailable" title="星表不可用">unavailable</span>';
   if (result.status === "insufficient_data") return '<span class="batch-badge insufficient_data">insufficient</span>';
   return "";
 }
@@ -340,11 +340,9 @@ function renderCSources(data, httpStatus) {
       const q = (src.quality || []).join(" · ") || (src.saturated ? "SATURATED" : "—");
       const sid = esc(src.source_id || `#${i}`);
       const result = batch.byId && (batch.byId[String(src.source_id || "")] || batch.byId[String(i)]);
-      return `<button type="button" class="anyfield-source${state.locked && state.locked.c_source && state.locked.source_id === src.source_id ? " locked" : ""}" data-c-index="${i}" title="${sid}">
+      return `<button type="button" class="anyfield-source${state.locked && state.locked.c_source && state.locked.source_id === src.source_id ? " locked" : ""}" data-c-index="${i}" title="${sid} · ${esc(q)}">
         <span>S/N ${Number(src.snr || 0).toFixed(1)}</span>
-        <span>${Number(src.ra).toFixed(4)}°</span>
-        <span>${Number(src.dec).toFixed(4)}°</span>
-        <span class="q">${esc(q)}</span>
+        <span class="c-coord">${Number(src.ra).toFixed(4)} ${Number(src.dec).toFixed(4)}</span>
         ${batchBadgeFor(result)}
       </button>`;
     }).join("");
@@ -1485,11 +1483,12 @@ function renderASources(d) {
   const rows = shown.map((src) => {
     const key = window.ASourceBatch ? window.ASourceBatch.sourceKey(src) : `${src.epoch_id}:${src.x}:${src.y}`;
     const result = batch.byId && batch.byId[key];
-    return `<tr data-a-source-index="${sources.indexOf(src)}">
-      <td>${Number(src.frame) + 1} · ${esc(String(src.epoch_id || "").slice(-18))}</td>
+    const q = aSourceQuality(src);
+    const qDot = (src.quality || []).length ? '<span class="a-quality-dot" title="' + esc(q) + '">•</span>' : "";
+    return `<tr data-a-source-index="${sources.indexOf(src)}" title="${esc(q)}">
+      <td class="a-epoch"><b>F${Number(src.frame) + 1}</b> ${qDot}<span>${esc(String(src.epoch_id || "").slice(-10))}</span></td>
       <td>${Number(src.snr || 0).toFixed(1)}</td>
-      <td>${Number(src.ra).toFixed(4)} / ${Number(src.dec).toFixed(4)}</td>
-      <td class="q">${esc(aSourceQuality(src))}</td>
+      <td class="a-coord"><span>${Number(src.ra).toFixed(4)}</span><span>${Number(src.dec).toFixed(4)}</span></td>
       <td>${aSourceBadge(result)}</td>
     </tr>`;
   }).join("");
