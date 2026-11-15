@@ -23,6 +23,7 @@ import math
 import os
 import re
 import sqlite3
+import tempfile
 import threading
 import urllib.parse
 import uuid
@@ -31,6 +32,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import discovery as discovery_mod
+import fetch as fetch_mod
 import pixel_ingest
 from sidecar import Sidecar
 from wcs_footprint import (
@@ -40,8 +43,8 @@ from wcs_footprint import (
     point_in_polygon,
 )
 
-SERVICE_NAME = "anyfield-p1a"
-SERVICE_VERSION = "0.3.0"
+SERVICE_NAME = "anyfield-p1b"
+SERVICE_VERSION = "0.4.0"
 SCHEMA_VERSION = "1.0"
 # Legacy C-MVP field name; the authoritative per-epoch field is
 # coverage_method/footprint_method. Kept for the original 18 tests.
@@ -283,6 +286,13 @@ class Store:
         sidecar_path: str | Path | None = None,
         blob_root: str | Path | None = None,
         ingest_roots: list[str | Path] | None = None,
+        s3_base: str = discovery_mod.DEFAULT_S3_BASE,
+        irsa_base: str = fetch_mod.DEFAULT_IRSA_BASE,
+        week_index_path: str | Path = discovery_mod.DEFAULT_WEEK_INDEX,
+        discovery_cache_dir: str | Path = discovery_mod.DEFAULT_CACHE,
+        fetch_allow_hosts: list[str] | tuple[str, ...] | None = None,
+        fetch_max_bytes: int = fetch_mod.DEFAULT_MAX_BYTES,
+        fetch_timeout: float = fetch_mod.DEFAULT_TIMEOUT,
         build_footprints: bool = True,
     ) -> None:
         self.db_path = Path(db_path).expanduser().resolve()
@@ -292,6 +302,18 @@ class Store:
             self.ingest_roots = _default_ingest_roots()
         else:
             self.ingest_roots = [Path(p).expanduser().resolve() for p in ingest_roots]
+        self.discovery = discovery_mod.Discovery(
+            s3_base=s3_base,
+            irsa_base=irsa_base,
+            week_index_path=week_index_path,
+            cache_dir=discovery_cache_dir,
+        )
+        self.fetcher = fetch_mod.FetchClient(
+            irsa_base=irsa_base,
+            allow_hosts=fetch_allow_hosts or fetch_mod.DEFAULT_ALLOW_HOSTS,
+            max_bytes=fetch_max_bytes,
+            timeout=fetch_timeout,
+        )
         self._snapshot_lock = threading.Lock()
         self._ingest_lock = threading.Lock()
         self._snapshot_signature: tuple[Any, ...] | None = None
@@ -450,6 +472,16 @@ class Store:
                 "pixel_ingest": True,
                 "allowed_roots": [str(p) for p in self.ingest_roots],
                 "network": False,
+            },
+            "discovery": {
+                "method": "week_index+s3_header",
+                "s3_base": self.discovery.s3_base,
+                "week_index": str(self.discovery.week_index_path),
+            },
+            "fetch": {
+                "irsa_base": self.fetcher.irsa_base,
+                "allow_hosts": list(self.fetcher.allow_hosts),
+                "max_bytes": self.fetcher.max_bytes,
             },
         }
         if db_error:
@@ -925,6 +957,181 @@ class Store:
             "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
 
+    # ------------------------------------------------------------------ on-demand discovery / fetch (P1B)
+    def discover(self, ra: Any, dec: Any, fov: Any, max_weeks: int = 6) -> dict[str, Any]:
+        qra, qdec, qfov = _validate_query(ra, dec, fov)
+        try:
+            result = self.discovery.discover(qra, qdec, qfov, max_weeks)
+        except discovery_mod.DiscoveryError as exc:
+            if exc.code == "INVALID_QUERY":
+                raise ApiError(400, "INVALID_QUERY", exc.message) from exc
+            if exc.code == "WEEK_INDEX_UNAVAILABLE":
+                raise ApiError(503, "UPSTREAM_UNAVAILABLE", exc.message, retryable=True) from exc
+            raise ApiError(503, exc.code, exc.message, retryable=exc.retryable) from exc
+        payload = dict(result)
+        payload.update(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "service_version": SERVICE_VERSION,
+                "index_snapshot": self.index_snapshot(),
+                "index_completeness": INDEX_COMPLETENESS,
+            }
+        )
+        return payload
+
+    @staticmethod
+    def _is_fetch_manifest(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        if "s3_key" in payload:
+            return True
+        value = payload.get("input")
+        return isinstance(value, dict) and "s3_key" in value
+
+    @staticmethod
+    def _fetch_input(payload: dict[str, Any]) -> dict[str, Any]:
+        value = payload.get("input")
+        if isinstance(value, dict):
+            return value
+        return payload
+
+    def validate_fetch_manifest(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise ApiError(400, "INVALID_MANIFEST", "manifest 必须是 JSON 对象")
+        _reject_network_strings(payload)
+        source = payload.get("source")
+        if source is not None:
+            if not isinstance(source, dict):
+                raise ApiError(400, "INVALID_MANIFEST", "source 必须是对象")
+            kind = str(source.get("kind") or "on_demand_s3")
+            if kind not in ("on_demand_s3", "local_manifest"):
+                raise ApiError(400, "NETWORK_SOURCE_NOT_ALLOWED", "P1B fetch 只接受 on_demand_s3")
+        inp = self._fetch_input(payload)
+        key = str(inp.get("s3_key") or "").strip()
+        obsid = str(inp.get("obsid") or "").strip()
+        detector = _as_int(inp.get("detector"))
+        ra = payload.get("ra", inp.get("ra"))
+        dec = payload.get("dec", inp.get("dec"))
+        fov = payload.get("fov", inp.get("fov", 0.2))
+        if not key:
+            raise ApiError(400, "INVALID_MANIFEST", "缺 input.s3_key")
+        if not obsid or detector is None:
+            raise ApiError(400, "INVALID_MANIFEST", "缺 input.obsid/detector")
+        qra, qdec, qfov = _validate_query(ra, dec, fov)
+        try:
+            release, week, version = fetch_mod.validate_s3_key(key)
+            fetch_mod.validate_obsid_key(key, obsid, detector)
+            url = self.fetcher.cutout_url(key, qra, qdec, qfov)
+        except fetch_mod.FetchError as exc:
+            raise ApiError(400, exc.code, exc.message, retryable=False) from exc
+        epoch_id = _epoch_id_for(release, version, obsid, int(detector))
+        epoch = {
+            "epoch_id": epoch_id,
+            "obsid": obsid,
+            "detector": int(detector),
+            "release": release,
+            "version": version,
+            "week": week,
+            "mjd": 0.0,  # filled from downloaded header before commit
+            "date_obs": "",
+            "ra": qra,
+            "dec": qdec,
+            "frame_id": None,
+            "footprint": {
+                "method": FOOTPRINT_METHOD_CENTER,
+                "corners": [],
+                "polygon": [],
+                "center_ra": round(qra, 8),
+                "center_dec": round(qdec, 8),
+                "sip_applied": False,
+            },
+            "source": "on_demand_s3",
+            "source_count": 0,
+            "ingest_kind": "s3_cutout",
+            "input_path": key,
+            "file_sha256": None,
+        }
+        content_sha = _canonical_sha(
+            {
+                "fetch": {
+                    "key": key, "obsid": obsid, "detector": int(detector),
+                    "ra": round(qra, 6), "dec": round(qdec, 6), "fov": qfov,
+                }
+            }
+        )
+        epoch["content_sha256"] = content_sha
+        return {
+            "fetch": {
+                "key": key,
+                "url": url,
+                "obsid": obsid,
+                "detector": int(detector),
+                "ra": qra,
+                "dec": qdec,
+                "fov": qfov,
+                "release": release,
+                "week": week,
+                "version": version,
+            },
+            "epoch": epoch,
+            "measurements": [],
+            "content_sha256": content_sha,
+        }
+
+    def _process_fetch(self, job_id: str, normalized: dict[str, Any]) -> None:
+        info = normalized["fetch"]
+        tmp_path: Path | None = None
+        try:
+            data = self.fetcher.download(info["url"])
+            sha = hashlib.sha256(data).hexdigest()
+            temp_dir = SERVICE_ROOT / "var" / "fetch"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".fits", prefix="cutout-", dir=str(temp_dir), delete=False
+            ) as fh:
+                fh.write(data)
+                tmp_path = Path(fh.name)
+            meta = pixel_ingest.inspect_file(tmp_path, sha)
+            if str(meta["obsid"]) != info["obsid"] or int(meta["detector"]) != int(info["detector"]):
+                raise fetch_mod.FetchError(
+                    "FETCH_HEADER_MISMATCH",
+                    "下载 cutout 的 OBSID/DETECTOR 与请求不一致",
+                    retryable=False,
+                )
+            epoch, sources = pixel_ingest.detect_file_sources(tmp_path, sha, meta)
+            epoch["epoch_id"] = normalized["epoch"]["epoch_id"]
+            epoch["obsid"] = info["obsid"]
+            epoch["detector"] = int(info["detector"])
+            epoch["release"] = info["release"]
+            epoch["version"] = info["version"]
+            epoch["week"] = info["week"]
+            epoch["ra"] = info["ra"]
+            epoch["dec"] = info["dec"]
+            epoch["source"] = "on_demand_s3"
+            epoch["ingest_kind"] = "s3_cutout"
+            epoch["input_path"] = info["key"]
+            epoch["file_sha256"] = sha
+            epoch["content_sha256"] = normalized["epoch"]["content_sha256"]
+            epoch["source_count"] = len(sources)
+            measurements = self._source_measurements(epoch, sources, source_origin="on_demand_s3")
+            normalized = dict(normalized)
+            normalized["epoch"] = epoch
+            normalized["measurements"] = measurements
+            normalized["content_sha256"] = normalized["epoch"].get("content_sha256", normalized["content_sha256"])
+            self.sidecar.publish_job(job_id, epoch, measurements)
+        except fetch_mod.FetchError as exc:
+            self.sidecar.fail_job(job_id, exc.code, exc.message)
+        except pixel_ingest.InvalidPixelFile as exc:
+            self.sidecar.fail_job(job_id, "INVALID_INGEST_FILE", str(exc))
+        except Exception as exc:  # noqa: BLE001 - job must be marked failed
+            self.sidecar.fail_job(job_id, "FETCH_FAILED", str(exc))
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     # ------------------------------------------------------------------ local file ingest (P1A)
     @staticmethod
     def _is_file_manifest(payload: Any) -> bool:
@@ -1035,14 +1242,16 @@ class Store:
         }
 
     @staticmethod
-    def _source_measurements(epoch: dict[str, Any], sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _source_measurements(
+        epoch: dict[str, Any], sources: list[dict[str, Any]], *, source_origin: str = "ingested"
+    ) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for src in sources:
             idx = int(src["source_index"])
             out.append(
                 {
                     "measurement_id": _canonical_sha(
-                        {"epoch_id": epoch["epoch_id"], "source_index": idx, "source_origin": "ingested"}
+                        {"epoch_id": epoch["epoch_id"], "source_index": idx, "source_origin": source_origin}
                     ),
                     "target_key": f"source:{idx}",
                     "mjd": epoch["mjd"],
@@ -1056,7 +1265,7 @@ class Store:
                     "y": src.get("y"),
                     "saturated": bool(src.get("saturated")),
                     "quality": list(src.get("quality") or []),
-                    "source_origin": "ingested",
+                    "source_origin": source_origin,
                 }
             )
         return out
@@ -1081,8 +1290,9 @@ class Store:
             radius_deg=qfov / 2.0,
             epoch=epoch or None,
             limit=limit_i,
-            origin="ingested",
         )
+        origins = sorted({str(src.get("source_origin")) for src in sources if src.get("source_origin")})
+        origin_label = origins[0] if len(origins) == 1 else ("mixed" if origins else "none")
         return {
             "schema_version": SCHEMA_VERSION,
             "service_version": SERVICE_VERSION,
@@ -1096,7 +1306,7 @@ class Store:
                 "epoch": epoch,
                 "limit": limit_i,
             },
-            "source_origin": "ingested",
+            "source_origin": origin_label,
             "provenance": "real",
             "count": len(sources),
             "sources": sources,
@@ -1110,11 +1320,12 @@ class Store:
             dec=dec,
             radius_deg=fov / 2.0,
             limit=MAX_FIELD_SOURCES,
-            origin="ingested",
         )
+        origins = sorted({str(src.get("source_origin")) for src in sources if src.get("source_origin")})
+        origin_label = origins[0] if len(origins) == 1 else ("mixed" if origins else "none")
         body["sources"] = sources
         body["source_count"] = len(sources)
-        body["source_origin"] = "ingested"
+        body["source_origin"] = origin_label
         body["sources_truncated"] = len(sources) >= MAX_FIELD_SOURCES
         body["sources_url"] = (
             "/api/v1/sources?"
@@ -1201,7 +1412,9 @@ class Store:
     def submit_ingest(self, payload: Any) -> dict[str, Any]:
         if isinstance(payload, str):
             payload = {"input": {"path": payload}}
-        if self._is_file_manifest(payload):
+        if self._is_fetch_manifest(payload):
+            normalized = self.validate_fetch_manifest(payload)
+        elif self._is_file_manifest(payload):
             normalized = self.validate_file_manifest(payload)
         else:
             normalized = self.validate_manifest(payload)
@@ -1221,14 +1434,15 @@ class Store:
             job_id = "ing_" + uuid.uuid4().hex[:16]
             request_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             file_info = normalized.get("file") or {}
+            fetch_info = normalized.get("fetch") or {}
             self.sidecar.create_job(
                 job_id,
                 epoch_id,
                 normalized["content_sha256"],
                 request_json,
                 state="queued",
-                input_kind=str(file_info.get("kind") or "manifest"),
-                input_path=file_info.get("path") or epoch.get("input_path"),
+                input_kind=str(fetch_info and "s3_cutout" or file_info.get("kind") or "manifest"),
+                input_path=fetch_info.get("key") or file_info.get("path") or epoch.get("input_path"),
             )
             thread = threading.Thread(
                 target=self._process_ingest,
@@ -1249,6 +1463,7 @@ class Store:
     def _replay_job(self, epoch: dict[str, Any], normalized: dict[str, Any]) -> dict[str, Any]:
         job_id = "ing_" + uuid.uuid4().hex[:16]
         file_info = normalized.get("file") or {}
+        fetch_info = normalized.get("fetch") or {}
         self.sidecar.create_job(
             job_id,
             epoch["epoch_id"],
@@ -1256,8 +1471,8 @@ class Store:
             json.dumps({"replayed": True}, separators=(",", ":")),
             state="committed",
             replayed=True,
-            input_kind=str(file_info.get("kind") or "manifest"),
-            input_path=file_info.get("path") or epoch.get("input_path"),
+            input_kind=str(fetch_info and "s3_cutout" or file_info.get("kind") or "manifest"),
+            input_path=fetch_info.get("key") or file_info.get("path") or epoch.get("input_path"),
         )
         row = self.sidecar.get_job(job_id) or {}
         dto = self._job_dto(row, replayed=True)
@@ -1267,6 +1482,9 @@ class Store:
     def _process_ingest(self, job_id: str, normalized: dict[str, Any]) -> None:
         self.sidecar.mark_running(job_id)
         try:
+            if normalized.get("fetch"):
+                self._process_fetch(job_id, normalized)
+                return
             if normalized.get("file"):
                 file_info = normalized["file"]
                 epoch, sources = pixel_ingest.detect_file_sources(

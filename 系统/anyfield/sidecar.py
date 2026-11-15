@@ -604,13 +604,25 @@ class Sidecar:
         radius_deg: float | None = None,
         epoch: str | None = None,
         limit: int = 1000,
-        origin: str = "ingested",
+        origin: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return visible ingested sources, optionally filtered by sky/epoch."""
+        """Return visible C sources.
+
+        Default returns local-ingested and on-demand-S3 sources; P0 manifest
+        measurements (source_origin='manifest') are excluded because they are
+        caller-provided target measurements, not source detections.
+        """
         limit = max(1, min(int(limit), 5000))
+        if origin in (None, "", "all"):
+            origins = ("ingested", "on_demand_s3")
+        elif origin in ("ingested", "on_demand_s3"):
+            origins = (origin,)
+        else:
+            origins = (str(origin),)
+        placeholders = ",".join("?" for _ in origins)
         with self._lock, closing(self._connect()) as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT m.measurement_id, m.epoch_id, m.target_key, m.mjd,
                        m.ra, m.dec, m.flux, m.flux_err, m.snr,
                        m.source_index, m.x, m.y, m.saturated, m.source_origin,
@@ -618,10 +630,10 @@ class Sidecar:
                        e.version, e.week, e.ingest_kind, e.input_path
                 FROM measurement m
                 JOIN epoch_extra e ON e.epoch_id = m.epoch_id
-                WHERE m.visible=1 AND e.visible=1 AND m.source_origin=?
+                WHERE m.visible=1 AND e.visible=1 AND m.source_origin IN ({placeholders})
                 ORDER BY e.mjd ASC, COALESCE(m.source_index, 9999) ASC
                 """,
-                (origin,),
+                origins,
             ).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
@@ -675,7 +687,8 @@ class Sidecar:
         with self._lock, closing(self._connect()) as conn:
             rows = conn.execute(
                 f"SELECT epoch_id, COUNT(*) AS n FROM measurement "
-                f"WHERE visible=1 AND source_origin='ingested' AND epoch_id IN ({placeholders}) "
+                f"WHERE visible=1 AND source_origin IN ('ingested','on_demand_s3') "
+                f"AND epoch_id IN ({placeholders}) "
                 f"GROUP BY epoch_id",
                 ids,
             ).fetchall()
@@ -695,7 +708,7 @@ class Sidecar:
                 "sources": int(
                     conn.execute(
                         "SELECT COUNT(*) FROM measurement WHERE visible=1 "
-                        "AND source_origin='ingested'"
+                        "AND source_origin IN ('ingested','on_demand_s3')"
                     ).fetchone()[0]
                 ),
                 "complete_regions": int(
