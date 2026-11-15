@@ -123,6 +123,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 级联/残差页已实现：`/cascade`（Barnard 4 历元 / 215 L1 / 215 masked / 241 residual；5σ ≤80/期；页面明确“残差候选 ≠ 新天体”）。见 [GUI链路测试.md](GUI链路测试.md) §5。
 
+多历元层级发现：[../架构/11_多历元层级发现.md](../架构/11_多历元层级发现.md)（tracklet + D0–D5；候选发现，不是自动确认）。
+
 ### 2.6 D-MVP 已知/未知识别
 
 - A 锁定检测源后，app 调用 `/api/identify` → 独立星表服务 8799 → Gaia DR3 `match`。
