@@ -155,6 +155,8 @@ A 源表批量识别已实现：215 源 → known 130 / ambiguous 33 / no_match 
 
 批量结果审计导出已实现：A 215 行/C 111 行 CSV（含 RUWE、2MASS/WISE 列；ambiguous 空 catalog_id；no_match 未收录候选）；见 [GUI链路测试.md](GUI链路测试.md) §14。
 
+后续五项任务计划：[../架构/21_后续五项任务.md](../架构/21_后续五项任务.md)（JSON/服务端导出、CSV 多候选、2MASS/WISE/SIMBAD、TAP E2E、统一目录）。
+
 星表可用性检查：[星表可用性检查.md](星表可用性检查.md)（7 场/17,679 源可用；任意新天区 503；不是全量 Gaia）。
 
 批量结果审计导出计划：[../架构/20_批量结果审计导出.md](../架构/20_批量结果审计导出.md)（CSV/JSON，含 RUWE 与 J/H/K/W1/W2）。
