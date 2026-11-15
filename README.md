@@ -1,239 +1,638 @@
 # MoveScope · 星动仪
 
-**一个天体运动规律识别工具**：输入天区坐标，取回多期 SPHEREx 近红外光谱像，
-测量目标的位置序列与亮度序列，用一组物理模型去拟合，最后给出
-**运动指纹**（μ、方向、位移、直线性、加速、振幅、周期、显著性）、**规律判定**、**置信度**与**可证伪条件**。
+**A multi-epoch SPHEREx image-analysis tool for motion and variability.**
+MoveScope takes a sky position, retrieves several SPHEREx level-2 spectral
+images, measures the position and flux of a target (and of the objects around
+it), fits a physically motivated model family, and reports a **motion
+fingerprint**, a classification, confidence, falsifiable evidence, and the
+limits of what the data can support.
 
-> 理论设计先于代码：先读 `系统/docs/01_理论设计编排.md`，再看实现。
+**English** | [中文](README.zh-CN.md)
 
-![MoveScope](系统/docs/img/ui-main.png)
+> Design comes before code. Read the theory note first:
+> [`系统/docs/01_理论设计编排.md`](系统/docs/01_理论设计编排.md).
+> Implementation details, measured values, and known discrepancies are in
+> [`系统/docs/02_实现与实测记录.md`](系统/docs/02_实现与实测记录.md).
 
-*真实数据：Epsilon Indi B，8 期 SPHEREx 切片、361 天基线；轨迹放大窗显示 4.41″ 的位移。*
+![MoveScope UI](系统/docs/img/ui-main.png)
 
----
-
-## 1. 它回答什么问题
-
-| 你会看到 | 它意味着什么 |
-|---|---|
-| **L 匀速直线** | 近邻恒星/褐矮星的高自行；给出 μ（mas/yr）与方向角 |
-| **V 变光** | 位置不动、亮度在变（变星、AGN）。**不会被"两图相减非零"误判成移动** |
-| **A 加速/弯曲** | 太阳系天体或双星轨道候选；给出二次项显著性 |
-| **S 静止** | 背景恒星/星系；给出 3σ 运动上限 |
-| **U 不可判定** | 数据就绪度不足；明确说"不猜" |
-
-每个结论都附带：
-
-- **数据就绪度** L0–L3（1 期 / 2 期 / 3–5 期 / ≥6 期跨 6 个月）
-- **模型选择**：M0 静止、M1 变光、M2 匀速、M3 视差、M4 加速 的 BIC 概率
-- **证据链**与**可证伪条件**
-- **数据来源标识**：REAL / HYBRID / SIM，模拟数据绝不伪装成真实观测
+*Real data: Epsilon Indi B, eight SPHEREx epochs over a 361-day baseline. The
+trajectory inset shows the measured 4.41″ displacement.*
 
 ---
 
-## 2. 快速开始
+## 1. What the tool does
+
+MoveScope is a candidate-inspection tool, not a discovery engine. For a target
+it reports one of the following motion classes:
+
+| Class | Meaning | Typical interpretation |
+|---|---|---|
+| **L** | Linear proper motion | Nearby star / brown dwarf with measurable μ |
+| **V** | Variable | Position stable, flux changes (variable star, AGN) |
+| **A** | Accelerating / curved | Solar-system object or binary-orbit candidate |
+| **S** | Stationary | Background star / galaxy; gives a 3σ motion upper limit |
+| **U** | Undetermined | Readiness or data quality is insufficient; no guess |
+
+Each result includes:
+
+- **readiness** L0–L3 (1 / 2 / 3–5 / ≥6 epochs with a ≥6-month baseline);
+- **model selection** over M0 stationary, M1 variable, M2 linear proper
+  motion, M3 parallax, M4 proper motion + acceleration;
+- **evidence chain** and **falsifier**;
+- **provenance** REAL / HYBRID / SIM / SAMPLE; simulated data is never
+  presented as real;
+- an explicit `discovery_claim: false` boundary.
+
+The tool deliberately speaks in terms of candidates and evidence. “No catalog
+match” means “uncatalogued candidate”, never “new star” or “new planet”.
+
+---
+
+## 2. Current status
+
+The app-side test suite currently has **286 tests**:
 
 ```bash
-# 推荐：一条命令启动 DB(8797) + app(8790) + view(8830)
+PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
+cd 系统/app
+$PY -m unittest discover -s tests
+# Ran 286 tests ... OK
+```
+
+Recent capabilities:
+
+- main-canvas modes: **Browse / Cascade-residual / Tracks**;
+- `t0/t1` time-window filtering for analysis and layer products;
+- A-source and C-source batch catalog identification;
+- CSV/JSON audit export, including candidate-expanded CSV;
+- Gaia + 2MASS + WISE multi-catalog batch consumption with 0.5″ position
+  deduplication;
+- catalog-prior motion annotation (Barnard-like short-baseline case);
+- a unified A + C + Tracks audit directory;
+- A/C/Track candidate inspection without writing to the catalog database.
+
+The five official benchmark targets in the current cache resolve to:
+
+| Target | Expected | App result | Notes |
+|---|---|---|---|
+| Barnard's Star | L | **L (catalog prior)** | SPHEREx did not independently measure the motion; Gaia PM prior used |
+| Epsilon Indi B | L + O | **L**, identity ambiguous | RUWE high; no forced single-catalog identity |
+| WISE 0855 | L | **U** | data-limited; no forced L |
+| RW Aurigae | V | **V** | flux variability, position stable |
+| R Draconis | V | **V** | flux variability, position stable |
+
+Result: **4 PASS + 1 DATA_LIMITED**. The benchmark is deliberately allowed to
+fail or be data-limited; the tool does not tune labels to the expected answer.
+
+---
+
+## 3. Quick start
+
+### Prerequisites
+
+- Python 3.12 with NumPy and Pillow (the bundled runtime works out of the box);
+- a browser with Canvas support;
+- for the optional WebGL view: WebGL2;
+- ports are local-only by default.
+
+### One command (DB + app + view)
+
+```bash
 cd /Users/yiao/Documents/huellaX
 项目主控/启动/start_all.sh
-# 打开 http://127.0.0.1:8790/
-
-# 或手动只起 app（预设目标可跑；任意坐标需要 DB 8797）
-PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
-$PY 系统/app/server.py --port 8790
-cd 系统/数据库工具 && $PY cli.py serve --port 8797
-
-# 可选：星表服务（D-MVP；离线 fixture 234 行，足够验证 known/ambiguous）
-cd 系统/数据库工具
-$PY tools/import_gaia.py --rebuild --offline
-$PY catalog_server.py --port 8799
-
-# 可选：C-MVP 本地覆盖骨架（8798；只读本地 catalog.sqlite，不联网）
-cd 系统/anyfield && ./start.sh 8798
+# open http://127.0.0.1:8790/
 ```
 
-首次分析某个真实目标时，会从 IRSA 静态切片接口取数（每期约 4 MB，带本地缓存）；
-后续分析直接读缓存。
+The launcher performs health checks and refuses to silently replace services
+that are already running. See
+[`项目主控/启动/README.md`](项目主控/启动/README.md).
 
-**参数边界**：FOV 合法范围 **0.02–3.0°**；非法值返回 400 + 可读错误码
-（`INVALID_FOV` / `FOV_TOO_LARGE` / `INVALID_COORDINATE` / `TARGET_COORD_CONFLICT`），不再是 500。
-
-**已知/未知识别（D-MVP）**：锁定检测源后，app 会调用独立星表服务（默认 8799）做 Gaia DR3 匹配，显示“已知恒星 / 多候选 ambiguous / 未收录候选 / 星表不可用”；未匹配不等于新天体，不做发现声明。
-
-**任意天区（C-P1B）**：8798 支持本地 NPZ/FITS ingest（P1A）、`/api/v1/discover` 周索引+64KB 头按需发现、`/api/v1/fetch` 单张 S3/IRSA cutout 取数（P1B）；C-native 源列表经 `/api/v1/sources` 返回。74 条有 header 的历元用真实 WCS 四角足迹，其余仍 `center_approx`；未知天区 503 `INDEX_INCOMPLETE`。多历元重投影/共同网格/series 仍未实现。
-
-**当前数据通路**：5 个预设目标走本地真实历元目录；**任意 RA/Dec 先查数据库 `/api/v1/epochs`**
-（本地索引 151 周，其中 23 周有帧、共 5,893 帧 / 5,562 曝光），有 ≥2 期真实历元就走真实切片；本地无覆盖时显式
-`NO_LOCAL_COVERAGE` + SIM 演示，DB 不可用时显式 `DB_UNAVAILABLE`，不会伪装成真实观测。
-坐标落在某个官方目标 0.05° 内时复用该目标的预设路径，保证“手动输入坐标”与“点预设”结果一致。
-「离线样本」模式只用于验证 FITS 解析与渲染，不会对任何目标做测量。
-
----
-
-## 3. 界面怎么用
-
-1. **左栏**：选 5 个官方目标之一，或输入自定义 RA/Dec/FOV；
-   数据模式可选「自动（真实优先）/ 仅真实 / 模拟 / 离线样本」。
-   自定义坐标会先查数据库；有本地真实覆盖则出 REAL，无覆盖则明确标 SIM，不会静默伪装。
-2. **中栏**：天区视图。四种显示：
-   - **闪烁**：逐期播放，像小视频；
-   - **叠加**：多期中值合成，提信噪比；
-   - **相减**：每期减去中值图，正负残差用蓝/琥珀双色；
-   - **轨迹**：把测量到的位置连成轨迹，叠加拟合弦。
-   下方时间轴可拖动，空格键播放/暂停。
-3. **右栏**：鉴定卡。顶部是规律判定与置信度，下面是公众语言解释、
-   运动指纹指标、光变曲线、切平面轨迹、BIC 模型对比、证据链与可证伪条件。
-
-**URL 参数**（可嵌入其他网站）：
-
-```
-http://127.0.0.1:8790/?target=barnard&ra=269.452077&dec=4.693365&fov=0.2
-```
-
-**研究者模式**（右上角开关）会显示观测配置、注入真值对照与质量标记。
-
----
-
-## 4. 数据与模式
-
-| 模式 | 来源 | 用途 | 标识 |
-|---|---|---|---|
-| REAL | IRSA 静态切片实取的多期 level2 FITS | 真实观测演示 | 绿 |
-| HYBRID | 真实单期背景/PSF/噪声 + 注入目标 | 目标天区真实历元不足时 | 琥珀 |
-| SIM | 由真实 PSF/背景/噪声生成的多期时序 | 算法验证、教学 | 蓝 |
-| SAMPLE | 仓库自带的两份离线切片 | 解析/渲染核验 | 灰 |
-
-真实历元的发现**不依赖 TAP/SIA/DataLink**（实测采集时段全部 502）：
-用 S3 公开桶做「周指向索引」→ 头部 Range 读取 → 定位候选场 → 静态切片取数。
-详见 `系统/docs/02_实现与实测记录.md`。
-
----
-
-## 5. 验证
-
-- **注入-回收**：5 个官方目标 × 8 个随机种子 = 40 次端到端回收，
-  分类正确率 **100%**；Barnard μ 回收比 0.98（6.5σ），WISE 0855 1.14（6.1σ）。
-- **反例**：RW Aur / R Dra 均判为 **V 变光**（8/8 种子），位置拟合约 0.5σ；
-  专门的"运动 vs 变光"对照里，纯变星 30/30 判 V、纯移动 30/30 判 L、
-  "变星+邻星混叠"陷阱补上守卫后 0/30 误判为移动。
-- **真实数据（旗舰）**：Epsilon Indi B，8 期真实 SPHEREx 切片、基线 361 天，
-  测得 **μ = 4.71 ± 0.55″/yr，PA = 129.6°**（SIMBAD：4.68″/yr，121.8°），
-  参考星相对天体测量 10–21 颗、RMS 0.108–0.784 px，就绪度 **L3**。
-- **真实数据（饱和案例）**：Barnard's Star 4 期，目标饱和（峰值 755–1782 MJy/sr，核心 NaN），
-  位移约 5.3″（真值 5.8″）但质心误差 0.4 px；SPHEREx 实测未测出显著位移，采用 Gaia PM 先验标为 `L (catalog_prior)`，并保留 `SATURATED_SOURCE` 与“未独立测出”提示。
-- **弱目标**：WISE 0855 在可用波段只探测到 1 期，判 U；这是坐标歧义/深度问题，已写入限制。
-- **单测**：`$PY -m unittest discover -s 系统/app/tests -v`（286 项，覆盖 sample、FOV、quality 合并、
-  缓存版本键/损坏恢复、LRU、target 冲突、越界像素、schema 契约）。
-
-报告：`系统/docs/validation_report.json`。
-
-### 星表数据接收接口
-
-B 星表服务支持场级接收（需可写 SQLite）：
+### Manual start
 
 ```bash
-curl -X POST http://127.0.0.1:8799/api/v1/catalog/ingest \
-  -H 'Content-Type: application/json' \
-  -d '{"catalog":"gaia","ra":158.578,"dec":9.595,"radius_deg":0.25,"mag_limit":20}'
+PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
+
+# 1) main app
+$PY 系统/app/server.py --port 8790
+
+# 2) optional: SQLite/Blob data service (needed for arbitrary-coordinate DB lookup)
+cd 系统/数据库工具
+$PY cli.py serve --port 8797
 ```
 
-app 侧自动重试默认关闭；显式设置：
+Optional companion services:
+
+```bash
+# B: catalog / identification service (8799)
+cd 系统/数据库工具
+$PY tools/import_gaia.py --rebuild --offline   # offline fixture/bootstrap
+$PY catalog_server.py --port 8799
+
+# C: local coverage / discovery / fetch skeleton (8798)
+cd 系统/anyfield
+./start.sh 8798
+
+# View: three.js sky/earth picker (8830)
+cd 系统/视图工具
+./start.sh 8830
+```
+
+The main page is <http://127.0.0.1:8790/>. If B or C is not running, the app
+degrades explicitly; it does not invent catalog or coverage results.
+
+### Basic URLs
+
+```text
+http://127.0.0.1:8790/                                      # Browse mode
+http://127.0.0.1:8790/?target=barnard                      # preset
+http://127.0.0.1:8790/?ra=269.452077&dec=4.693365&fov=0.2  # custom coordinates
+http://127.0.0.1:8790/?target=barnard&mode=cascade          # main canvas overlay
+http://127.0.0.1:8790/?target=barnard&mode=tracks
+http://127.0.0.1:8790/?ra=269.452077&dec=4.693365&fov=0.5&t0=60890&t1=60950&from=view
+```
+
+`mode` is the canvas mode (`browse`, `cascade`, `tracks`), not the data mode.
+The data mode is selected in the left panel (`auto`, `real`, `synthetic`,
+`sample`). `/cascade` and `/tracks` remain available as detailed diagnostic
+tables; the main page does not redirect to them when switching modes.
+
+---
+
+## 4. Architecture
+
+```text
+                         ┌─────────────────────────────┐
+                         │ View  (optional, 8830)      │
+                         │ sky picker / earth context  │
+                         │ ra / dec / fov / t0 / t1    │
+                         └──────────────┬──────────────┘
+                                        │ one handoff URL
+                                        ▼
+┌──────────────────────────────────────────────────────────────────┐
+│ MoveScope app (8790)                                             │
+│                                                                  │
+│  Browser UI (no build step)                                      │
+│    Browse  ── analysis, source picking, lock, identify           │
+│    Cascade ── L1 / masked / residual overlay                     │
+│    Tracks  ── tracklet lines/nodes and D0–D4 levels              │
+│                                                                  │
+│  /api/analyze   → build_dataset → pipeline → result              │
+│  /api/cascade   → per-epoch L1 / mask / residual                  │
+│  /api/tracks    → tracklets → D0–D4                              │
+│  /api/identify  → B catalog match (single source)                │
+│  /api/identify/batch → B batch match (A/C sources)               │
+│  /api/identify/batch/export → CSV/JSON attachment                 │
+└───────────────┬───────────────────────┬──────────────────────────┘
+                │                       │
+                ▼                       ▼
+┌───────────────────────────┐   ┌──────────────────────────────────┐
+│ DB service (8797)         │   │ B catalog service (8799)         │
+│ SQLite metadata + Blob    │   │ Gaia DR3 + derived 2MASS/WISE     │
+│ epoch/coverage index      │   │ single/batch match, optional TAP   │
+└───────────────────────────┘   └──────────────────────────────────┘
+                │
+                ▼
+┌───────────────────────────┐
+│ C coverage service (8798) │
+│ local ingest / discovery  │
+│ S3/IRSA cutout fetch      │
+└───────────────────────────┘
+```
+
+The main app has no build step: static `web/` assets are served directly.
+The analysis pipeline is pure Python + NumPy + Pillow; no Astropy/SciPy/FastAPI
+is required for the core path.
+
+### Analysis pipeline
+
+```text
+FITS / level-2 image
+  → background + FLAGS mask + noise model
+  → matched-filter detection
+  → PSF / bloom centroid + aperture photometry
+  → reference-star relative astrometric calibration
+  → associate source positions across epochs
+  → fit M0/M1/M2/M3/M4 model family
+  → BIC model choice + 3σ / readiness gates
+  → result, evidence, falsifier, provenance
+```
+
+Key implementation modules:
+
+- `系统/app/core/photometry.py` — mask, matched filter, centroid, photometry;
+- `系统/app/core/motion.py` — model family, BIC, motion fingerprint;
+- `系统/app/core/pipeline.py` — detection → calibration → association → inference;
+- `系统/app/core/catalog.py` — B catalog client, status mapping, multi-catalog
+  position deduplication, optional ingest;
+- `系统/app/core/catalog_prior.py` — generic Gaia-PM prior for an
+  under-significant short-baseline S result;
+- `系统/app/core/tracks.py` — cross-epoch tracklets and D0–D4 candidate levels.
+
+### Time window
+
+`/api/analyze`, `/api/cascade`, and `/api/tracks` accept `t0` / `t1`
+(also `mjd_min` / `mjd_max`). The filter is applied after
+`data_layer.build_dataset`:
+
+- 0 epochs → HTTP 200 with an explicit empty-window result, never a fabricated
+  measurement;
+- 1 epoch → normal single-epoch result; tracks are marked `insufficient`;
+- no `t0/t1` → old behavior unchanged.
+
+The response includes `time_filter: {t0,t1,requested,kept,filtered}` and the UI
+shows “from view / time window / kept N of M”.
+
+---
+
+## 5. Main interface modes
+
+### Browse
+
+The original behavior: multi-epoch blinking, stack, difference, target
+trajectory, A-source table, lock/identify, readiness and model evidence.
+
+### Cascade / residual
+
+For each epoch:
+
+- **L1**: 6σ detection, at most 80 objects per epoch;
+- **masked**: the L1 positions, 2 px mask, reason `already_detected`;
+- **residual**: 5σ re-detection after local-median masking, at most 80
+  candidates per epoch, excluding duplicates within 2 px of L1.
+
+The main canvas overlays L1 as solid cyan dots, masked as grey crosses, and
+residuals as hollow amber circles. Layer toggles and per-frame counts are
+available. Clicking a residual node locks it and calls `/api/identify`; it does
+not re-run the whole analysis. Residual candidates are explicitly **not new
+objects**.
+
+Detailed diagnostic page: [`/cascade`](系统/app/web/cascade.html).
+
+### Tracks
+
+L1 + residual nodes are associated across epochs (greedy nearest-neighbor,
+3 px gate, one-epoch gap allowed, no node reuse). Track models are
+`stationary / linear / curved / variable / transient`, and candidate levels are:
+
+- D0 artifact;
+- D1 known catalog;
+- D2 not implemented;
+- D3 unknown moving;
+- D4 unknown stationary;
+- D5 out of scope (manual/follow-up).
+
+The main canvas draws track lines and nodes; clicking a node jumps to its epoch
+and invokes `/api/identify`. Track candidates are **not new objects**; four
+epochs make the association inherently ambiguous and every track carries that
+caveat.
+
+Detailed diagnostic page: [`/tracks`](系统/app/web/tracks.html).
+
+### A / C batch identification
+
+- A table: analysis `sources`, paginated/batched at 200 per request;
+- C table: `/api/sources` rows, batched at 200 per request;
+- each source is sent to `/api/identify/batch`;
+- statuses: known / ambiguous / no_match (`uncatalogued_candidate`) /
+  insufficient / catalog unavailable / unknown;
+- the A and C batch notes show counts and the requested catalogs;
+- batch results are audit-exportable without changing the table.
+
+### Unified candidate directory
+
+A + C + Tracks are merged into one read-only audit table:
+
+- A/C rows are deduplicated by `(mjd, round(ra,6), round(dec,6))`;
+- same-position A/C rows merge `origins` into `A;C`;
+- conflicting identities become `conflict`, never silently resolved;
+- one track is one row; track nodes are **not** counted as new sources;
+- counts: rows / unique_sources / tracks / known / ambiguous / no_match /
+  insufficient / unknown / conflict;
+- CSV and JSON export; UI shows the first 80 rows and counts over the full set.
+
+---
+
+## 6. Catalog identification and multi-catalog rules
+
+### Status vocabulary
+
+| Status | Meaning |
+|---|---|
+| `known_star` | A single catalog candidate with acceptable astrometric quality |
+| `ambiguous` | Multiple physical candidates, or a quality/RUWE/PM conflict |
+| `uncatalogued_candidate` | Catalog query succeeded with zero candidates; **not** “new object” |
+| `insufficient_data` | Not enough information; e.g. a single candidate farther than 6.15″ |
+| `catalog_unavailable` | Catalog service/coverage unavailable; **not** “no match” |
+
+A single candidate farther than **6.15″** (one SPHEREx pixel) from the target is
+rejected as an accidental alignment and returned as `insufficient_data` with
+reason `CATALOG_OFFSET_TOO_LARGE`.
+
+### Catalog-prior motion
+
+For a short-baseline `class="S"` result, the app may apply a generic catalog
+prior when:
+
+- there is a single/ambiguous Gaia PM;
+- the catalog PM is significant and > 1000 mas/yr;
+- the measured and catalog PM agree within 3σ.
+
+Then the class becomes `L` with:
+
+- `catalog_motion.basis = "catalog_prior"`;
+- `quality += CATALOG_PRIOR_MOTION, MEASUREMENT_NOT_SIGNIFICANT`;
+- confidence ≤ 0.6;
+- explicit text: “SPHEREx did not independently measure it; Gaia PM prior
+  used; not a discovery”.
+
+The measured μ, its error, `moving=false`, and the original significance are
+preserved. The prior is never written as a measured proper motion.
+
+### Multi-catalog batch
+
+A/C batch requests use:
+
+```json
+{"catalogs": ["gaia", "2mass", "wise"]}
+```
+
+2MASS/WISE are **derived cross-match subsets of the Gaia cache**, not complete
+surveys. The B service may report `catalog_status=partial`. The client:
+
+- groups candidates from different catalogs within **0.5″**;
+- prefers Gaia as the primary candidate, then 2MASS, then WISE;
+- keeps other-catalog rows under `crossmatches`;
+- does not merge two different positions; two physical groups remain
+  ambiguous;
+- does not treat multiple catalog rows for one physical source as multiple
+  sources.
+
+B failure remains `catalog_unavailable`; old B versions can fall back to Gaia
+with an explicit `catalog_fallback="gaia"` marker.
+
+---
+
+## 7. API overview
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/analyze` | full motion analysis; accepts target/ra/dec/fov/mode/t0/t1 |
+| `GET` | `/api/targets` | preset targets |
+| `GET` | `/api/health` | app health |
+| `GET` | `/api/sources` | C source-list proxy |
+| `GET` | `/api/field` | C coverage handshake |
+| `GET` | `/api/cascade` | per-epoch L1 / masked / residual |
+| `GET` | `/api/tracks` | cross-epoch tracklets and D0–D4 |
+| `POST` | `/api/identify` | single-source catalog identification |
+| `POST` | `/api/identify/batch` | batch catalog identification (≤200 sources) |
+| `POST` | `/api/identify/batch/export` | CSV/JSON audit attachment |
+
+Examples:
+
+```bash
+curl -X POST http://127.0.0.1:8790/api/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"target_id":"barnard","fov":0.2,"mode":"auto"}'
+
+curl 'http://127.0.0.1:8790/api/cascade?target_id=barnard&fov=0.2'
+curl 'http://127.0.0.1:8790/api/tracks?target_id=barnard&fov=0.2'
+
+curl -X POST http://127.0.0.1:8790/api/identify \
+  -H 'Content-Type: application/json' \
+  -d '{"ra":269.452077,"dec":4.693365,"mjd":60916.656,"sigma_arcsec":0.5}'
+```
+
+Batch endpoints are explicitly capped at 200 sources per request. The export
+endpoint chunks A-sized inputs (215 → 200 + 15) and returns a CSV/JSON
+attachment; JSON contains `sources`, `results`, and `byId`, and CSV expands
+physical candidates into candidate rows.
+
+Catalog auto-ingest is **off by default**:
 
 ```bash
 export CATALOG_AUTO_INGEST=1
 export MOVESCOPE_CATALOG_INGEST_TIMEOUT=60
 ```
 
-边界：TAP 失败返回 502 且不写部分数据；场级 upsert，不删其它场；不是全量 Gaia。
+When enabled, a partial/no-cached-field match may call B
+`POST /api/v1/catalog/ingest` once and retry once. Ingest writes are B-side;
+the app does not write the production DB. TAP availability remains an upstream
+dependency.
 
 ---
 
-## 6. 目录
+## 8. Data modes
 
-```
-系统/
-  docs/
-    01_理论设计编排.md      理论基线（先读这个）
-    02_实现与实测记录.md     实现、数据实测、偏差登记
-    validation_report.json  注入-回收结果
-  app/
-    server.py               HTTP 服务 + 图像渲染
-    core/
-      fitsio.py             最小 FITS 读取器（多块头/BINTABLE）
-      wcs.py                TAN-SIP、切平面、LVF 波长
-      photometry.py         FLAGS 掩膜、匹配滤波、PSF 质心、孔径测光
-      motion.py             模型族、BIC、运动指纹、分类、公众话术
-      pipeline.py           探测→测量→相对定标→关联→推断
-      simulator.py          基于真实 PSF/背景/噪声的观测模拟器
-      data.py               真实/模拟/样本数据适配与缓存
-    web/                    Ego 浏览器前端（无构建步骤）
-    data/                   目标表、历元目录、周索引、缓存
-  数据库工具/                SQLite 元数据目录 + 内容寻址 Blob + 只读 API
-  视图工具/                  three.js 天区选择器（可选伴侣）
-  参考 资料/                 赛道原文、数据访问笔记、样本 FITS
-  tools/
-    scan_week_index.py      构建周指向索引
-    find_epochs.py          为目标坐标寻找真实历元
-    validate_pipeline.py    注入-回收验证
+| Mode | Source | Purpose | Badge |
+|---|---|---|---|
+| REAL | Multi-epoch SPHEREx level-2 cutouts from IRSA/static cache | Real observations | green |
+| HYBRID | Real single-epoch background/PSF/noise + injected target | When real epochs are insufficient | amber |
+| SIM | Synthetic time series from real PSF/background/noise | Algorithm validation / teaching | blue |
+| SAMPLE | Two bundled offline cutouts from different fields | Parsing/rendering only | grey |
+
+The data path does not require TAP/SIA/DataLink for the known preset fields:
+it uses the S3 weekly pointing index, HTTP Range headers, and static cutouts.
+Arbitrary-coordinate coverage still depends on the local DB/C index and is
+reported as `NO_LOCAL_COVERAGE` or `DB_UNAVAILABLE` when absent.
+
+---
+
+## 9. Validation and tests
+
+### App tests
+
+```bash
+PY=/Users/yiao/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3
+cd 系统/app
+$PY -m unittest discover -s tests -v
+# Ran 286 tests ... OK
 ```
 
-项目控制面（不在 `系统/` 内）：
+Coverage includes: sample/real modes, FOV validation, caching and LRU,
+target-coordinate conflicts, schema contracts, catalog status mapping,
+catalog-prior motion, time filters, main-canvas modes, cascade layers,
+tracklets, A/C batch identification, candidates/export, and unified-directory
+deduplication.
+
+### Benchmark and validation reports
+
+- [`项目主控/验收/官方案例基准_report.md`](项目主控/验收/官方案例基准_report.md)
+- [`项目主控/验收/官方案例基准_fullcache.md`](项目主控/验收/官方案例基准_fullcache.md)
+- [`项目主控/验收/星表识别覆盖率.md`](项目主控/验收/星表识别覆盖率.md)
+- [`项目主控/验收/GUI链路测试.md`](项目主控/验收/GUI链路测试.md)
+- [`系统/docs/validation_report.json`](系统/docs/validation_report.json)
+- [`系统/docs/motion_vs_variability.json`](系统/docs/motion_vs_variability.json)
+
+Representative validation results:
+
+- injection-recovery: 5 official targets × 8 random seeds = 40/40 correct;
+- counterexamples: RW Aur and R Dra classified V across seeds; position slope
+  compatible with zero;
+- Epsilon Indi B: 8 real epochs, 361-day baseline, μ ≈ 4.71 ± 0.55″/yr,
+  PA ≈ 129.6° (SIMBAD values are close);
+- Barnard: short-baseline SPHEREx μ is not significant; reported as L with an
+  explicit Gaia-PM prior, not as a measured SPHEREx detection;
+- WISE 0855: data-limited U; no forced classification.
+
+A/C batch and directory counts are data-dependent and are printed by the UI;
+the E2E log in `系统/docs/02_实现与实测记录.md` is the authoritative record for
+the current cache.
+
+---
+
+## 10. Repository layout
 
 ```text
-项目主控/
-  架构/                   基础架构与迁移记录
-  验收/ 冻结/ 启动/        控制面工具
-  _归档/                  迁移前快照与未验证中间文件
+系统/
+  app/                     main MoveScope app (server + core + web)
+    server.py              HTTP API, static UI, image rendering
+    core/                  FITS, WCS, photometry, motion, pipeline, catalog,
+                           tracks, catalog prior, time/source utilities
+    web/                   no-build browser UI and diagnostic pages
+    tests/                 app unit/integration tests
+  docs/
+    01_理论设计编排.md       theory baseline (read first)
+    02_实现与实测记录.md     implementation, measurements, discrepancies
+    validation_report.json  injection-recovery
+  anyfield/                C coverage/discovery/fetch service
+  数据库工具/               DB + B catalog service
+  视图工具/                 optional three.js sky/earth view
+  tools/                   week-index/epoch search/validation utilities
+  参考 资料/               third-party references and notes
 
-LICENSE / NOTICE              原创内容 Apache-2.0 + 第三方摘要
-THIRD_PARTY_NOTICES.md        第三方材料完整清单（代码/数据/图片/字体）
-REFERENCES.md                 提交表单可直接引用的简版引用
-CITATION.cff                  引用元数据
+项目主控/
+  架构/                    architecture and evolution notes
+  验收/                    benchmark/acceptance reports
+  启动/                    start/stop launcher
+  README.md                project-control notes
 ```
 
----
+Key documents:
 
-## 7. 边界
-
-- 不产生"发现声明"，只产生**候选 + 证据 + 证伪条件**。
-- 6.15″ 像素下，对 μ < 0.5″/yr 的天体只能给上限。
-- 饱和源（如 Barnard's Star）的质心精度受 bloom 影响，工具会显式标记 `SATURATED_SOURCE`。
-- M5 开普勒轨道 / M6 太阳系二体轨道尚未实现完整拟合；弯曲轨迹先用 M4 的二次项判别。
-- 光谱：单张切片只采样很窄的波段；多波段 SED 需要同历元多探测器切片（v1 只输出波段标签）。
-
----
-
-## 8. 数据与工具引用
-
-- **SPHEREx level2 数据**：NASA/IPAC IRSA，QR3 / DR1；<https://irsa.ipac.caltech.edu/Missions/spherex.html>。
-  本地样本/头/切片见 `系统/参考 资料/muestras/`、`系统/app/data/`、`系统/数据库工具/var/`。
-- **目标坐标/真值**：SIMBAD/CDS（2026-11-14 查询）；Wenger et al. (2000), A&AS 143, 9,
-  <https://doi.org/10.1051/aas:2000332>。
-- **3D 引擎**：three.js r160（MIT），`系统/视图工具/vendor/three.module.js`；
-  MIT 全文：`系统/视图工具/vendor/three.LICENSE`。
-- **地球纹理**：NASA Visible Earth / Blue Marble（NASA 媒体条款），经 three.js r160 examples
-  （MIT）分发；`系统/视图工具/assets/earth_*.{jpg,png}`。
-- **交互范式参考**：WiseView（Backyard Worlds: Planet 9）<http://byw.tools/wiseview>；
-  3D 地球/HUD 视觉参考 [bilawalsidhu/gods-eye-view](https://github.com/bilawalsidhu/gods-eye-view)
-  （**未复用其代码/数据**）。
-- **赛道**：NASA Space Apps Challenge 2026 · Planet X and SPHEREx，
-  <https://www.spaceappschallenge.org/2026/challenges/planet-x-and-spherex/>。
+- [Theory design](系统/docs/01_理论设计编排.md)
+- [Implementation & measured log](系统/docs/02_实现与实测记录.md)
+- [Mode refactor plan](项目主控/架构/14_模式化重构计划.md)
+- [Catalog ingest plan](项目主控/架构/17_数据接收接口与自动缓存.md)
+- [Batch identification plan](项目主控/架构/18_批量星表识别.md)
+- [Audit/export plan](项目主控/架构/20_批量结果审计导出.md)
+- [Unified candidate directory plan](项目主控/架构/22_统一候选目录.md)
 
 ---
 
-## 9. 许可与第三方声明
+## 11. Configuration and environment
 
-- **本项目原创代码/文档/截图**：**Apache License 2.0**；全文见 [`LICENSE`](LICENSE)，
-  版权与第三方摘要见 [`NOTICE`](NOTICE)。
-- **全部第三方代码/数据/图片/参考资料的许可证与来源**：见
-  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
-- **提交表单可直接引用的简版清单**：见 [`REFERENCES.md`](REFERENCES.md)（许可证、数据、图片、参考项目、官方条款）。
-- **参考资料**（`系统/参考 资料/`）是第三方材料，**不**按 Apache-2.0 再许可；
-  见 [`系统/参考 资料/NOTICE.md`](系统/参考%20资料/NOTICE.md)。
-- NASA Space Apps 官方条款：
-  <https://www.spaceappschallenge.org/legal/>、<https://www.spaceappschallenge.org/faq/>。
-  未指定许可证的原创内容按 Apache-2.0 分发；第三方材料必须无限制可用或 OSI 开源，
-  且许可证必须写入提交文档。
-- **NASA 不背书本项目**；NASA 名称/徽标不用于暗示背书。所有第三方材料均已引用；
-  若发现遗漏，请在提交前补充 `THIRD_PARTY_NOTICES.md`。
+| Variable | Default | Purpose |
+|---|---|---|
+| `CATALOG_URL` / `MOVESCOPE_CATALOG_URL` | `http://127.0.0.1:8799` | B catalog base URL |
+| `MOVESCOPE_CATALOG_TIMEOUT` | `2.5` s | B match timeout |
+| `CATALOG_AUTO_INGEST` | off | Allow one ingest+retry on partial/no-cached-field |
+| `MOVESCOPE_CATALOG_INGEST_TIMEOUT` | `60` s | B ingest timeout |
+| `ANYFIELD_URL` | `http://127.0.0.1:8798` | C coverage base URL |
+| `ANYFIELD_TIMEOUT` | `1.5` s | C coverage timeout |
+| `MOVESCOPE_DB_URL` | DB service default | DB endpoint override |
+
+The app never silently switches to a different port, and the launcher refuses
+to replace a live service with a mismatched PID.
+
+---
+
+## 12. Limitations and responsible use
+
+1. **Not a discovery.** Every catalog status and every track is a candidate.
+   `discovery_claim` is false; no “new planet/star” claim is made.
+2. **Pixel scale.** SPHEREx is about 6.15″/pixel. Motion below ~0.5″/yr cannot
+   be measured reliably in a short baseline; background stars and galaxies are
+   often `S` with an upper limit.
+3. **Saturation.** Barnard's Star is saturated in some SPHEREx data; bloom
+   centroid errors are large and explicitly flagged (`SATURATED_SOURCE`).
+4. **Catalog coverage.** B may be partial; 2MASS/WISE are derived cross-match
+   subsets of the Gaia cache, not complete surveys. `partial` and
+   `catalog_unavailable` are not “not found”.
+5. **4-epoch ambiguity.** Cross-epoch association with only four epochs is
+   underdetermined; D0–D4 are candidates, not confirmation.
+6. **Residuals.** Cascade residuals can contain PSF wings, edge artifacts, and
+   noise. A residual is not a new astrophysical source.
+7. **TAP.** Real TAP ingest has been blocked by upstream timeouts in this
+   environment. Auto-ingest is off by default; simulated TAP success is never
+   reported as real.
+8. **No full-sky service.** The local catalog cache covers a small set of
+   preset fields; arbitrary fields require an explicit DB/C ingest path.
+
+---
+
+## 13. Citations and acknowledgements
+
+If you use this repository, please cite the repository and the original data
+papers. The full source/license inventory is in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and the short submission list
+is in [`REFERENCES.md`](REFERENCES.md); machine-readable metadata is in
+[`CITATION.cff`](CITATION.cff).
+
+### Mission data
+
+- **SPHEREx level-2 spectral images (QR3/DR1)**, NASA/IPAC Infrared Science
+  Archive (IRSA), <https://irsa.ipac.caltech.edu/Missions/spherex.html>.
+  SPHEREx is a NASA mission; see NASA mission pages and the IRSA data
+  documentation for current release/version details.
+- **NASA Space Apps Challenge 2026 — Planet X and SPHEREx**,
+  <https://www.spaceappschallenge.org/2026/challenges/planet-x-and-spherex/>.
+
+### Catalogs and name resolution
+
+- **Gaia DR3**: Gaia Collaboration et al. (2023), *A&A* 674, A1,
+  <https://doi.org/10.1051/0004-6361/202243940>.
+- **2MASS**: Skrutskie et al. (2006), *AJ* 131, 1163,
+  <https://doi.org/10.1086/498708>.
+- **WISE / AllWISE**: Wright et al. (2010), *AJ* 140, 1868,
+  <https://doi.org/10.1088/0004-6256/140/6/1868>; Cutri et al. (2021),
+  AllWISE Source Catalog, VizieR II/328.
+- **SIMBAD**: Wenger et al. (2000), *A&AS* 143, 9,
+  <https://doi.org/10.1051/aas:2000332>.
+- 2MASS/WISE derived fields in B use IRSA Gator cross-matches to Gaia IDs;
+  coordinates/PM remain Gaia-based and are not a replacement for the original
+  survey astrometry.
+
+### Software and assets
+
+- **three.js r160** (MIT), <https://threejs.org/>; license text in
+  `系统/视图工具/vendor/three.LICENSE`. The optional 3D view uses three.js
+  example patterns (rewritten, not wholesale copied).
+- **Earth textures**: NASA Visible Earth / Blue Marble,
+  <https://visibleearth.nasa.gov/collection/1484/blue-marble>; distributed via
+  the three.js examples with MIT/NASA media terms.
+- **Runtime**: Python 3.12 (PSF-2.0), NumPy (BSD-3-Clause), Pillow (HPND).
+- UI/interaction inspiration: WiseView (Backyard Worlds: Planet 9),
+  <http://byw.tools/wiseview>; the project does not reuse its code/data.
+
+### License
+
+Original code, documentation, figures, and screenshots are licensed under the
+**Apache License 2.0**; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+Third-party material remains under its own license; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and
+[`REFERENCES.md`](REFERENCES.md). NASA does not endorse this project.
+
+---
+
+## 14. Contributing and reproduction
+
+- Keep changes reviewable and add tests for behavior changes.
+- Do not write the production catalog DB from app tests.
+- Do not turn partial/unavailable catalog states into “no match”.
+- Do not add positive “new planet/new star” language to UI or exports.
+- For validation, use the launcher and the current cached fields; record
+  provenance and the exact test command.
+
+A minimal reproduction:
+
+```bash
+PY=python3
+cd 系统/app
+$PY -m unittest discover -s tests
+$PY server.py --port 8790
+# open http://127.0.0.1:8790/
+```
+
+Welcome to open issues with reproducible coordinates, data provenance, and
+expected/actual status.
