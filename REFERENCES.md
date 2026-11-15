@@ -76,10 +76,14 @@ included in the package.
 |---|---|---|---|
 | SPHEREx level2 spectral images (QR3 / DR1), static cutouts, S3 headers | NASA/IPAC IRSA public data; no NASA endorsement implied | NASA/IPAC Infrared Science Archive, *SPHEREx*, <https://irsa.ipac.caltech.edu/Missions/spherex.html>; S3 public bucket `nasa-irsa-spherex` | `系统/参考 资料/muestras/*.fits`, `系统/app/data/header_cache/*.hdr`, `epochcache/*.npz`, `系统/数据库工具/var/catalog.sqlite`, `var/blobs/*` |
 | Target coordinates and reference values | SIMBAD/CDS; factual data; cite the database | Wenger, M., Ochsenbein, F., Egret, D., et al. 2000, *A&AS*, 143, 9, DOI: <https://doi.org/10.1051/aas:2000332>; CDS <https://cds.unistra.fr/> | `系统/app/data/targets.json` |
+| Gaia DR3 star-catalog test fixture | **CC BY-NC 3.0 IGO** (non-OSI; non-commercial; attribution required) | ESA Gaia Archive, TAP <https://gea.esac.esa.int/tap-server/tap/sync>, <https://gea.esac.esa.int/archive/>; Gaia Collaboration et al. 2023, *A&A* 674, A1, DOI: <https://doi.org/10.1051/0004-6361/202243940>; license <https://www.cosmos.esa.int/web/gaia-users/license> | `系统/数据库工具/tests/fixtures/gaia_dr3_sample.csv` (**234 real Gaia rows, incomplete, tests only**); local `var/star_catalog.sqlite` (7 MB, gitignored, not distributed) |
 | Derived indexes/catalogs | Original processing under Apache-2.0; underlying data remains NASA/CDS | `系统/app/data/week_index.json`, `epoch_catalog.json`, `targets.json`, `系统/视图工具/data/fields.json`, `系统/数据库工具/var/catalog.sqlite` | production DB / offline demo |
 
 - We only index/cache/derive locally; we do not redistribute whole 65 MB
   observations.
+- The Gaia fixture is a **234-row incomplete subset** of real Gaia DR3 TAP
+  results for offline tests, not a full-sky or per-field complete catalog; the
+  17,679-row local cache is not distributed.
 - Data files are not relicensed as Apache-2.0; the Apache license applies only
   to original code/docs.
 
@@ -122,9 +126,12 @@ included in the package.
 1. Every third-party code, data, image, and reference used in this project is
    listed above and in `THIRD_PARTY_NOTICES.md`; nothing is intentionally
    uncredited.
-2. All third-party licenses are OSI-approved (MIT, BSD-3-Clause, HPND,
-   PSF-2.0) or public-domain/NASA-public data; none is proprietary or
-   restricted.
+2. All third-party software licenses are OSI-approved (MIT, BSD-3-Clause,
+   HPND, PSF-2.0); NASA data is public data. The **only non-OSI data exception**
+   is the Gaia DR3 test fixture (CC BY-NC 3.0 IGO, non-commercial, attribution
+   required), kept to 234 real rows for offline tests; no full Gaia catalog or
+   local 17,679-row cache is distributed, and the project does not claim OSI
+   status for Gaia data.
 3. Original content is Apache-2.0; no NASA default license is relied upon.
 4. No third-party confidential information, no export-controlled information,
    and no NASA endorsement claim.

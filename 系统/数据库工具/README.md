@@ -3,6 +3,10 @@
 > **给 MoveScope（`app/`）和视图工具（`视图工具/`）共用的一组本地数据库。**
 > 元数据进 SQLite，原始头与切割产品进内容寻址 Blob 仓库；支持增量导入、天区锥搜索、
 > 覆盖/就绪度、HTTP API，以及两个项目现有 JSON 格式的兼容导出。
+>
+> 另有一个独立的 **Gaia DR3 星表缓存服务**（阶段 B/D1，端口 8799，库
+> `var/star_catalog.sqlite`），只做星表锥搜索/候选匹配，不做科学分类；
+> 见 §2.1 与 [`docs/CATALOG.md`](docs/CATALOG.md)。它不写 `var/catalog.sqlite`。
 
 当前库：**5,893 帧 / 5,562 次曝光 / 74 份 FITS 头 / 74 条目标历元 / 101 个切割产品 / 7 个目标**，
 时间范围 **MJD 60789.75 – 61316.53（约 527 天）**，库文件约 5.4 MB，Blob 仓库 16.9 MB。
@@ -61,6 +65,36 @@ $PY tools/check_compat.py --root ..                     # 导出的 JSON 与两�
 > 头文件采集用 `tools/harvest_headers.py`（只读 64 KB，不下载整幅 FITS）。
 > 重跑 `--resume` 时 0 新下载；manifest 在 `../app/data/header_manifest.json`，
 > 记录每条 key/sha256/bytes/status。
+
+### 2.1 星表服务（阶段 B/D1，独立端口 8799）
+
+```bash
+$PY tools/import_gaia.py --rebuild            # Gaia DR3 TAP，7 个预设场
+$PY tools/import_gaia.py --rebuild --offline  # 完全离线，用 234 行 fixture
+$PY catalog_server.py --port 8799             # 只绑 127.0.0.1
+# → http://127.0.0.1:8799/
+# → http://127.0.0.1:8799/api/v1/health
+# → http://127.0.0.1:8799/api/docs        (docs/CATALOG.md)
+```
+
+- **数据范围**：Gaia DR3，7 个预设场 × 0.25° × G≤20，合计 **17,679 源**。
+  这是**按场缓存，不是 Gaia 全量**，也不是全天可按需查询的服务；缓存外查询返回
+  `CATALOG_UNAVAILABLE`。真实 TAP 抓取/导入时间见 release 的 `imported_at` 与
+  fixture meta 的 `fetched_at`。
+- **许可**：Gaia DR3 数据 **CC BY-NC 3.0 IGO**（非 OSI、非商业限制），
+  credit `ESA/Gaia/DPAC`；引用 Gaia Collaboration et al. 2023, A&A 674, A1,
+  DOI `10.1051/0004-6361/202243940`。
+  TAP：<https://gea.esac.esa.int/tap-server/tap/sync>；Archive：
+  <https://gea.esac.esa.int/archive/>。代码仍是 Apache-2.0，数据许可不因此改变。
+- **可提交 fixture**：`tests/fixtures/gaia_dr3_sample.csv`（234 行，真实 Gaia 行，
+  7 场抽样；抓取时间 `2026-11-15T00:47:26Z`）。**样本不完整，仅用于离线测试/回归**，
+  不得当作演示星表、全天星表或全量 Gaia；不得据此声称 OSI/全量。
+  元数据见同名 `.meta.json`，说明见 [`docs/CATALOG.md`](docs/CATALOG.md)。
+- **不提交**：`var/star_catalog.sqlite`（约 7 MB 真实缓存）与根目录 `.tmp_hp/`
+  （HEALPix 临时依赖，51 MB）均已被 `.gitignore` 忽略，本地保留供测试。
+- **不碰**：生产库 `var/catalog.sqlite`、app/视图工具、8797 端口。
+- **边界**：B 只给星表候选/角距/PM 残差/几何歧义；known/ambiguous/unknown 分类、
+  视差传播、混合判定由 app 的 D 阶段做。完整契约见 [`docs/CATALOG.md`](docs/CATALOG.md)。
 
 ---
 
@@ -300,6 +334,7 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 数据库工具/
 ├── cli.py                 统一命令行（init/ingest/query/export/serve/...）
 ├── client.py              本地/HTTP Python 客户端
+├── catalog_server.py      星表服务 HTTP API（Gaia 锥搜索/匹配，端口 8799）
 ├── schema.sql             schema 只读副本
 ├── start.sh               启动只读 API（默认 8797）
 ├── db/
@@ -312,21 +347,30 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
 │   ├── ingest.py          所有数据源导入 + 回填
 │   ├── export.py          两个项目的兼容 JSON
 │   ├── server.py          只读 HTTP API + 首页
+│   ├── star_config.py     星表服务常量/7 个预设场
+│   ├── star_schema.py     星表 schema（release/source/field/match）
+│   ├── star_catalog.py    星表锥搜索/匹配/导入/持久化
+│   ├── gaia_tap.py        Gaia DR3 TAP 客户端 + fixture
+│   ├── healpix.py         纯 Python HEALPix NESTED ang2pix
 │   └── bench.py           查询基准
 ├── tools/
 │   ├── import_all.sh          一键导入
+│   ├── import_gaia.py         Gaia 星表缓存导入（TAP/离线 fixture）
 │   ├── check_compat.py        导出 JSON 与两个项目逐项对账
 │   ├── run_tests.sh           跑全部测试
 │   ├── harvest_headers.py     T4 头文件采集器（S3 Range 64 KB）
 │   └── make_scale_fixture.py  合成规模基准库（不写生产库）
-├── tests/                 76 个单元/接口测试（含 T4 7 个 + 真实库 v1 契约回归）
+├── tests/                 99 个单元/接口测试（含 T4 7 个、真实库 v1 契约、星表 B 23 个）
+├── tests/fixtures/        gaia_dr3_sample.csv（234 行真实 Gaia 子集，仅测试）
 ├── benchmarks/            真实库与规模库的基准报告
 ├── docs/
 │   ├── DESIGN.md          设计与取舍
 │   ├── API.md             接口与客户端
+│   ├── CATALOG.md         星表服务 API/许可/D 边界
 │   └── INTEGRATION.md     两个项目的接入步骤
 └── var/
     ├── catalog.sqlite     生产库（可直接用）
+    ├── star_catalog.sqlite  Gaia 按场缓存（约 7 MB，gitignore，可重建）
     ├── blobs/             内容寻址仓库
     └── exports/           兼容 JSON 输出
 ```
@@ -352,6 +396,10 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
    是“这份头是否已采过”的唯一凭据，删缓存后 `--resume` 会重新下载 74 条。
 8. **非法输入显式失败。** `ra=nan`、`fov=inf`、`dec>90` 等一律 400；不会静默
    返回 0 条，更不会把非法坐标错配到某个目标上。
+9. **星表缓存不是 Gaia 全量。** `var/star_catalog.sqlite` 只有 7 个预设场 × 0.25° ×
+   G≤20 的 17,679 行；缓存外/边缘查询返回 `partial` 或 503 `CATALOG_UNAVAILABLE`。
+   仓库只提交 234 行真实 fixture 用于离线测试；不能把“没查到”写成“新恒星”。
+   星表服务不做 known/unknown 科学分类（D 负责），也不碰生产库/8797。
 
 ---
 
@@ -369,6 +417,11 @@ $PY cli.py backup --out var/backup/catalog-$(date +%Y%m%d).sqlite
   <https://doi.org/10.1051/aas:2000332>；本地 `系统/app/data/targets.json`。
 - **交互范式参考**：WiseView（Backyard Worlds: Planet 9）<http://byw.tools/wiseview>；
   未复制代码/数据。
+- **Gaia DR3**（星表服务）：ESA Gaia Archive / TAP，数据许可 **CC BY-NC 3.0 IGO**
+  （非 OSI）；credit `ESA/Gaia/DPAC`；Gaia Collaboration et al. 2023, A&A 674, A1,
+  <https://doi.org/10.1051/0004-6361/202243940>；许可页
+  <https://www.cosmos.esa.int/web/gaia-users/license>。
+  仓库只含 234 行测试 fixture，不重新分发全量星表。
 - **本工具原创代码/文档**：Apache License 2.0（根目录 `LICENSE`、`NOTICE`）。
   第三方材料完整清单：根目录 `THIRD_PARTY_NOTICES.md`。
 

@@ -13,7 +13,13 @@ __pycache__/
 项目主控/启动/run/
 系统/数据库工具/var/catalog.sqlite-wal
 系统/数据库工具/var/catalog.sqlite-shm
+系统/数据库工具/var/star_catalog.sqlite
+系统/数据库工具/var/star_catalog.sqlite-wal
+系统/数据库工具/var/star_catalog.sqlite-shm
 系统/数据库工具/var/smoke*
 系统/数据库工具/var/bench_scale*.sqlite*
 系统/数据库工具/var/*.log
 系统/数据库工具/var/*.pid
+
+# 星表服务临时 HEALPix 依赖（51 MB，可重建；不提交）
+/.tmp_hp/

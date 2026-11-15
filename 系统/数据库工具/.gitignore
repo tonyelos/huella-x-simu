@@ -12,3 +12,8 @@ var/*.sqlite-wal
 var/*.sqlite-shm
 var/*.log
 var/*.pid
+
+# Gaia DR3 星表缓存（真实 TAP 数据，可重建；不提交）
+var/star_catalog.sqlite
+var/star_catalog.sqlite-wal
+var/star_catalog.sqlite-shm
