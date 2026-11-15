@@ -141,6 +141,8 @@ PASS=45 FAIL=0 WARN=1 BLOCKED=0 P0_FAIL=0 P0_BLOCKED=0 P1_FAIL=0
 
 官方案例基准完成：Barnard 从 S 改为 L（`catalog_prior`，保留实测 μ 与未独立测出 caveat）；5 案例 4 PASS + 1 DATA_LIMITED。见 [官方案例基准_report.md](官方案例基准_report.md)、[GUI链路测试.md](GUI链路测试.md) §10。
 
+星表识别覆盖审查：[星表识别覆盖率.md](星表识别覆盖率.md)（当前 B 250 行 fixture → 0/47；完整 17,679 缓存 → 37/47 有候选；检测仅覆盖约 1.8% 真实星）。
+
 跨历元轨迹实施计划：[../架构/12_跨历元轨迹发现计划.md](../架构/12_跨历元轨迹发现计划.md)（T1 tracklet → T2 UI → T3 验证）。
 
 跨历元轨迹页已实现：`/tracks`（Barnard 4 期：D0 45 / D1 0 / D3 10 / D4 195；D1=0 因 B fixture partial；轨迹候选 ≠ 新天体）。见 [GUI链路测试.md](GUI链路测试.md) §6。
