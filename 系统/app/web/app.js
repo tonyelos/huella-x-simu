@@ -14,6 +14,11 @@ const state = {
   stack: null,
   selected: null,
   loading: false,
+  sources: [],
+  locked: null, // 已锁定的检测源（含 ra/dec/snr/quality）
+  hover: null, // { source, frame } 当前 hover 的源
+  hoverKey: null,
+  lockRequest: null, // URL 带 lock=1 时，分析完成后按坐标重新锁定
 };
 
 const CLASS_META = {
@@ -43,6 +48,10 @@ async function init() {
     $("#ra").value = params.get("ra");
     $("#dec").value = params.get("dec");
     if (params.get("fov")) $("#fov").value = params.get("fov");
+    if (params.get("lock") === "1") {
+      // 点击源后写入的 URL：分析完成后按 RA/Dec 重新找到该源并高亮
+      state.lockRequest = { ra: parseFloat(params.get("ra")), dec: parseFloat(params.get("dec")) };
+    }
     const tid = params.get("target");
     const preset = tid ? state.targets.find((t) => t.id === tid) : null;
     const same = preset && Math.abs(preset.ra - parseFloat(params.get("ra"))) < 1e-6 && Math.abs(preset.dec - parseFloat(params.get("dec"))) < 1e-6;
@@ -76,6 +85,13 @@ function bindUI() {
   });
   $("#download").addEventListener("click", downloadJSON);
   $("#copyLink").addEventListener("click", copyLink);
+  const sky = $("#sky");
+  sky.addEventListener("mousemove", onCanvasMove);
+  sky.addEventListener("mouseleave", onCanvasLeave);
+  sky.addEventListener("click", onCanvasClick);
+  $("#lockInfo").addEventListener("click", (e) => {
+    if (e.target && e.target.id === "unlockBtn") clearLock();
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") $("#theoryModal").classList.add("hidden");
     if (e.key === " " && state.analysis) {
@@ -120,6 +136,7 @@ function renderPresets() {
 function selectPreset(id, run) {
   const t = state.targets.find((x) => x.id === id) || state.targets[0];
   if (!t) return;
+  clearLock(false);
   state.selected = t.id;
   $("#ra").value = t.ra;
   $("#dec").value = t.dec;
@@ -185,8 +202,12 @@ async function analyze() {
     const dt = ((performance.now() - t0) / 1000).toFixed(1);
     state.analysis = d;
     state.frame = 0;
+    state.hover = null;
+    state.hoverKey = null;
+    hideTip();
     await preload(d);
     renderAll(d, dt);
+    syncURL();
   } catch (e) {
     console.error(e);
     note("分析失败：" + e.message, "err");
@@ -220,6 +241,8 @@ function renderAll(d, dt) {
   const r = d.result;
   const cls = CLASS_META[r.class] || CLASS_META.U;
   const isSample = d.data.mode === "sample";
+  state.sources = Array.isArray(d.sources) ? d.sources : [];
+  resolveLock(d);
 
   // 顶部徽章
   const mb = $("#modeBadge");
@@ -442,6 +465,9 @@ function renderFrame() {
   const toPx = (p) => [((p[0] + 0.5) / n) * S, ((p[1] + 0.5) / n) * S];
   const pts = d.result.target_xy_common || [];
 
+  // 检测源标记（阶段 A：可点选/已锁定/灰显）
+  drawSources(ctx, i, n, S, toPx);
+
   // 轨迹
   if (pts.length > 1 && (state.mode === "track" || state.mode === "stack")) {
     ctx.save();
@@ -478,8 +504,9 @@ function renderFrame() {
     });
   }
 
-  // 当前目标标记
-  if (pts[i]) {
+  // 当前目标标记（已锁定源与目标重合时不重复画）
+  const lockedHere = !!(pts[i] && state.locked && Math.hypot(pts[i][0] - state.locked.x, pts[i][1] - state.locked.y) <= 1.5);
+  if (pts[i] && !lockedHere) {
     const [x, y] = toPx(pts[i]);
     ctx.save();
     ctx.strokeStyle = "rgba(255,220,160,.95)";
@@ -562,6 +589,275 @@ function renderFrame() {
   $("#timeLabel").textContent = `MJD ${Number(ep.mjd).toFixed(2)} · ${i + 1}/${d.epochs.length}`;
   $("#slider").value = i;
   $$("#strip button").forEach((b, k) => b.classList.toggle("active", k === i));
+}
+
+/* ------------------------------------------------------------------ 源点选（阶段 A） */
+
+const SOURCE_PICK_RADIUS_PX = 12; // 点击最近源阈值（屏幕像素）
+const SOURCE_HOVER_RADIUS_PX = 14; // hover 提示稍宽
+const LOCK_MATCH_SEP_DEG = 0.00014; // ≈0.5″：跨帧按 RA/Dec 认出同一个源
+
+function currentFrameIndex() {
+  const d = state.analysis;
+  if (!d) return 0;
+  return Math.min(state.frame, d.epochs.length - 1);
+}
+
+function canvasNaxis() {
+  return (state.analysis && state.analysis.common_wcs && state.analysis.common_wcs.naxis) || 117;
+}
+
+function canvasPoint(e) {
+  const c = $("#sky");
+  const r = c.getBoundingClientRect();
+  return [
+    (e.clientX - r.left) * (c.width / Math.max(r.width, 1)),
+    (e.clientY - r.top) * (c.height / Math.max(r.height, 1)),
+  ];
+}
+
+function isLockedSource(s) {
+  if (!state.locked) return false;
+  const same = s.epoch_id === state.locked.epoch_id && Math.abs(s.x - state.locked.x) < 1e-6 && Math.abs(s.y - state.locked.y) < 1e-6;
+  if (same) return true;
+  return SourcePick.angularSepDeg(state.locked.ra, state.locked.dec, s.ra, s.dec) <= LOCK_MATCH_SEP_DEG;
+}
+
+function drawSources(ctx, frame, n, S, toPx) {
+  const list = state.sources || [];
+  if (!list.length) return;
+  if (state.hover && state.hover.frame !== frame) {
+    state.hover = null;
+    state.hoverKey = null;
+    hideTip();
+  }
+  const hovered = state.hover && state.hover.frame === frame ? state.hover.source : null;
+
+  const drawLockRing = (x, y) => {
+    ctx.save();
+    ctx.strokeStyle = "rgba(242,179,94,.95)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 9, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(242,179,94,.6)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 15, y); ctx.lineTo(x - 11, y);
+    ctx.moveTo(x + 11, y); ctx.lineTo(x + 15, y);
+    ctx.moveTo(x, y - 15); ctx.lineTo(x, y - 11);
+    ctx.moveTo(x, y + 11); ctx.lineTo(x, y + 15);
+    ctx.stroke();
+    const right = x <= S - 76;
+    ctx.fillStyle = "rgba(255,217,160,.98)";
+    ctx.font = "600 12px 'SF Mono', Menlo, monospace";
+    ctx.textAlign = right ? "left" : "right";
+    ctx.fillText("已锁定", x + (right ? 13 : -13), y - 11);
+    ctx.textAlign = "left";
+    ctx.restore();
+  };
+
+  const drawHoverRing = (x, y) => {
+    ctx.save();
+    ctx.strokeStyle = "rgba(232,237,247,.9)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, 6.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  for (const s of list) {
+    if (Number(s.frame) !== frame) continue;
+    const [x, y] = toPx([s.x, s.y]);
+    if (SourcePick.isSelectable(s)) {
+      const r = 2.2 + Math.min(1.8, Math.log10(Math.max(1, Number(s.snr) || 1)) * 0.8);
+      ctx.beginPath();
+      ctx.arc(x, y, r + 1.3, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(3,5,10,.55)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(95,214,232,.92)";
+      ctx.fill();
+    } else {
+      // 边缘/饱和/低 S/N/帧外：灰显，不可点选
+      ctx.beginPath();
+      ctx.arc(x, y, 2.0, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(150,162,188,.42)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    if (hovered && hovered === s) drawHoverRing(x, y);
+    if (isLockedSource(s)) drawLockRing(x, y);
+  }
+}
+
+function onCanvasMove(e) {
+  if (!state.analysis) return;
+  const i = currentFrameIndex();
+  const [sx, sy] = canvasPoint(e);
+  const S = $("#sky").width;
+  const hit = SourcePick.sourceAt(state.sources, i, sx, sy, canvasNaxis(), S, SOURCE_HOVER_RADIUS_PX, {
+    includeFlagged: true,
+  });
+  $("#sky").style.cursor = hit && SourcePick.isSelectable(hit.source) ? "pointer" : "default";
+  if (!hit) {
+    if (state.hoverKey !== null) {
+      state.hover = null;
+      state.hoverKey = null;
+      hideTip();
+      renderFrame();
+    } else {
+      hideTip();
+    }
+    return;
+  }
+  const s = hit.source;
+  const key = `${s.epoch_id}:${s.x}:${s.y}`;
+  if (key !== state.hoverKey) {
+    state.hover = { source: s, frame: i };
+    state.hoverKey = key;
+    renderFrame();
+  }
+  showTip(hit, e.clientX, e.clientY);
+}
+
+function onCanvasLeave() {
+  $("#sky").style.cursor = "default";
+  if (state.hover || state.hoverKey) {
+    state.hover = null;
+    state.hoverKey = null;
+    hideTip();
+    if (state.analysis) renderFrame();
+  } else {
+    hideTip();
+  }
+}
+
+function onCanvasClick(e) {
+  if (!state.analysis || state.loading) return;
+  const [sx, sy] = canvasPoint(e);
+  const S = $("#sky").width;
+  const hit = SourcePick.sourceAt(state.sources, currentFrameIndex(), sx, sy, canvasNaxis(), S, SOURCE_PICK_RADIUS_PX);
+  if (!hit) return;
+  selectSource(hit.source);
+}
+
+function showTip(hit, clientX, clientY) {
+  const tip = $("#skyTip");
+  const s = hit.source;
+  const wrap = $(".canvas-wrap").getBoundingClientRect();
+  const lines = [
+    `<b>S/N ${Number(s.snr).toFixed(1)}</b> · 第 ${Number(s.frame) + 1} 期 · ${s.epoch_id || ""}`,
+    `x ${Number(s.x).toFixed(2)} · y ${Number(s.y).toFixed(2)} <span style="color:#66718a">(common px)</span>`,
+    `RA ${Number(s.ra).toFixed(6)}° · Dec ${Number(s.dec).toFixed(6)}°`,
+  ];
+  if (SourcePick.isSelectable(s)) lines.push('<span class="tip-ok">点击锁定并由该坐标重新分析</span>');
+  else lines.push(`<span class="tip-warn">${SourcePick.qualityText(s)} · 不可点选</span>`);
+  tip.innerHTML = lines.join("<br>");
+  tip.classList.remove("hidden");
+  const margin = 8;
+  const left = Math.min(Math.max(margin, clientX - wrap.left + 14), Math.max(margin, wrap.width - tip.offsetWidth - margin));
+  const top = Math.min(Math.max(margin, clientY - wrap.top + 14), Math.max(margin, wrap.height - tip.offsetHeight - margin));
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function hideTip() {
+  const tip = $("#skyTip");
+  if (tip) tip.classList.add("hidden");
+}
+
+function selectSource(src) {
+  if (!src || !SourcePick.isSelectable(src)) return;
+  state.locked = src;
+  state.lockRequest = null;
+  state.selected = "custom";
+  $("#ra").value = Number(src.ra).toFixed(6);
+  $("#dec").value = Number(src.dec).toFixed(6);
+  renderPresets();
+  renderLockInfo();
+  hideTip();
+  // 点击即更新 URL（ra/dec/fov + lock=1），分析完成后再按响应归一化。
+  const u = new URL(location.href);
+  u.searchParams.set("target", "custom");
+  u.searchParams.set("ra", Number(src.ra).toFixed(6));
+  u.searchParams.set("dec", Number(src.dec).toFixed(6));
+  u.searchParams.set("fov", $("#fov").value);
+  u.searchParams.set("lock", "1");
+  history.replaceState(null, "", u.toString());
+  note(
+    `已锁定源：RA ${Number(src.ra).toFixed(6)}° · Dec ${Number(src.dec).toFixed(6)}° · S/N ${Number(src.snr).toFixed(1)}；正在以该坐标重新分析…`
+  );
+  renderFrame();
+  analyze();
+}
+
+function clearLock(showNote = true) {
+  const had = !!state.locked;
+  state.locked = null;
+  state.lockRequest = null;
+  const u = new URL(location.href);
+  if (u.searchParams.has("lock")) {
+    u.searchParams.delete("lock");
+    history.replaceState(null, "", u.toString());
+  }
+  renderLockInfo();
+  if (state.analysis) renderFrame();
+  if (showNote && had) note("已解除源锁定；坐标输入保留，可继续编辑或重新分析。");
+}
+
+function resolveLock(d) {
+  if (state.locked) {
+    // 分析坐标已变（例如用户换了目标）→ 旧锁定不再适用于当前结果
+    const sep = SourcePick.angularSepDeg(state.locked.ra, state.locked.dec, d.target.ra, d.target.dec);
+    if (!Number.isFinite(sep) || sep > 1e-5) {
+      state.locked = null;
+    } else {
+      // 新一次分析有自己的源对象：用最新测量刷新 x/y/snr（高亮按 RA/Dec 匹配）
+      const near = SourcePick.nearestSourceByRaDec(state.sources, state.locked.ra, state.locked.dec, 0.0015);
+      if (near) state.locked = near.source;
+    }
+  }
+  if (!state.locked && state.lockRequest) {
+    // URL 带 lock=1：分析完成后按坐标找回源，恢复高亮（可复现）
+    const hit = SourcePick.nearestSourceByRaDec(state.sources, state.lockRequest.ra, state.lockRequest.dec, 0.0015);
+    if (hit) state.locked = hit.source;
+    state.lockRequest = null;
+  }
+  renderLockInfo();
+}
+
+function renderLockInfo() {
+  const el = $("#lockInfo");
+  const s = state.locked;
+  if (!s) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  el.classList.remove("hidden");
+  el.innerHTML = `
+    <div class="lock-head"><span class="lock-dot"></span>已锁定源<button id="unlockBtn" class="ghost small" type="button">解除</button></div>
+    <div class="lock-line">RA <b>${Number(s.ra).toFixed(6)}°</b> · Dec <b>${Number(s.dec).toFixed(6)}°</b></div>
+    <div class="lock-line">S/N <b>${Number(s.snr).toFixed(1)}</b> · flux ${Number(s.flux).toFixed(2)} ± ${Number(s.flux_err).toFixed(2)} · 第 ${Number(s.frame) + 1} 期 · ${SourcePick.qualityText(s)}</div>
+    <div class="lock-hint">坐标已填入上方并用于分析；画布上为琥珀色锁定环。</div>`;
+}
+
+function syncURL() {
+  const d = state.analysis;
+  if (!d || !d.target) return;
+  const u = new URL(location.href);
+  const isPreset = d.target.id && d.target.id !== "custom";
+  u.searchParams.set("target", isPreset ? d.target.id : "custom");
+  u.searchParams.set("ra", Number(d.target.ra).toFixed(6));
+  u.searchParams.set("dec", Number(d.target.dec).toFixed(6));
+  const fov = parseFloat($("#fov").value);
+  if (Number.isFinite(fov)) u.searchParams.set("fov", String(fov));
+  if (state.locked) u.searchParams.set("lock", "1");
+  else u.searchParams.delete("lock");
+  history.replaceState(null, "", u.toString());
 }
 
 /* ------------------------------------------------------------------ 播放 */
@@ -758,6 +1054,8 @@ function copyLink() {
   u.searchParams.set("ra", d.target.ra);
   u.searchParams.set("dec", d.target.dec);
   u.searchParams.set("fov", $("#fov").value);
+  if (state.locked) u.searchParams.set("lock", "1");
+  else u.searchParams.delete("lock");
   navigator.clipboard?.writeText(u.toString());
   const btn = $("#copyLink");
   btn.textContent = "已复制";
