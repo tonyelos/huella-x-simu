@@ -14,8 +14,6 @@ const PRESET_FOV = { barnard: 0.5, epsind_b: 0.5, wise0855: 0.2, rw_aur: 0.5, r_
 // 分析层时间窗口：以当前数据时相为中心，过滤 MoveScope 分析层历元范围。
 const WINDOW_OPTIONS = [30, 90, 180, 365, 730];
 const DEFAULT_WINDOW_DAYS = 365;
-// 播放速度 = 每个观测历元的停留时间（不是连续时间倍率）
-const STEP_MS = { 0.5: 2400, 1: 1200, 2: 600 };
 
 // 覆盖口径：单片 3.49° 方视场的半对角线 2.47°（中心落在这个半径里才算“这帧拍到了该天区”）
 const HIT_RADIUS_DEG = 2.47;
@@ -29,7 +27,7 @@ const state = {
   mjd: 61316.5267,
   mode: 'data',
   playing: false,
-  speed: 1,
+  speed: 0.6,
   windowDays: DEFAULT_WINDOW_DAYS,
   t0: 0,
   t1: 0,
@@ -38,8 +36,6 @@ const state = {
 let fields = [];
 let targets = [];
 let epochIndex = {};
-let observationTimes = [];
-let playTimer = 0;
 let mjdMin = 0;
 let mjdMax = 1;
 let globe = null;
@@ -188,7 +184,7 @@ function updateHits() {
     cEl.innerHTML = `<b>策展历元 ${curated.length}</b> · 数据库 epoch_catalog · 跳到 ${A.fmtUtc(near.mjd).slice(0, 10)}`;
     cEl.onclick = () => {
       setRegion({ ra: target.ra, dec: target.dec }, { focus: true, recenter: true });
-      commitTime(near.mjd, { animate: true, source: 'curated' });
+      commitTime(near.mjd, 'data', { animate: true, source: 'curated' });
     };
   } else {
     cEl.hidden = true;
@@ -212,7 +208,7 @@ function updateHits() {
     row.title = `${A.fmtUtc(g.mjd)} · ${g.n} 帧`;
     row.addEventListener('click', () => {
       setRegion({ ra: g.ra, dec: g.dec }, { focus: true, recenter: true });
-      commitTime(g.mjd, { animate: true, source: 'hit' });
+      commitTime(g.mjd, 'data', { animate: true, source: 'hit' });
       toast(`定位到 ${g.obsid}`);
     });
     box.appendChild(row);
@@ -347,46 +343,23 @@ function updateAnalysisHint() {
 }
 
 // ---------------------------------------------------------------- 时间（唯一入口）
-const OBS_EPS = 1e-7;
-
-function stepDwellMs() {
-  return STEP_MS[state.speed] ?? STEP_MS[1];
-}
-
-/** 返回严格晚于 mjd 的第一个观测索引；没有则 -1。 */
-function nextObservationIndex(mjd) {
-  let lo = 0;
-  let hi = observationTimes.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (observationTimes[mid] <= mjd + OBS_EPS) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo < observationTimes.length ? lo : -1;
-}
-
 /**
  * 所有时间入口的唯一提交点。
  * 同步 state.mjd、时钟/MJD、滑杆、UTC 输入、分析窗口、URL、地球角度。
  */
-function commitTime(mjd, { animate = false, source = 'set', silent = false, allowOutside = false } = {}) {
+function commitTime(mjd, mode = 'data', { animate = false, source = 'set', silent = false, allowOutside = false } = {}) {
   if (!Number.isFinite(mjd)) return { mjd: state.mjd, clamped: false };
   const bounded = clamp(mjd, mjdMin, mjdMax);
   const next = allowOutside ? mjd : bounded;
   state.mjd = next;
-  state.mode = source === 'now' ? 'now' : 'data';
+  state.mode = mode === 'now' ? 'now' : 'data';
   state.t0 = next - state.windowDays;
   state.t1 = next + state.windowDays;
 
   globe?.setClock(next, { animate });
   $('clock-date').textContent = `${A.fmtUtc(next)} UTC`;
   $('clock-mjd').textContent = `MJD ${next.toFixed(4)}`;
-  $('clock-mode').textContent =
-    source === 'play' || source === 'play-start'
-      ? '观测序列'
-      : state.mode === 'now'
-        ? '实时'
-        : '数据时相';
+  $('clock-mode').textContent = state.mode === 'now' ? '实时' : '数据时相';
   const frac = (next - mjdMin) / (mjdMax - mjdMin);
   $('time').value = String(clamp(frac * 1000, 0, 1000));
   const utcInput = $('in-utc');
@@ -397,7 +370,6 @@ function commitTime(mjd, { animate = false, source = 'set', silent = false, allo
   const near = fields.some((f) => Math.abs(f.mjd - next) < 0.5);
   $('tracknote').textContent = near ? '轨迹窗口 ±12 h' : '该时相 ±12 h 无曝光';
   syncWindowUI();
-  if (state.playing && source !== 'play' && source !== 'play-start') scheduleNextPlayback();
   if (!silent) scheduleUrl();
   return { mjd: next, clamped: !allowOutside && Math.abs(next - mjd) > 1e-9 };
 }
@@ -430,97 +402,37 @@ function locateUtc() {
     toast('UTC 时间格式应为 YYYY-MM-DD HH:MM（UTC）', 3600);
     return;
   }
-  const r = commitTime(mjd, { animate: true, source: 'utc' });
+  const r = commitTime(mjd, 'data', { animate: true, source: 'utc' });
   if (r.clamped) {
     toast(`UTC 时间超出本地索引，已定位到 ${A.fmtUtc(r.mjd).slice(0, 16)} UTC`, 3600);
   }
 }
 
-function clearPlayTimer() {
-  if (playTimer) {
-    clearTimeout(playTimer);
-    playTimer = 0;
-  }
-}
-
-function stopPlayback({ toastMsg = '' } = {}) {
-  const was = state.playing;
-  state.playing = false;
-  clearPlayTimer();
-  $('btn-play').classList.toggle('playing', false);
-  if (was) {
+function setPlaying(on) {
+  state.playing = on;
+  $('btn-play').classList.toggle('playing', on);
+  if (!on) {
     syncWindowUI();
     scheduleUrl();
   }
-  if (toastMsg) toast(toastMsg, 3200);
-}
-
-function scheduleNextPlayback(delay = stepDwellMs()) {
-  clearPlayTimer();
-  if (!state.playing) return;
-  playTimer = setTimeout(playbackStep, Math.max(0, delay));
-}
-
-function playbackStep() {
-  playTimer = 0;
-  if (!state.playing) return;
-  const idx = nextObservationIndex(state.mjd);
-  if (idx < 0) {
-    stopPlayback({ toastMsg: '已到最后一个观测，播放停止' });
-    return;
-  }
-  commitTime(observationTimes[idx], { animate: true, source: 'play' });
-  if (idx >= observationTimes.length - 1) {
-    stopPlayback({ toastMsg: '已到最后一个观测，播放停止' });
-    return;
-  }
-  scheduleNextPlayback();
-}
-
-function startPlayback() {
-  if (!observationTimes.length) {
-    toast('没有可用观测序列', 3200);
-    return;
-  }
-  const first = observationTimes[0];
-  const last = observationTimes[observationTimes.length - 1];
-
-  // 默认打开在 mjdMax（或用户停在时间轴首端）时，按播放先回到第一个观测，
-  // 避免“以为播放坏了”；这是一次手动重启，不是播放循环。
-  if (state.mjd >= last - OBS_EPS || state.mjd <= first + OBS_EPS) {
-    commitTime(first, { animate: true, source: 'play-start' });
-    toast('已从第一个观测开始播放', 3200);
-  } else {
-    const idx = nextObservationIndex(state.mjd);
-    if (idx < 0) {
-      toast('已到最后一个观测，播放不会循环回开头', 3600);
-      return;
-    }
-    const prev = idx > 0 ? observationTimes[idx - 1] : null;
-    const onObservation = prev !== null && Math.abs(prev - state.mjd) <= OBS_EPS;
-    if (!onObservation) {
-      // 当前时间不在观测序列：先跳到下一个真实观测。
-      commitTime(observationTimes[idx], { animate: true, source: 'play-start' });
-      if (idx >= observationTimes.length - 1) {
-        toast('已到最后一个观测，播放停止', 3600);
-        return;
-      }
-    }
-  }
-  state.playing = true;
-  $('btn-play').classList.toggle('playing', true);
-  scheduleNextPlayback();
 }
 
 function togglePlayback() {
-  if (state.playing) stopPlayback();
-  else startPlayback();
+  if (state.playing) {
+    setPlaying(false);
+    return;
+  }
+  // 旧行为：从末尾/now 起播时先回到 mjdMin。
+  if (state.mode === 'now' || state.mjd > mjdMax - 0.6) {
+    commitTime(mjdMin, 'data', { silent: true, animate: false, source: 'play-reset' });
+  }
+  setPlaying(true);
 }
 
 function goNow() {
   const now = A.dateToMjd(new Date());
-  stopPlayback();
-  commitTime(now, { animate: true, source: 'now', allowOutside: true });
+  setPlaying(false);
+  commitTime(now, 'now', { animate: true, source: 'now', allowOutside: true });
   if (Math.abs(now - mjdMax) > 40) {
     toast(`本地索引止于 ${A.fmtUtc(mjdMax).slice(0, 10)}，实时时刻无地面轨迹`, 3200);
   }
@@ -646,7 +558,6 @@ async function boot() {
       obsid, det, ra, dec, mjd, lat, lon, elon, elat, xposure,
     }))
     .sort((a, b) => a.mjd - b.mjd);
-  observationTimes = [...new Set(fields.map((f) => f.mjd))].sort((a, b) => a - b);
 
   targets = (tr.targets || []).map((t) => ({ ...t, short: t.name }));
   epochIndex = ei.targets || {};
@@ -689,7 +600,7 @@ async function boot() {
       const curated = epochIndex[t.id] || [];
       if (curated.length) {
         const near = curated.reduce((b2, e) => (Math.abs(e.mjd - state.mjd) < Math.abs(b2.mjd - state.mjd) ? e : b2), curated[0]);
-        commitTime(near.mjd, { animate: true, source: 'preset' });
+        commitTime(near.mjd, 'data', { animate: true, source: 'preset' });
       }
     });
     presetRow.appendChild(b);
@@ -762,7 +673,7 @@ async function boot() {
   sky.setSelection({ ra: state.ra, dec: state.dec, fov: state.fov }, { recenter: true, rezoom: true });
   globe.setSelection({ ra: state.ra, dec: state.dec, fov: state.fov });
   globe.focus(state.ra, state.dec, true);
-  commitTime(startMjd, { animate: false, source: 'boot', silent: true });
+  commitTime(startMjd, 'data', { animate: false, source: 'boot', silent: true });
   syncRegionUI();
   drawDensity();
   writeUrl();
@@ -797,7 +708,7 @@ async function boot() {
 
   $('time').addEventListener('input', (e) => {
     const frac = parseFloat(e.target.value) / 1000;
-    commitTime(mjdMin + frac * (mjdMax - mjdMin), { animate: true, source: 'slider' });
+    commitTime(mjdMin + frac * (mjdMax - mjdMin), 'data', { animate: true, source: 'slider' });
   });
 
   $('btn-utc-go').addEventListener('click', locateUtc);
@@ -811,7 +722,7 @@ async function boot() {
     b.addEventListener('click', () => {
       const hours = parseFloat(b.dataset.hours);
       if (!Number.isFinite(hours)) return;
-      const r = commitTime(state.mjd + hours / 24, { animate: true, source: 'step' });
+      const r = commitTime(state.mjd + hours / 24, 'data', { animate: true, source: 'step' });
       if (r.clamped) toast('已到时间轴边界', 2400);
     });
   });
@@ -825,7 +736,6 @@ async function boot() {
       document.querySelectorAll('.speed .sbtn').forEach((x) => x.classList.remove('active'));
       b.classList.add('active');
       state.speed = parseFloat(b.dataset.speed);
-      if (state.playing) scheduleNextPlayback();
     });
   });
 
@@ -861,15 +771,24 @@ async function boot() {
   window.addEventListener('keydown', (e) => {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
     if (e.code === 'Space') { e.preventDefault(); togglePlayback(); }
-    else if (e.key === 'ArrowLeft') { commitTime(state.mjd - (e.shiftKey ? 1 : 0.05), { animate: true, source: 'key' }); }
-    else if (e.key === 'ArrowRight') { commitTime(state.mjd + (e.shiftKey ? 1 : 0.05), { animate: true, source: 'key' }); }
+    else if (e.key === 'ArrowLeft') { commitTime(state.mjd - (e.shiftKey ? 1 : 0.05), 'data', { animate: true, source: 'key' }); }
+    else if (e.key === 'ArrowRight') { commitTime(state.mjd + (e.shiftKey ? 1 : 0.05), 'data', { animate: true, source: 'key' }); }
     else if (e.key === 'n' || e.key === 'N') goNow();
   });
 
-  // 标签投影循环；时间推进由观测序列调度器负责，不再在 RAF 里改 state.mjd。
-  function tick() {
+  // 连续时间播放：时间推进也由 commitTime 统一提交，播放期间不做地球 tween。
+  let last = performance.now();
+  function tick(now) {
     requestAnimationFrame(tick);
-    updateLabels();
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (state.playing) {
+      let m = state.mjd + dt * state.speed;
+      if (m > mjdMax) m = mjdMin;
+      commitTime(m, 'data', { silent: true, animate: false, source: 'play' });
+    } else {
+      updateLabels();
+    }
   }
   requestAnimationFrame(tick);
 

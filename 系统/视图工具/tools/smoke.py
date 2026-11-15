@@ -7,7 +7,7 @@
   1. index.html 里存在 main.js 引用的所有 DOM id；品牌标题正确；默认不是 M101
   2. 深链：search 优先 + hash 兜底 + 写回 search（含 t）
   2b. 分析时间窗口 30/90/180/365/730 + t0/t1 + 单 MoveScope handoff
-  2c. 统一时间入口：commitTime、UTC 输入/±快捷、5 刻度 UTC 轴、观测序列播放、地球 tween
+  2c. 统一时间入口：commitTime、UTC 输入/±快捷、5 刻度 UTC 轴、连续播放/回绕、地球 tween
   3. data/fields.json 行数/列数/NaN/来源/生成元数据（不得再指向 header_cache）
   4. data/targets.json 字段齐全、生成物、与 app/data/targets.json 一致；rw_aur.truth 修正
   5. data/epoch_index.json 有策展历元（barnard 4 / rw_aur 1）
@@ -183,27 +183,25 @@ for tid in ("in-utc", "btn-utc-go", "t-start", "t-25", "t-mid", "t-75", "t-end")
         fail(f"index.html 缺时间控件/刻度 #{tid}")
 if "UTC 时间轴" not in html:
     fail("时间轴没有标注 UTC 时间轴")
-if "播放 = 观测序列" not in html:
-    fail("页面没有标注“播放 = 观测序列，不是连续时间”")
+if "播放 = 连续时间" not in html:
+    fail("页面没有标注“播放 = 连续时间”")
 hours = re.findall(r'data-hours="(-?\d+)"', html)
 speeds = re.findall(r'data-speed="([\d.]+)"', html)
 if hours != ["-24", "-1", "1", "24"]:
     fail(f"±快捷按钮不是 -1d/-1h/+1h/+1d：{hours}")
-elif speeds != ["0.5", "1", "2"]:
-    fail(f"播放速度不是 0.5×/1×/2×：{speeds}")
+elif speeds != ["0.15", "0.6", "2.4"]:
+    fail(f"播放速度不是 0.15×/1×/4×：{speeds}")
 else:
-    ok("时间选择：UTC 输入 + ±1d/±1h + 5 个 UTC 刻度 + 0.5×/1×/2×")
+    ok("时间选择：UTC 输入 + ±1d/±1h + 5 个 UTC 刻度 + 0.15×/1×/4×")
 
-if "function commitTime(mjd" not in main_js or "source = 'set'" not in main_js:
-    fail("没有统一时间提交 commitTime(mjd, {animate, source})")
+if "function commitTime(mjd, mode = 'data'" not in main_js or "source = 'set'" not in main_js:
+    fail("没有统一时间提交 commitTime(mjd, mode, {animate, source})")
 elif main_js.count("state.mjd =") != 1:
     fail(f"state.mjd 有 {main_js.count('state.mjd =')} 处直接赋值，应只有 commitTime")
 elif main_js.count("globe?.setClock") != 1:
     fail(f"globe.setClock 有 {main_js.count('globe?.setClock')} 处，应只有 commitTime")
-elif "dt * state.speed" in main_js or "state.mjd = m" in main_js:
-    fail("仍存在连续时间播放路径")
 else:
-    ok("统一时间源：state.mjd/globe.setClock 只在 commitTime，无连续播放路径")
+    ok("统一时间源：state.mjd/globe.setClock 只在 commitTime")
 
 if "parseUtcInput" not in main_js or "locateUtc" not in main_js:
     fail("缺 UTC 输入解析/定位逻辑")
@@ -216,18 +214,19 @@ if "source: 'slider'" not in main_js:
 else:
     ok("UTC 输入、±按钮、滑杆、键盘都走 commitTime")
 
-if "observationTimes = [...new Set(fields.map((f) => f.mjd))]" not in main_js:
-    fail("observationTimes 不是从 fields 的 mjd 去重排序")
-if "STEP_MS = { 0.5: 2400, 1: 1200, 2: 600 }" not in main_js:
-    fail("播放停留时间不是 2.4s/1.2s/0.6s")
-if "startPlayback" not in main_js or "playbackStep" not in main_js or "stopPlayback" not in main_js:
-    fail("缺观测序列播放调度器")
-elif "已到最后一个观测" not in main_js:
-    fail("播放到末尾没有停止提示/逻辑")
-elif "已从第一个观测开始播放" not in main_js or "state.mjd <= first + OBS_EPS" not in main_js:
-    fail("默认/末尾按播放没有从第一个观测重启")
+if "state.mjd + dt * state.speed" not in main_js or "if (m > mjdMax) m = mjdMin" not in main_js:
+    fail("没有连续时间播放（mjd += dt × speed，末尾回绕）")
+elif "commitTime(m, 'data', { silent: true, animate: false, source: 'play' })" not in main_js:
+    fail("播放循环没有走 commitTime(..., animate:false)")
+elif "state.mode === 'now' || state.mjd > mjdMax - 0.6" not in main_js or "source: 'play-reset'" not in main_js:
+    fail("从末尾/now 起播没有先回 mjdMin")
 else:
-    ok("播放 = 观测序列：首端/末尾按播放从第一个观测开始、2.4/1.2/0.6s 每步、末尾停止")
+    ok("连续播放：dt×speed、末尾回绕、从末尾/now 先回 mjdMin、animate:false")
+
+if "观测序列" in main_js or "observationTimes" in main_js or "STEP_MS" in main_js:
+    fail("main.js 仍残留观测序列播放逻辑")
+else:
+    ok("已移除观测序列播放/首尾特判/末尾停止逻辑")
 
 globe_js = read(os.path.join(TOOL, "js", "globe.js"))
 if "ROTATE_MS = 700" not in globe_js or "rotTween" not in globe_js:
@@ -239,13 +238,13 @@ else:
 
 missing_readme_time = [
     key
-    for key in ("UTC 时间轴", "播放 = 观测序列", "观测序列", "已从第一个观测开始播放")
+    for key in ("UTC 时间轴", "播放 = 连续时间", "0.15×", "回绕", "animate:false")
     if key not in readme
 ]
 if missing_readme_time:
     fail(f"README 缺时间交互说明：{missing_readme_time}")
 else:
-    ok("README 同步 UTC 时间轴与观测序列播放")
+    ok("README 同步 UTC 时间轴与连续播放")
 
 # ---------------------------------------------------------------- 2. fields.json
 fields_doc = json.loads(read(os.path.join(TOOL, "data", "fields.json")))
